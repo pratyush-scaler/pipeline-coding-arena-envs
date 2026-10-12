@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Entry point for the Arena environment pipeline. Works from any directory.
+arena_root="$(cd -- "$(dirname -- "$0")" && pwd)"
+export PYTHONPATH="$arena_root${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -x "$arena_root/.venv/bin/python" ]]; then
+  exec "$arena_root/.venv/bin/python" -m pipeline.cli "$@"
+fi
+exec python3 -m pipeline.cli "$@"

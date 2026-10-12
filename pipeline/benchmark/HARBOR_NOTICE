@@ -1,0 +1,1 @@
+The _run_agent_loop method in unlimited_terminus.py is derived from Harbor 0.22.0, licensed under Apache-2.0 (see HARBOR_LICENSE). The finite turn range was replaced with itertools.count; the subclass removes the inherited turn-limit value. The frozen Coder run contains an incorrect MIT label in the module docstring; Apache-2.0 is the applicable upstream license.

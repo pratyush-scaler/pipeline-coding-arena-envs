@@ -1,0 +1,25 @@
+[workspace]
+# Configure a local dump with: ./arena dump --set /absolute/path/to/dump
+# The directory must contain sessions/. The real workspace.toml is gitignored.
+dump = "/absolute/path/to/arena-dump"
+
+# Calibration runs only on Coder. Copy this section into the real (gitignored)
+# workspace.toml and fill in your own deployment; never commit real values.
+[coder]
+url = "https://coder.example.invalid"          # your deployment, for `coder login`
+template = "your-template-name"                 # e.g. the QC runner template
+copy_parameters_from = "a-workspace-built-at-max-specs"   # or use [coder.parameters]
+tasks_per_instance = 20      # campaigns on the one calibration workspace at once
+trials_per_task = 1          # Harbor trials per campaign at once
+stop_after = "12h"           # the workspace stops itself after this
+name = "arena-calib-1"       # the pipeline's own workspace, created on first use
+min_cpus = 32                # refuse a workspace below these specs
+min_memory_gib = 120
+min_disk_gib = 190
+idle_stop_after = 300        # pause (stop, disk kept) the workspace this long after the
+                             # last campaign's scores are copied back, and at process exit;
+                             # the next calibration restarts it, never a new one
+# workspace = "<existing-workspace>"   # run on this instead; never created, stopped or deleted
+
+# [coder.parameters]         # instead of copy_parameters_from
+# instance_type = "..."

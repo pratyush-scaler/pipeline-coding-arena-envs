@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="/source/suites/esm.test.mjs" time="0.005257" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="3f6c0e207727">
+		<testcase name="ESM completes" time="0.003726" classname="test"/>
+	</testsuite>
+	<!-- tests 1 -->
+	<!-- suites 1 -->
+	<!-- pass 1 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 212.267291 -->
+</testsuites>

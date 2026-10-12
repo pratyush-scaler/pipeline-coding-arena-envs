@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="/source/suites/nested.test.js" time="0.007020" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="3f6c0e207727">
+		<testsuite name="nested original suite" time="0.006338" disabled="0" errors="0" tests="2" failures="0" skipped="0" hostname="3f6c0e207727">
+			<testcase name="one" time="0.002642" classname="test"/>
+			<testcase name="two" time="0.000259" classname="test"/>
+		</testsuite>
+	</testsuite>
+	<!-- tests 2 -->
+	<!-- suites 2 -->
+	<!-- pass 2 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 237.232083 -->
+</testsuites>

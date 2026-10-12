@@ -1,0 +1,362 @@
+"""The provenance ledger of a coding bundle: what the fixture's bytes came from.
+
+Every file under `environment/repo/` is classified against what the trace
+actually states -- recomputed from the dump, never trusted from the extraction
+receipt alone:
+
+  lifted      byte-identical to a recovered revision or retained blob of the
+              trace (the extraction cites the snapshot; the ledger re-checks)
+  anonymized  exact replay of a verified, typed privacy transformation
+  derived     recognisably descended from a recovered revision (difflib ratio
+              over lines >= DERIVED_FLOOR), the ancestor cited
+  authored    no ancestor in the trace, or written by the designer
+              (`authoring/extraction/fixture-authored.json`)
+
+`authored` is not a failure; a repaired redaction placeholder or a planted
+decoy is legitimate and disclosed. What the gate enforces is that the claim
+is checkable: every fixture file has an entry with the bytes on disk, lifted
+and derived entries carry a citation, and the fidelity figure is computed.
+"""
+from __future__ import annotations
+
+import difflib
+import hashlib
+import json
+import re
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from ..config import sessions_root
+from ..dump import recover as rec
+
+SCHEMA = "arena-pipeline/ledger/4"
+DERIVED_FLOOR = 0.55
+DERIVED_MAX_BYTES = 256 * 1024
+ORIGINS = ("lifted", "anonymized", "derived", "authored")
+WEIGHTS = {"lifted": 1, "anonymized": 1, "derived": 0.5, "authored": 0}
+FIXTURE = "environment/repo"
+
+
+def share(amounts: dict) -> float:
+    return round(sum(amounts.get(k, 0) * w for k, w in WEIGHTS.items()) / (sum(amounts.values()) or 1), 3)
+
+
+def measured_fields(ledger: dict) -> tuple[str, ...]:
+    if ledger.get("schema") not in (SCHEMA, "arena-pipeline/ledger/3"):
+        raise ValueError("unsupported ledger schema")
+    return ("schema", "source", "entries", "counts", "bytes", "faithfulness_by_file",
+            "faithfulness_by_bytes", "exact_copy_by_bytes", "exact_copy_by_file",
+            "recovery_omissions", "snapshot_policy", "correction_citation_policy", "privacy_transformation")
+
+
+@dataclass
+class Entry:
+    path: str
+    origin: str
+    sha256: str
+    bytes: int
+    citation: str | None = None
+    similarity: float | None = None
+    note: str | None = None
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def citation_problems(spec: dict, trace: dict, session_id: str) -> list[str]:
+    """A trace_derived trap must quote the actual user turn that follows its anchor."""
+    from ..dump.signals import _text
+    errors = []
+    anchors: dict[int, set[int]] = {}
+    for trap in spec.get("traps", []) or []:
+        if trap.get("provenance") != "trace_derived":
+            continue
+        citation = trap.get("derived_from", "")
+        match = re.fullmatch(r"([^:]+)::msg(\d+)", str(citation))
+        messages = trace.get("messages", [])
+        valid = bool(match and match[1] in {session_id, session_id[:8]} and int(match[2]) < len(messages))
+        if valid:
+            index = int(match[2])
+            while index < len(messages) and messages[index].get("role") != "user":
+                index += 1
+            if index == len(messages):
+                errors.append(f"{trap.get('id')}: citation has no following user correction")
+                continue
+            anchors.setdefault(index, set()).add(int(match[2]))
+            message = messages[index]
+            body = message.get("content")
+            text = body if isinstance(body, str) else _text(message)
+            quote = trap.get("quote")
+            valid = (message.get("role") == "user" and isinstance(quote, str) and bool(quote.strip()) and quote in text)
+        if not valid:
+            errors.append(f"{trap.get('id')}: citation does not quote an actual user message in the declared trace")
+    if any(len(values) > 1 for values in anchors.values()):
+        errors.append("different citation anchors count the same user correction; use one canonical msg index per correction")
+    return errors
+
+
+def _ancestor(content: str, ws: rec.Workspace, session_id: str) -> tuple[str, str | None, float | None]:
+    exact = [r for r in ws.provenance_revisions() if r.content == content]
+    if exact:
+        r = exact[0]
+        return "lifted", f"{session_id}::msg{r.msg_index}::{r.path}", 1.0
+    if len(content.encode("utf-8")) > DERIVED_MAX_BYTES:
+        return "authored", None, None
+    best_ratio, best_rev = 0.0, None
+    lines = content.splitlines()
+    for r in ws.provenance_revisions():
+        if not (0.25 <= (len(r.content) + 1) / (len(content) + 1) <= 4.0):
+            continue
+        ratio = difflib.SequenceMatcher(None, lines, r.content.splitlines(), autojunk=False).ratio()
+        if ratio > best_ratio:
+            best_ratio, best_rev = ratio, r
+    if best_rev is not None and best_ratio >= DERIVED_FLOOR:
+        return "derived", f"{session_id}::msg{best_rev.msg_index}::{best_rev.path}", round(best_ratio, 3)
+    return "authored", None, (round(best_ratio, 3) if best_rev else None)
+
+
+def extraction_exclusions(bundle: Path) -> list[dict]:
+    """Trace files extraction deliberately left out of the fixture.
+
+    Binaries are excluded because the privacy scanner cannot clear them; the
+    fixture may still name them (a library listing its demo video). Arena's
+    review read such a gap as a broken fixture (C-028, C-036, 2026-10-05)
+    because the ledger said nothing was omitted. Declared here, with the
+    reason, they are a stated property of the task.
+    """
+    path = Path(bundle) / "authoring/extraction/extraction.json"
+    try:
+        skipped = (json.loads(path.read_text()).get("stats") or {}).get("skipped_before") or {}
+    except (OSError, ValueError):
+        return []
+    out = []
+    for kind, items in sorted(skipped.items()):
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict) and item.get("path"):
+                out.append({"path": item["path"], "msg_index": item.get("msg_index"),
+                            "bytes": item.get("bytes"), "reason": f"excluded_at_extraction:{kind}"})
+    return out
+
+
+def host_paths(bundle: Path) -> list[dict]:
+    """Absolute paths on the user's own machine that fixture files read.
+
+    The user's helper scripts read their home folder (`/home/user/_logs_data.json`)
+    and a drop-in module includes its host application's config three levels up
+    (C-030 `zuba.php`). The trace never held those files; declared here they are
+    a stated property of a faithful fixture, not a broken one.
+    """
+    from ..shipcheck import OUTSIDE_PATH, PHP_DIRNAME, TEXT_SUFFIXES, _repo_files
+    out, seen = [], set()
+    for rel, path in _repo_files(Path(bundle) / FIXTURE):
+        if path.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        text = path.read_text(errors="replace")
+        targets = [m.group(1) for m in OUTSIDE_PATH.finditer(text)]
+        if path.suffix.lower() == ".php":
+            depth = len(Path(rel).parent.parts)
+            targets += [m.group(2).lstrip("/") for m in PHP_DIRNAME.finditer(text) if int(m.group(1)) > depth]
+        for target in targets:
+            if (target, rel) not in seen:
+                seen.add((target, rel))
+                out.append({"path": target, "read_by": rel, "reason": "host_path_never_in_trace"})
+    return out
+
+
+def build(bundle: Path, session_id: str, seed_index: int | None = None, root: Path | None = None) -> dict:
+    bundle = Path(bundle)
+    root = root or sessions_root()
+    fixture = bundle / FIXTURE
+    if not fixture.is_dir():
+        raise FileNotFoundError(f"no fixture directory at {bundle}/{FIXTURE}")
+    trace = rec.load_trace(session_id, root)
+    ws = rec.recover(trace, root)
+    authored: dict = {}
+    authored_path = bundle / "authoring/extraction/fixture-authored.json"
+    if authored_path.is_file():
+        authored = (json.loads(authored_path.read_text()).get("files") or {})
+    # A redaction manifest that does not verify is a finding, never silently
+    # "no credit": a fixture edited under a re-hashed manifest must stop here.
+    from .redaction import verify as verify_redaction
+    privacy = verify_redaction(bundle, fixture, ws, session_id) or {}
+    raw_by_sha = {(r["sha256"], r["bytes"]): r for r in ws.raw_revisions if r.get("sha256")}
+    entries: list[Entry] = []
+    for path in sorted(fixture.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(fixture).as_posix()
+        raw = path.read_bytes()
+        digest = _sha(raw)
+        if rel in authored:
+            entries.append(Entry(rel, "authored", digest, len(raw), note=str(authored[rel].get("reason", "authored by the designer"))))
+            continue
+        if rel in (privacy.get("files") or {}):
+            proof = privacy["files"][rel]
+            entries.append(Entry(rel, "anonymized", digest, len(raw), citation=proof.get("citation"),
+                                 note="Verified typed privacy transformation."))
+            continue
+        blob = raw_by_sha.get((digest, len(raw)))
+        if blob is not None:
+            entries.append(Entry(rel, "lifted", digest, len(raw),
+                                 citation=f"{session_id}::msg{blob['msg_index']}::{blob['path']}",
+                                 note="Byte-identical to a retained workspace artifact."))
+            continue
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            entries.append(Entry(rel, "authored", digest, len(raw), note="Undecodable and no byte-identical retained source."))
+            continue
+        origin, citation, similarity = _ancestor(content, ws, session_id)
+        entries.append(Entry(rel, origin, digest, len(raw), citation=citation, similarity=similarity))
+    counts = {k: sum(1 for e in entries if e.origin == k) for k in ORIGINS}
+    by_bytes = {k: sum(e.bytes for e in entries if e.origin == k) for k in ORIGINS}
+    total, total_bytes = len(entries) or 1, sum(by_bytes.values()) or 1
+    return {
+        "schema": SCHEMA,
+        "source": {"session_id": session_id, "seed_index": seed_index,
+                   "trace_sha256": _sha(json.dumps(trace, ensure_ascii=False, sort_keys=True).encode()),
+                   "recovery_inputs": ws.recovery_inputs,
+                   "recovery_input_policy": "Actual supplied snapshot/blob bytes; exporter identifiers may predate upstream privacy masking.",
+                   "recovered_paths": len(ws.source_paths()), "recovered_bytes": ws.bytes_recovered()},
+        "recovery_omissions": (list(ws.omissions) + extraction_exclusions(bundle) + host_paths(bundle))[:500],
+        "snapshot_policy": "the fixture is the working tree at one message boundary; citations name that boundary",
+        "correction_citation_policy": "Kaizen feedback anchors resolve to the next user message; multiple anchors cannot count that correction twice",
+        "counts": counts, "bytes": by_bytes,
+        "faithfulness_by_file": share(counts), "faithfulness_by_bytes": share(by_bytes),
+        "exact_copy_by_file": round(counts["lifted"] / total, 3),
+        "exact_copy_by_bytes": round(by_bytes["lifted"] / total_bytes, 3),
+        "privacy_transformation": ({k: privacy[k] for k in ("manifest_sha256", "policy") if k in privacy} or None),
+        "derived_floor": DERIVED_FLOOR,
+        "method": "exact content or retained-blob match for `lifted`; replayed typed privacy edits for `anonymized`; "
+                  "difflib ratio over lines against every recovered revision for `derived`; designer-written files "
+                  "(fixture-authored.json) and everything else `authored`.",
+        "entries": [asdict(e) for e in entries],
+        **carried_declarations(bundle),
+    }
+
+
+def carried_declarations(bundle: Path) -> dict:
+    """Human-recorded declarations the ledger carries from one revision to the next.
+
+    The ledger is recomputed from the trace for every revision, so a deviation a human recorded
+    (`shipfix --edits '{"deviations": ...}'`) vanished at the next hardening round: the shipped
+    c-042 lost its Arena C-034 note that way (2026-10-08). Measured fields are always recomputed;
+    only these declarations are carried, and they are never a measured field.
+    """
+    path = Path(bundle) / "provenance/ledger.json"
+    try:
+        previous = json.loads(path.read_text()) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    kept = previous.get("deviations_from_trace")
+    return {"deviations_from_trace": list(kept)} if kept else {}
+
+
+def authored_ledger(bundle: Path, session_id: str = "synthetic", seed_index: int | None = None) -> dict:
+    """A ledger for a fixture with no trace behind it: every file authored.
+
+    Used by synthetic test bundles. It is a real schema-4 ledger with zero
+    fidelity, so every reader treats it exactly as it would treat a fully
+    authored fixture (level F0 unless calibration reproduces a failure).
+    """
+    bundle = Path(bundle)
+    fixture = bundle / FIXTURE
+    entries = [Entry(p.relative_to(fixture).as_posix(), "authored", _sha(p.read_bytes()), p.stat().st_size,
+                     note="synthetic fixture; no trace") for p in sorted(fixture.rglob("*")) if p.is_file()]
+    counts = {k: sum(1 for e in entries if e.origin == k) for k in ORIGINS}
+    by_bytes = {k: sum(e.bytes for e in entries if e.origin == k) for k in ORIGINS}
+    total, total_bytes = len(entries) or 1, sum(by_bytes.values()) or 1
+    return {"schema": SCHEMA, "source": {"session_id": session_id, "seed_index": seed_index, "trace_sha256": None,
+                                          "recovery_inputs": {}, "recovery_input_policy": "no trace", "recovered_paths": 0,
+                                          "recovered_bytes": 0},
+            "recovery_omissions": [], "snapshot_policy": "synthetic", "correction_citation_policy": "synthetic",
+            "counts": counts, "bytes": by_bytes, "faithfulness_by_file": share(counts), "faithfulness_by_bytes": share(by_bytes),
+            "exact_copy_by_file": round(counts["lifted"] / total, 3), "exact_copy_by_bytes": round(by_bytes["lifted"] / total_bytes, 3),
+            "privacy_transformation": None, "derived_floor": DERIVED_FLOOR, "method": "synthetic: every file authored",
+            "entries": [asdict(e) for e in entries]}
+
+
+LEVEL_FIELDS = ("faithfulness_level", "faithfulness_level_record", "faithfulness_blocked")
+
+
+def with_level(bundle: Path, ledger: dict, calibration_reproduces_failure: bool | None = None) -> dict:
+    from . import levels
+    record = levels.assign(bundle, ledger, calibration_reproduces_failure)
+    out = {k: v for k, v in ledger.items() if k not in LEVEL_FIELDS}
+    out["faithfulness_level"] = record["level"]
+    out["faithfulness_level_record"] = record
+    if record.get("blocked"):
+        out["faithfulness_blocked"] = record["blocked"]
+    return out
+
+
+def problems(bundle: Path) -> list[str]:
+    """Does the ledger on disk describe the fixture on disk?"""
+    bundle = Path(bundle)
+    path = bundle / "provenance/ledger.json"
+    if not path.is_file():
+        return ["provenance/ledger.json is missing"]
+    try:
+        ledger = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        return [f"ledger unreadable: {exc}"]
+    if ledger.get("schema") != SCHEMA:
+        return [f"ledger schema is {ledger.get('schema')!r}, expected {SCHEMA}"]
+    issues = []
+    fixture = bundle / FIXTURE
+    on_disk = {p.relative_to(fixture).as_posix(): _sha(p.read_bytes()) for p in fixture.rglob("*") if p.is_file()}
+    entries = {e["path"]: e for e in ledger.get("entries", [])}
+    for rel, sha in on_disk.items():
+        if rel not in entries:
+            issues.append(f"fixture file {rel} has no ledger entry")
+        elif entries[rel].get("sha256") != sha:
+            issues.append(f"fixture file {rel} changed since the ledger was written")
+    for rel in entries:
+        if rel not in on_disk:
+            issues.append(f"ledger entry {rel} names a file that is not in the fixture")
+    for e in ledger.get("entries", []):
+        if e.get("origin") not in ORIGINS:
+            issues.append(f"{e.get('path')}: unknown origin {e.get('origin')!r}")
+        if e.get("origin") in ("lifted", "derived", "anonymized") and not e.get("citation"):
+            issues.append(f"{e.get('path')}: {e['origin']} without a citation")
+    counts = {k: sum(1 for e in ledger.get("entries", []) if e.get("origin") == k) for k in ORIGINS}
+    by_bytes = {k: sum(e.get("bytes", 0) for e in ledger.get("entries", []) if e.get("origin") == k) for k in ORIGINS}
+    if ledger.get("faithfulness_by_bytes") != share(by_bytes) or ledger.get("faithfulness_by_file") != share(counts):
+        issues.append("ledger fidelity figures do not recompute from its entries")
+    if not ledger.get("faithfulness_level"):
+        issues.append("ledger carries no faithfulness level")
+    return issues
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Generate a coding bundle's provenance ledger")
+    ap.add_argument("bundle")
+    ap.add_argument("--session", required=True)
+    ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("-o", "--out", default=None)
+    args = ap.parse_args(argv)
+    session = args.session
+    if not (sessions_root() / session).is_dir():
+        matches = [p.name for p in sessions_root().iterdir() if p.name.startswith(session)]
+        if len(matches) != 1:
+            print(f"session prefix {session!r} matched {len(matches)} sessions")
+            return 2
+        session = matches[0]
+    bundle = Path(args.bundle).resolve()
+    ledger = with_level(bundle, build(bundle, session, args.seed))
+    out = Path(args.out) if args.out else bundle / "provenance" / "ledger.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(ledger, indent=2))
+    c = ledger["counts"]
+    print(f"{sum(c.values())} fixture files: {c['lifted']} lifted, {c['anonymized']} anonymized, "
+          f"{c['derived']} derived, {c['authored']} authored; fidelity {ledger['faithfulness_by_bytes']:.0%} "
+          f"by byte; level {ledger['faithfulness_level']} -> {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

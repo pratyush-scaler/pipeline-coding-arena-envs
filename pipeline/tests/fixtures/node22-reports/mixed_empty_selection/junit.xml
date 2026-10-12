@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="/source/suites/pass.test.js" time="0.003374" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="3f6c0e207727">
+		<testcase name="a real flat test completes" time="0.000855" classname="test"/>
+	</testsuite>
+	<testcase name="/source/suites/empty.test.js" time="0.000453" classname="test"/>
+	<!-- tests 1 -->
+	<!-- suites 2 -->
+	<!-- pass 1 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 277.628708 -->
+</testsuites>

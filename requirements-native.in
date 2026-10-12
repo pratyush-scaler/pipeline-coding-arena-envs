@@ -1,0 +1,4 @@
+# Evidence reader dependencies are separately pinned in requirements-evidence.lock.
+# Native execution is isolated in .venv-harbor (Python 3.13).
+harbor==0.22.0
+litellm==1.99.0
