@@ -76,6 +76,10 @@ class Extraction:
     stats: dict = field(default_factory=dict)
     evidence_summary: dict = field(default_factory=dict)
     evidence_index: list[dict] = field(default_factory=list)
+    #: Every user message of the session that carries text: {msg, sha256, chars, undone}.
+    #: A multi-turn task cites one per step (`trace_turn`); validation checks the
+    #: citation against this index (Spec Appendix A: turns are the user's own).
+    user_turns: list[dict] = field(default_factory=list)
     source_root: Path | None = field(default=None, repr=False)
 
     def before_map(self) -> dict[str, Document]:
@@ -328,6 +332,29 @@ def tree_at(ws: rec.Workspace, at: int, root: Path,
     return docs, skipped
 
 
+def user_turns(trace: dict) -> list[dict]:
+    """Index of the session's user messages that carry text. No text is kept:
+    the hash ties a step's `trace_turn` to the exact message without copying
+    the user's words into authoring files."""
+    out = []
+    for index, message in enumerate(trace.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(str(b.get("text") or "") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text")
+        else:
+            text = ""
+        if not text.strip():
+            continue
+        out.append({"msg": index, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "chars": len(text), "undone": str(message.get("undone")) == "True"})
+    return out
+
+
 def extract(session_id: str, seed_index: int, root: Path | None = None,
             pivot: int | None = None) -> Extraction:
     root = root or sessions_root()
@@ -363,7 +390,7 @@ def extract(session_id: str, seed_index: int, root: Path | None = None,
         before=before, after=after,
         evidence_summary=catalog.summary(),
         evidence_index=[{k: v for k, v in item.items() if k != "text"} for item in catalog.records.values()],
-        source_root=root, changed_paths=changed,
+        source_root=root, changed_paths=changed, user_turns=user_turns(trace),
         moments=[{"msg": m.msg_index, "signal": m.signal, "lang": m.language_hint,
                   "user": m.user_text, "prior_assistant": m.prior_assistant} for m in seed.moments],
         stats={"before_files": len(before), "before_bytes": sum(d.bytes for d in before),
@@ -430,6 +457,10 @@ def write(extraction: Extraction, dest: Path) -> dict:
         {"schema": "arena-coding/fixture-provenance/1", "session_id": extraction.session_id,
          "seed_index": extraction.seed_index, "pivot": extraction.pivot, "files": provenance}, indent=2))
     (private / "moments.json").write_text(json.dumps(extraction.moments, indent=2, ensure_ascii=False))
+    (private / "user-turns.json").write_text(json.dumps(
+        {"schema": "arena-coding/user-turns/1", "session_id": extraction.session_id,
+         "pivot": extraction.pivot, "span": list(extraction.span),
+         "turns": getattr(extraction, "user_turns", []) or []}, indent=2))
     (private / "evidence-index.json").write_text(json.dumps(
         {"summary": extraction.evidence_summary, "records": extraction.evidence_index}, indent=2, ensure_ascii=False))
     (private / "extraction.json").write_text(json.dumps({

@@ -158,6 +158,17 @@ def test_counts_order_matches_totals():
     counts = monthly_counts(transactions)
     assert list(counts) == list(monthly_totals(transactions)) == ["2022-11", "2023-03", "2023-11", "2024-01"]
     assert counts == {"2022-11": 1, "2023-03": 1, "2023-11": 1, "2024-01": 1}
+
+
+def test_malformed_not_counted():
+    transactions, errors = _load("malformed.csv")
+    assert monthly_counts(transactions) == {"2024-07": 1}
+    assert errors == 3
+
+
+def test_counts_two_years_separate():
+    transactions, _ = _load("two_years.csv")
+    assert monthly_counts(transactions) == {"2023-01": 1, "2023-02": 1, "2024-01": 1, "2024-02": 1}
 '''
 
 CLI_PY = '''"""ledger CLI: `python -m ledger.cli FILE` prints monthly totals as JSON."""
@@ -392,6 +403,10 @@ def spec(two_steps: bool = False) -> dict:
         py2("o2_refund_counted", 20, "core", "a refund is a transaction and is counted", Q2_COUNT, "t_step2_refund_counted"),
         py2("o2_counts_order_matches_totals", 12, "core", "count keys follow the totals' chronological order across years",
             Q2_NAME, "t_step2_order"),
+        py2("o2_malformed_not_counted", 6, "floor", "a malformed line is not a transaction and is not counted",
+            Q2_COUNT),
+        py2("o2_counts_two_years_separate", 6, "floor", "count keys are YYYY-MM, so the same month of two years "
+            "stays separate", Q2_NAME),
         {"id": "g2_cli_untouched", "kind": "guardrail", "weight": 0, "band": "floor", "step": step2,
          "basis": "ledger/cli.py is still shared with another team and must not be modified",
          "rule_quote": [Q2_CLI], "runner": {"type": "hash-guard", "paths": ["ledger/cli.py"]}},
@@ -435,9 +450,10 @@ def spec(two_steps: bool = False) -> dict:
         "novelty": "Two defects in two modules, one only visible on inputs the agent does not have.",
         "intent": "code debugging", "target_level": "F1",
         "source": {"session_id": "synthetic", "seed_index": 0, "tier": 4},
-        "steps": [{"name": step, "instruction": INSTRUCTION}] + ([{"name": step2, "instruction": INSTRUCTION_2,
-                  "new_information": "finance now also wants a per-month transaction count beside the totals"}]
-                  if two_steps else []),
+        "steps": [{"name": step, "instruction": INSTRUCTION, **({"trace_turn": 3} if two_steps else {})}]
+                 + ([{"name": step2, "instruction": INSTRUCTION_2, "trace_turn": 7,
+                      "new_information": "finance now also wants a per-month transaction count beside the totals"}]
+                    if two_steps else []),
         "deliverables": [], "deps": {"requirements.txt": ""},
         "checks": checks,
         "suites": {"test_report.py": TEST_REPORT, **{f"data/{k}": v for k, v in DATA.items()},
@@ -557,6 +573,15 @@ def write_bundle(root: Path, two_steps: bool = False) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     build.build(spec(two_steps), bundle)
+    if two_steps:
+        # The user-turn index extraction writes for a real seed (msg 3 and msg 7
+        # are the two turns the synthetic's steps cite; pivot 2).
+        private = bundle / "authoring/extraction"
+        private.mkdir(parents=True, exist_ok=True)
+        (private / "user-turns.json").write_text(json.dumps(
+            {"schema": "arena-coding/user-turns/1", "session_id": "synthetic", "pivot": 2, "span": [1, 9],
+             "turns": [{"msg": i, "sha256": "0" * 64, "chars": 80, "undone": False} for i in (1, 3, 5, 7, 9)]},
+            indent=2))
     from pipeline import naming
     from pipeline.ledger import faithfulness
     ledger = faithfulness.with_level(bundle, faithfulness.authored_ledger(bundle))

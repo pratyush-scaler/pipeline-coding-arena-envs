@@ -703,8 +703,9 @@ wrong on an input the visible material never showed --
     and 5). A step aimed at one family is easy for the other.
 
 MOST TASKS HAVE ONE STEP (user, 2026-10-03: ~90% single-step, ~10% designated
-multi-step); the opening message states this task's step budget. A single step must
-carry the whole difficulty itself.
+multi-turn with at least 3 turns, user 2026-10-12); the opening message states this
+task's step budget. A single step must carry the whole difficulty itself; every turn
+of a multi-turn task must carry its own, plus the carry levers across turns.
 
 THEREFORE, EVERY GRADED DECISION IS AN INTERLOCK. Two or more levers from the
 catalogue act on the SAME hidden item, so that resolving all but one of them still

@@ -478,7 +478,12 @@ def _build_one(row: dict, index: int, out_root: Path, designer: Callable,
             raise ValueError("preserve_workspace must be boolean")
         repair_limit = progress.repair_budget(bundle, 'gate', repair_limit)
         result.stage_reached = "extract"
-        extraction = extract_stage.extract(row["session_id"], row["seed_index"])
+        # An operator who read the trace may pin the fixture's pivot (a multi-turn
+        # task starts from the tree before the trace assistant answered turn 1).
+        pinned = row.get("operator_pivot")
+        extraction = (extract_stage.extract(row["session_id"], row["seed_index"], pivot=pinned)
+                      if type(pinned) is int and pinned > 0 else
+                      extract_stage.extract(row["session_id"], row["seed_index"]))
         if preserve_workspace:
             if not (bundle / "environment/repo").is_dir() or not (
                     bundle / "authoring/extraction/extraction.json").is_file():
@@ -961,15 +966,42 @@ def multi_step_score(row: dict) -> tuple:
     return (later, cls.get("usable_moments", 0), len(cls.get("defect_pairs") or []), row.get("dispute", 0))
 
 
+def operator_step_budget(row: dict) -> int | None:
+    """A budget an operator pinned on a frozen wave row after reading the trace
+    (`operator_step_budget`), clamped to policy: 1, or MULTI_STEP_MIN_STEPS ..
+    MULTI_STEP_MAX_STEPS for a designated multi-turn task."""
+    value = row.get("operator_step_budget")
+    if type(value) is not int or value < 1:
+        return None
+    if value == 1:
+        return 1
+    return max(_policy.MULTI_STEP_MIN_STEPS, min(_policy.MULTI_STEP_MAX_STEPS, value))
+
+
 def assign_step_budgets(rows: list[dict]) -> int:
-    """~MULTI_STEP_SHARE of the ranked batch gets MULTI_STEP_MAX_STEPS steps, the
-    rest exactly one (user, 2026-10-03). Only a trace with at least one later
-    requirement change can be multi-step. Returns how many were designated."""
+    """~MULTI_STEP_SHARE of the ranked batch is multi-turn, the rest exactly one
+    step (user, 2026-10-03). A multi-turn task has MULTI_STEP_MIN_STEPS ..
+    MULTI_STEP_MAX_STEPS steps (user, 2026-10-12: at least 3 turns), so only a
+    trace with at least MULTI_STEP_MIN_STEPS - 1 later requirement changes is
+    eligible, and its budget is one step per later change plus the first,
+    within the bounds. When the wave file pins budgets an operator chose after
+    reading the traces (`operator_step_budget` on any row), those are used
+    as-is and every unpinned row is single-step. Returns how many were
+    designated multi-turn."""
+    if any(operator_step_budget(r) is not None for r in rows):
+        for row in rows:
+            row["step_budget"] = operator_step_budget(row) or 1
+        return sum(1 for r in rows if r["step_budget"] > 1)
     share = round(len(rows) * _policy.MULTI_STEP_SHARE)
-    eligible = sorted((r for r in rows if multi_step_score(r)[0] >= 1), key=multi_step_score, reverse=True)
-    chosen = {id(r) for r in eligible[:share]}
+    need = _policy.MULTI_STEP_MIN_STEPS - 1
+    eligible = sorted((r for r in rows if multi_step_score(r)[0] >= need), key=multi_step_score, reverse=True)
+    chosen = {id(r): r for r in eligible[:share]}
     for row in rows:
-        row["step_budget"] = _policy.MULTI_STEP_MAX_STEPS if id(row) in chosen else 1
+        if id(row) in chosen:
+            row["step_budget"] = max(_policy.MULTI_STEP_MIN_STEPS,
+                                     min(_policy.MULTI_STEP_MAX_STEPS, 1 + multi_step_score(row)[0]))
+        else:
+            row["step_budget"] = 1
     return len(chosen)
 
 

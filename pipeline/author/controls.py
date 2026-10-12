@@ -19,6 +19,12 @@ Every claim a bundle makes about its grader is checked by running it:
                  for (repo conftest/pytest.ini/sitecustomize, a fake reward
                  file, a `tests/` directory, a shadowing package): the reward
                  must equal golden's, i.e. none of it reaches the verifier
+  prefix_only:<s>  (two or more steps) the reference for every step before s,
+                 nothing at s: no objective of step s passes. A later turn must
+                 need new work (Spec Appendix A: every turn is substantive)
+  skip_prior:<s>   (two or more steps) nothing before s, then s's reference
+                 patch where it applies to the untouched fixture: step s is not
+                 full credit. A later turn builds on the state earlier turns left
 
 The receipt is `verification/controls.json` (`arena-coding/controls/1`),
 bound to the artifact hash. Nothing here decides difficulty.
@@ -273,6 +279,25 @@ def _patch_variant(bundle: Path, rel: str, label: str) -> sandbox.Variant:
     return sandbox.Variant("patch", patch=(Path(bundle) / rel).read_text(encoding="utf-8"), label=label)
 
 
+#: Markers the skip_prior variant prints, read back by `_evaluate`.
+SKIP_PRIOR_APPLIED, SKIP_PRIOR_NOT_APPLIED = "ARENA_SKIP_PRIOR_APPLIED", "ARENA_SKIP_PRIOR_NOT_APPLIED"
+
+
+def _skip_prior_variant(bundle: Path, step: str) -> sandbox.Variant:
+    """Step `step`'s reference patch on the untouched fixture, without the
+    earlier steps. A patch that does not apply leaves the tree untouched (its
+    own proof that the turn depends on earlier state); it never aborts the trial."""
+    patch = (Path(bundle) / "steps" / step / "solution/fix.patch").read_text(encoding="utf-8")
+    shell = ("cd /app/repo && cat > /tmp/arena-skip.patch <<'ARENA_PATCH_EOF'\n" + patch.rstrip("\n")
+             + "\nARENA_PATCH_EOF\n"
+             "if git apply --check --whitespace=nowarn /tmp/arena-skip.patch >/dev/null 2>&1; then "
+             f"git apply --whitespace=nowarn /tmp/arena-skip.patch && echo {SKIP_PRIOR_APPLIED}; "
+             "elif patch -p1 --forward --dry-run < /tmp/arena-skip.patch >/dev/null 2>&1; then "
+             f"patch -p1 --forward < /tmp/arena-skip.patch >/dev/null && echo {SKIP_PRIOR_APPLIED}; "
+             f"else echo {SKIP_PRIOR_NOT_APPLIED}; fi")
+    return sandbox.Variant("shell", shell=shell, label=f"skip_prior:{step}")
+
+
 def _golden_variants(bundle: Path, steps: list[str]) -> dict[str, sandbox.Variant]:
     return {step: sandbox.solve_variant(bundle, step) for step in steps}
 
@@ -298,6 +323,11 @@ def _trial_plan(bundle: Path, spec: dict, doc: dict, steps: list[str], toolchain
         variants = {s: golden[s] for s in steps[:steps.index(step)]}
         variants[step] = _patch_variant(bundle, f"authoring/mutants/{mid}.patch", f"mutant:{mid}")
         plan[f"mutant:{mid}"] = variants
+    # Spec Appendix A, executed per later step: the turn needs new work, and it
+    # needs the state the earlier turns created. Single-step bundles plan none.
+    for k, step in enumerate(steps[1:], 1):
+        plan[f"prefix_only:{step}"] = {s: golden[s] for s in steps[:k]}
+        plan[f"skip_prior:{step}"] = {step: _skip_prior_variant(bundle, step)}
     first = steps[0]
     plan["empty"] = {first: sandbox.Variant("empty", label="empty")}
     plan["destructive"] = {first: sandbox.Variant(
@@ -339,7 +369,10 @@ def _preflight_errors(records: dict, plan: dict) -> list[str]:
         expected = 0.0 if label == "nop" else 1.0
         if record.get("valid") is not True or record.get("reward") != expected:
             errors.append(f"{label}: expected valid reward {expected}, got "
-                          f"{record.get('reward')} (valid={record.get('valid')})")
+                          f"{record.get('reward')} (valid={record.get('valid')})"
+                          + (f": {record['variant_error']} -- a later step's patch applies on top of the tree the "
+                             "previous steps of the SAME chain leave (alternatives on alternatives, mutants on the "
+                             "earlier references)" if record.get("variant_error") else ""))
         if label != "nop":
             steps = record.get("steps", {})
             if set(steps) != set(plan[label]):
@@ -354,8 +387,14 @@ def _preflight_errors(records: dict, plan: dict) -> list[str]:
 def _execute_trials(bundle: Path, plan: dict, work: Path, agent_tag: str, verifier_tag: str,
                     workers: int, *, keep_capture: bool = False) -> dict:
     def execute(label, variants):
-        return sandbox.verify(bundle, variants, work=work / label.replace(":", "-"),
-                              agent_tag=agent_tag, verifier_tag=verifier_tag, keep_capture=keep_capture)
+        try:
+            return sandbox.verify(bundle, variants, work=work / label.replace(":", "-"),
+                                  agent_tag=agent_tag, verifier_tag=verifier_tag, keep_capture=keep_capture)
+        except sandbox.VariantApplyError as exc:
+            # A design defect (an alternative or mutant patch written against the wrong tree): an
+            # invalid trial the designer is told about, never a terminal build error.
+            return {"schema": "arena-coding/sandbox-trial/1", "bundle": bundle.name, "steps": {},
+                    "valid": False, "reward": None, "variant_error": str(exc)[:1500]}
 
     def phase(labels):
         if workers == 1:
@@ -394,7 +433,8 @@ def _evaluate(bundle: Path, spec: dict, doc: dict, steps: list[str], toolchain: 
                                      for s, e in record["steps"].items()}}
         if not record["valid"]:
             errors.append(f"{label}: the verifier produced no valid reward "
-                          + "; ".join(f"{s}: {e}" for s, e in entry["errors"].items()))
+                          + "; ".join(f"{s}: {e}" for s, e in entry["errors"].items())
+                          + (f" {record['variant_error']}" if record.get("variant_error") else ""))
         return entry
 
     # -- nop -----------------------------------------------------------------
@@ -501,6 +541,36 @@ def _evaluate(bundle: Path, spec: dict, doc: dict, steps: list[str], toolchain: 
     if uncovered:
         errors.append("coverage: no mutant fails these core/stretch objectives, so nothing shows they "
                       "discriminate a plausible wrong fix: " + ", ".join(uncovered))
+
+    # -- multi-turn dependence (Spec Appendix A) -----------------------------
+    turns: dict = {}
+    for step in steps[1:]:
+        label = f"prefix_only:{step}"
+        if label in records:
+            entry = trial(label)
+            flags = entry["flags"].get(step, {})
+            passing = sorted(cid for cid, ok in flags.items()
+                             if ok and cid in objectives and objectives[cid].get("step") == step)
+            turns[label] = {"valid": entry["valid"], "reward": entry["reward"], "passing": passing}
+            if entry["valid"] and passing:
+                errors.append(f"{label}: with every earlier turn's reference and no new work, step {step} "
+                              f"objectives already pass: {', '.join(passing)} -- every turn must need substantive "
+                              "new work (Spec Appendix A); a standing rule is re-tested on the turn's NEW path, "
+                              "preserved behaviour belongs in a guardrail")
+        label = f"skip_prior:{step}"
+        if label in records:
+            entry = trial(label)
+            row = records[label]["steps"].get(step) or {}
+            stdout = str((row.get("applied") or {}).get("stdout") or "")
+            applied = SKIP_PRIOR_APPLIED in stdout
+            step_reward = row.get("reward")
+            turns[label] = {"valid": entry["valid"], "applied": applied, "step_reward": step_reward}
+            if entry["valid"] and step_reward == 1.0:
+                errors.append(f"{label}: step {step}'s reference on the untouched fixture, without the earlier "
+                              "turns, scores full credit -- the turn does not build on the state the earlier "
+                              "turns created (Spec Appendix A)")
+    if turns:
+        results["turns"] = turns
 
     # -- empty, destructive --------------------------------------------------
     empty = trial("empty")

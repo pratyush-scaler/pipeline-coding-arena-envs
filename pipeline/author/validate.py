@@ -269,8 +269,11 @@ def voice_problems(instruction: str, where: str) -> list[str]:
 #: later step must be stated in that step. The repository state carries the
 #: earlier step's code; the earlier prompt is gone.
 _HISTORY_REFERENCE = re.compile(
-    r"\b(?:step[ -]?(?:1|one)\b|(?:the |your )?(?:previous|earlier|last|first) step\b|"
+    r"\b(?:step[ -]?(?:[1-9]|one|two|three)\b|(?:the |your )?(?:previous|earlier|last|first|second|third) "
+    r"(?:step|turn)\b|"
+    r"(?:my|the|your) (?:previous|earlier|last|first|second|other) (?:message|request|prompt|instructions?)\b|"
     r"as (?:i|we) (?:said|asked|mentioned|described|explained) (?:before|earlier|above)|"
+    r"like i (?:said|asked|told you)\b|"
     r"same (?:rules?|requirements?|constraints?|logic) as before|"
     r"the (?:rules?|requirements?|constraints?) (?:from )?(?:before|above|earlier))",
     re.IGNORECASE)
@@ -396,6 +399,74 @@ def overfit_advisories(spec: dict, bundle: Path) -> list[str]:
     return out
 
 
+#: A hidden suite must grade what is in the tree it is given. /arena-history is
+#: provided only by this pipeline's own verifier (benchmark/history_verifier.py);
+#: stock Harbor never uploads it, so a suite that reads it cannot reproduce at Arena.
+_HISTORY_DIR = re.compile(r"arena-history|ARENA_HISTORY")
+
+
+def multi_turn_problems(spec: dict, bundle: Path, checks: list[dict]) -> list[str]:
+    """Spec Appendix A for a task with two or more steps: every turn is a real,
+    later user message of the trace (`trace_turn`, checked against the
+    extraction's user-turn index), every turn carries substantive graded work
+    of its own (objective and trap floors per step), and no suite reads
+    earlier captures the shipped verifier does not have."""
+    steps = [s for s in (spec.get("steps") or []) if isinstance(s, dict)]
+    issues: list[str] = []
+    for name, text in (spec.get("suites") or {}).items():
+        if isinstance(text, str) and _HISTORY_DIR.search(text):
+            issues.append(f"suite {name}: reads /arena-history (earlier steps' captures); stock Harbor's verifier "
+                          "never receives them, so the check cannot reproduce at Arena -- grade the tree the "
+                          "step leaves behind")
+    if len(steps) < 2:
+        return issues
+    index_path = Path(bundle) / "authoring/extraction/user-turns.json"
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        user_msgs = {t["msg"] for t in index.get("turns") or [] if isinstance(t, dict) and type(t.get("msg")) is int}
+        pivot = index.get("pivot")
+    except (OSError, ValueError, KeyError, TypeError):
+        index, user_msgs, pivot = None, set(), None
+    if index is None:
+        issues.append("multi-turn: authoring/extraction/user-turns.json is missing or unreadable; every turn must "
+                      "cite the user message it reproduces (re-run extraction with the current pipeline)")
+    previous = None
+    for position, step in enumerate(steps, 1):
+        turn = step.get("trace_turn")
+        where = f"step {step.get('name')!r}"
+        if type(turn) is not int:
+            issues.append(f"{where}: trace_turn must be the msg index of the user message this turn reproduces "
+                          "(Spec Appendix A: turns are the user's own sequential messages, never an artificial split)")
+            continue
+        if index is not None and turn not in user_msgs:
+            issues.append(f"{where}: trace_turn {turn} is not a user message of the session")
+        if previous is not None and turn <= previous:
+            issues.append(f"{where}: trace_turn {turn} does not come after the previous turn's {previous}; turns "
+                          "must be sequential user messages")
+        if position == 1 and type(pivot) is int and pivot > turn + 1:
+            issues.append(f"{where}: the fixture's pivot {pivot} is after turn 1's message {turn}, so environment/repo "
+                          "already holds the trace assistant's answer to it -- re-lift the tree before that answer "
+                          f"(materialize_fixture({turn}))")
+        if position > 1 and type(pivot) is int and turn < pivot:
+            issues.append(f"{where}: trace_turn {turn} precedes the fixture's pivot {pivot}; a later turn must come "
+                          "after the state the task starts from")
+        previous = turn
+    objectives = [c for c in checks if isinstance(c, dict) and c.get("kind") == "objective"]
+    step_of = {c.get("id"): c.get("step") for c in checks if isinstance(c, dict)}
+    for step in steps:
+        name = step.get("name")
+        own = [c for c in objectives if c.get("step") == name]
+        if len(own) < policy.MIN_OBJECTIVES_PER_STEP:
+            issues.append(f"step {name!r}: {len(own)} objective(s); a multi-turn task needs at least "
+                          f"{policy.MIN_OBJECTIVES_PER_STEP} per turn (Appendix A: every turn is substantive work)")
+        traps = [t for t in (spec.get("traps") or []) if isinstance(t, dict)
+                 and any(step_of.get(cid) == name for cid in (t.get("checks") or []))]
+        if len(traps) < policy.MIN_TRAPS_PER_STEP:
+            issues.append(f"step {name!r}: {len(traps)} trap(s) drive its checks; a multi-turn task needs at least "
+                          f"{policy.MIN_TRAPS_PER_STEP} per turn, each proved by its own mutant at that turn")
+    return issues
+
+
 def validate(spec: dict, bundle: Path) -> list[str]:
     bundle = Path(bundle)
     issues: list[str] = []
@@ -431,6 +502,12 @@ def validate(spec: dict, bundle: Path) -> list[str]:
         issues.append(f"steps: {len(spec['steps'])} steps exceed this task's step budget of {budget} (user, "
                       "2026-10-03: about 90% of tasks are single-step and only designated ones multi-step); "
                       f"fold the work into {budget} step(s), each extremely hard on its own")
+    if (type(budget) is int and budget >= policy.MULTI_STEP_MIN_STEPS
+            and len(spec["steps"]) < policy.MULTI_STEP_MIN_STEPS):
+        issues.append(f"steps: this task is designated MULTI-TURN with a budget of {budget}; it needs at least "
+                      f"{policy.MULTI_STEP_MIN_STEPS} turns (user, 2026-10-12: \"at least 3 turns\"), each a later "
+                      "user message from the trace that builds on the state the previous turn left, each "
+                      "extremely hard on its own (Spec Appendix A)")
     for step in spec["steps"]:
         if len(step["instruction"].strip()) < MIN_INSTRUCTION_CHARS:
             issues.append(f"step {step['name']}: instruction under {MIN_INSTRUCTION_CHARS} characters")
@@ -544,6 +621,7 @@ def validate(spec: dict, bundle: Path) -> list[str]:
                     issues.append(f"mutant {m['id']}: identical to the reference patch")
     issues += traps_mod.validate_all(spec.get("traps") or [], {c.get("id") for c in checks}, set(fixture), mutant_ids)
     issues += trap_shape_problems(spec.get("traps") or [], checks)
+    issues += multi_turn_problems(spec, bundle, checks)
     for t in spec.get("traps") or []:
         for c in checks:
             if c.get("trap") == t.get("id") and c.get("id") not in (t.get("checks") or []):

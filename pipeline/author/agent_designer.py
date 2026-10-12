@@ -399,7 +399,8 @@ THE SPEC (stage it in sections; the schema is the `design` tool's):
   toolchain {{name: python|node|browser|go|rust|php|c|shell, extra_apt?, post_install?, \
 limits?}} -- deps {{requirements.txt | package.json (+ package-lock.json) | go.mod ... : \
 content}}, every version PINNED (==); dependencies install at image build, never at run.
-  steps [{{name: "01-...", instruction, new_information? (steps after the first)}}] -- \
+  steps [{{name: "01-...", instruction, new_information? (steps after the first), trace_turn? \
+(multi-turn: msg index of the user message this turn reproduces)}}] -- \
 the instruction is the user's ask in the user's register, complete: what is broken, \
 what the rules are (as criteria, never as code locations), what must not change, where \
 the repository is (/app/repo). Every rule a hidden test enforces is a sentence here.
@@ -492,17 +493,45 @@ words, so an expert can tell right from wrong while a hurried model can still mi
 it. Vagueness that leaves two defensible fixes scoring differently is a defect, not \
 difficulty; vagueness about everything the tests do not grade is the point.
 
-STEP BUDGET (user, 2026-10-03). About 90% of tasks are SINGLE-STEP; the batch designates \
-about 10% as multi-step (at most {policy.MULTI_STEP_MAX_STEPS} steps) where the trace carries a later \
-requirement change. Your opening message states THIS task's budget, and validation refuses \
-more steps than it. EVERY step -- the only step of a single-step task, and each step of a \
-multi-step one -- must be extremely hard ON ITS OWN: its own interlocks aimed at both \
-families, pass@1 <= {policy.STEP_PASS_RATE_MAX} on each model. A single-step task concentrates the \
-difficulty in one instruction: several interlocked hidden decisions, not a checklist. In a \
-designated multi-step task a later step introduces NEW INFORMATION the user gave later (a \
-revised requirement, a new constraint) that re-governs earlier code; its objectives depend \
-on that re-judgment. Each step has its own instruction, checks, reference patch (applied on \
-top of the previous step's) and alternative.
+STEP BUDGET (user, 2026-10-03 and 2026-10-12). About 90% of tasks are SINGLE-STEP; the batch \
+designates about 10% as MULTI-TURN ({policy.MULTI_STEP_MIN_STEPS} to {policy.MULTI_STEP_MAX_STEPS} steps, \
+"at least 3 turns", "extremely dense"). Your opening message states THIS task's budget; validation \
+refuses more steps than it and, for a multi-turn task, fewer than {policy.MULTI_STEP_MIN_STEPS}. EVERY \
+step -- the only step of a single-step task, and each turn of a multi-turn one -- must be extremely \
+hard ON ITS OWN: its own interlocks aimed at both families, pass@1 <= {policy.STEP_PASS_RATE_MAX} on each \
+model. A single-step task concentrates the difficulty in one instruction: several interlocked hidden \
+decisions, not a checklist. Each step has its own instruction, checks, reference patch (applied on top \
+of the previous step's), alternative, traps and mutants.
+
+MULTI-TURN TASKS (Arena spec, Appendix A, binding). "The agent does work, gets a new user message, and \
+continues from the result. Do not split one difficult task into artificial turns." So:
+  - every turn IS a real user message of the trace, in order: each step carries trace_turn = the msg \
+index of the user message it reproduces (strictly increasing). Validation checks it against \
+authoring/extraction/user-turns.json. The instruction is that message in the user's own register, made \
+complete for this turn. The fixture is the tree BEFORE the trace's assistant answered turn 1 (pivot <= \
+turn 1's msg + 1; re-lift it with materialize_fixture(<turn 1 msg>) if the extraction pivot is later), so \
+no turn's answer is already in environment/repo.
+  - each later turn BUILDS ON the state the previous turn created: it extends, revises or corrects what \
+the earlier turn delivered. Executed control skip_prior:<step> applies the step's reference to the \
+untouched fixture without the earlier turns; it must NOT score full credit.
+  - each turn is SUBSTANTIVE: at least {policy.MIN_OBJECTIVES_PER_STEP} objectives and \
+{policy.MIN_TRAPS_PER_STEP} traps of its own (mutant at that turn). Executed control \
+prefix_only:<step> applies every earlier turn's reference and nothing new; no objective of the step \
+may pass. Preserved behaviour from earlier turns belongs in that step's guardrails; a standing rule \
+from an earlier turn is re-tested only on the NEW path this turn creates (standing_rule_carry).
+  - every turn is graded on its own rubric before the next turn starts, in a FRESH agent session that \
+never saw the earlier prompts: a later instruction never points at an earlier message ("as I said", \
+"step 1", "my previous request"); what governs the turn is stated in it or is the behaviour already in \
+the tree. Hidden suites grade the tree the step leaves; never read /arena-history (stock Harbor does \
+not provide it, so validation refuses it).
+  - patch chains: the alternative control applies authoring/alt/<step>.patch files IN ORDER, so a later \
+step's alternative is a diff against the tree the EARLIER ALTERNATIVES leave; a later step's mutant is a \
+diff against the tree the earlier steps' REFERENCES leave. run_controls before submitting shows a patch \
+that does not apply.
+  - density: interlock the carry levers (long_horizon_accumulation, standing_rule_carry, \
+revision_reach, fresh_session_reconstruction, persistent_state_across_runs) with the measured \
+single-step levers on every turn -- both families must be likely to miss something at EVERY turn, \
+not only the last. Blind-solve the whole chain; a turn a solver fully passes needs another interlock.
 
 BEFORE submit_draft: THE DIFFICULTY SELF-AUDIT (quality.difficulty_case, required):
   hardest_decision   the one judgment a frontier engineer gets wrong first, and why
@@ -558,7 +587,7 @@ SPEC_TOOL = {
             "deps": {"type": "object"},
             "steps": {"type": "array", "items": {"type": "object", "properties": {
                 "name": {"type": "string"}, "instruction": {"type": "string"},
-                "new_information": {"type": "string"}}}},
+                "new_information": {"type": "string"}, "trace_turn": {"type": "integer"}}}},
             "deliverables": {"type": "array", "items": {"type": "object", "properties": {
                 "path": {"type": "string"}, "kind": {"type": "string"}, "step": {"type": "string"}}}},
             "checks": {"type": "array", "items": {"type": "object", "properties": {
@@ -1725,6 +1754,27 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
 # Opening message
 # ---------------------------------------------------------------------------
 
+def _operator_brief_lines(row: dict) -> list[str]:
+    """What an operator recorded after reading this trace before the build
+    (frozen wave row: `operator_brief`, and for a multi-turn task
+    `operator_turns` = [{msg, user_words, work, builds_on}]). Leads to check
+    against the trace, never a substitute for reading it."""
+    brief, turns = row.get("operator_brief"), row.get("operator_turns")
+    lines: list[str] = []
+    if isinstance(brief, str) and brief.strip():
+        lines += ["", "OPERATOR TRACE ANALYSIS (a human-directed read of this trace before the build; verify every "
+                      "claim against the trace and the fixture yourself -- where they disagree, the trace wins):",
+                  brief.strip()[:4000]]
+    if isinstance(turns, list) and turns:
+        lines += ["", "OPERATOR TURN PLAN (candidate user messages for the turns; confirm each is a user message, in "
+                      "order, that builds on the previous turn's result, and cite it as trace_turn):"]
+        for t in turns[:6]:
+            if isinstance(t, dict):
+                lines.append(f"  - msg {t.get('msg')}: {str(t.get('user_words') or '')[:300]!r} -- work: "
+                             f"{str(t.get('work') or '')[:300]}; builds on: {str(t.get('builds_on') or '')[:200]}")
+    return lines
+
+
 def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> str:
     repo = bundle / "environment" / "repo"
     files = [p for p in repo.rglob("*") if p.is_file()] if repo.is_dir() else []
@@ -1786,12 +1836,15 @@ def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> s
          + ("This task is SINGLE-STEP (as are about 90% of the batch): one instruction, one set of checks; put "
             "several interlocked hidden decisions aimed at BOTH model families into it."
             if row.get("step_budget") == 1 else
-            f"This task is one of the ~10% designated MULTI-STEP (at most {row.get('step_budget')} steps): its trace "
-            "carries a later requirement change. EVERY step must be extremely hard on its own -- its own interlocks, "
-            "aimed at both families.")
+            f"This task is one of the ~10% designated MULTI-TURN tasks: {policy.MULTI_STEP_MIN_STEPS} to "
+            f"{row.get('step_budget')} steps (Spec Appendix A, see MULTI-TURN TASKS): each step is a later real user "
+            "message of the trace (trace_turn), builds on the state the previous turn left, and is extremely hard on "
+            "its own -- its own interlocks aimed at both families, at least "
+            f"{policy.MIN_OBJECTIVES_PER_STEP} objectives and {policy.MIN_TRAPS_PER_STEP} traps per turn.")
          + f" Validation refuses more steps than the budget; every step is held to pass@1 <= "
            f"{policy.STEP_PASS_RATE_MAX} on each model.")
         if type(row.get("step_budget")) is int else "STEP BUDGET: not assigned (legacy build).",
+        *_operator_brief_lines(row),
         "",
         "BUDGET AND FLOORS, enforced during downstream validation:",
         f"  - at least {MIN_OBJECTIVES} objectives, at least one guardrail, at least three traps, a mutant per trap, an alternative fix per step",

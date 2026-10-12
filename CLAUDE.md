@@ -95,6 +95,13 @@ the checks its trap declares, passes at least one objective, never scores 1.0
 · empty 0 · destructive 0 · test_tamper on the UNTOUCHED fixture stays 0 with
 no objective passing. `./arena sandbox <bundle>` runs them without a model.
 
+Multi-turn (2+ steps; Spec Appendix A, user 2026-10-12 "at least 3 turns"): prefix_only:<s> -- every
+earlier turn's reference and nothing new passes no objective of s · skip_prior:<s> -- s's reference on the
+untouched fixture without the earlier turns is not full credit. Each turn cites its user message
+(`trace_turn`, checked against authoring/extraction/user-turns.json), carries >= MIN_OBJECTIVES_PER_STEP
+objectives and MIN_TRAPS_PER_STEP traps, never reads /arena-history, and the package ships TURNS.md +
+verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome, rollouts per turn).
+
 ## Standing rules
 
 - **Nothing ships unswept; what the sweep finds is fixed, then shipped**

@@ -217,8 +217,12 @@ def task_record(bundle: Path) -> dict:
     objectives = Counter(c.get("step") for c in checks.get("checks") or []
                          if isinstance(c, dict) and c.get("kind") == "objective")
     record["objectives_by_step"] = {step: objectives.get(step, 0) for step in record["steps"]}
-    record["multi_turn"] = (len(record["steps"]) >= 2
-                            and all(record["objectives_by_step"].values()))
+    # Spec Appendix A + the user's 2026-10-12 rule ("at least 3 turns"): a
+    # multi-turn task has MULTI_STEP_MIN_STEPS or more turns, each graded by an
+    # objective of its own, and ships its per-turn contract (TURNS.md).
+    record["multi_turn"] = (len(record["steps"]) >= policy.MULTI_STEP_MIN_STEPS
+                            and all(record["objectives_by_step"].values())
+                            and (bundle / "TURNS.md").is_file())
 
     ledger = read("provenance/ledger.json") or {}
     record["provenance_included"] = (bundle / "provenance/ledger.json").is_file()

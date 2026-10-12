@@ -54,11 +54,22 @@ def band_problems(checks: list[dict]) -> list[str]:
     objectives = [c for c in checks if c.get("kind") == "objective"]
     counts = {band: sum(1 for c in objectives if c.get("band") == band) for band in BAND_LIMITS}
     issues = []
+    # A multi-turn task carries a full rubric per turn (Spec Appendix A: each turn
+    # has its own rubric), so the upper limits scale with the number of steps and
+    # every turn must hold at least two semantic (core/stretch) decisions.
+    steps = sorted({c.get("step") for c in objectives if c.get("step")})
+    scale = max(1, len(steps))
     for band, (lo, hi) in BAND_LIMITS.items():
-        if not lo <= counts[band] <= hi:
-            issues.append(f"{counts[band]} {band} objectives; the band allows {lo}-{hi}")
-    if len(objectives) > MAX_OBJECTIVES:
-        issues.append(f"{len(objectives)} objectives; at most {MAX_OBJECTIVES}")
+        if not lo <= counts[band] <= hi * scale:
+            issues.append(f"{counts[band]} {band} objectives; the band allows {lo}-{hi * scale}")
+    if len(objectives) > MAX_OBJECTIVES * scale:
+        issues.append(f"{len(objectives)} objectives; at most {MAX_OBJECTIVES * scale}")
+    if scale > 1:
+        for step in steps:
+            semantic = sum(1 for c in objectives if c.get("step") == step and c.get("band") in ("core", "stretch"))
+            if semantic < 2:
+                issues.append(f"step {step!r}: {semantic} core/stretch objective(s); every turn of a multi-turn "
+                              "task needs at least 2 semantic decisions of its own")
     if len(objectives) < policy.MIN_OBJECTIVES:
         issues.append(f"{len(objectives)} objectives; at least {policy.MIN_OBJECTIVES}")
     return issues

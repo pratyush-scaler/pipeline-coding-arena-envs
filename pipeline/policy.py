@@ -778,7 +778,21 @@ SHIP_GUARDRAIL_FAIL_SHARE_MAX = 0.6
 #: Coder shard of a batch agrees (`orchestrate.assign_step_budgets`).
 MULTI_STEP_SHARE = 0.10
 #: Steps a designated multi-step task may have; validation refuses more.
-MULTI_STEP_MAX_STEPS = 2
+#: User, 2026-10-12: "make the multi-step tasks extremely dense and multiple
+#: turns at least 3 turns". Spec Appendix A (Oct 8): a multi-turn task has
+#: sequential user turns in one environment, each turn substantive and built
+#: on the state the previous one created, each graded on its own rubric.
+MULTI_STEP_MAX_STEPS = 4
+#: Fewest steps a designated multi-turn task may have (validation refuses fewer;
+#: `orchestrate.assign_step_budgets` designates only traces with enough later
+#: user requirement changes to supply that many real turns).
+MULTI_STEP_MIN_STEPS = 3
+#: Per-turn density floors for a multi-turn task (Appendix A: "each turn
+#: involves substantive work. An easy setup turn followed by the only real
+#: task does not count"). Objectives counted per step; traps counted by the
+#: step of the checks they drive.
+MIN_OBJECTIVES_PER_STEP = 4
+MIN_TRAPS_PER_STEP = 2
 
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the

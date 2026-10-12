@@ -339,6 +339,12 @@ def _excludes(bundle: Path) -> list[str]:
     return names
 
 
+class VariantApplyError(SandboxError):
+    """A patch variant (alternative, mutant) does not apply to the tree its step starts from: a defect
+    of the design the designer can repair, never infrastructure (ship15, 2026-10-12: a multi-turn
+    alternative written against the reference chain instead of the alternative chain ended a build)."""
+
+
 class Variant:
     """What to do to the agent container before a step is captured.
 
@@ -357,7 +363,7 @@ class Variant:
             result = container.exec("cd /app/repo && (git apply --whitespace=nowarn /tmp/variant.patch "
                                     "|| patch -p1 --forward < /tmp/variant.patch)", user="agent", timeout=300)
             if result["exit_code"]:
-                raise SandboxError(f"variant patch {self.label!r} did not apply: {result['stderr'][-1500:]}")
+                raise VariantApplyError(f"variant patch {self.label!r} did not apply: {result['stderr'][-1500:]}")
             return {"applied": "patch"}
         if self.kind == "shell":
             result = container.exec(self.shell or "true", user="agent", timeout=EXEC_TIMEOUT_S, workdir="/app/repo")
