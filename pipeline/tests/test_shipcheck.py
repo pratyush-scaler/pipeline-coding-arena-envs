@@ -62,6 +62,21 @@ class PackageDetectors(Bundle):
         (self.b / "environment/deps/requirements.txt").write_text("fastapi==0.110.0\npytest==7.4.2\nalembic==1.13\n")
         self.assertEqual(shipcheck.deps_declared(self.b), [])
 
+    def test_packages_a_post_install_step_pins_count_as_installed(self):
+        self.repo("package.json", json.dumps({"dependencies": {"next": "^15.1.3", "@types/node": "^22"},
+                                              "devDependencies": {"eslint": "^9"}}))
+        self.repo("api/requirements.txt", "fastapi>=0.110\nuvicorn\n")
+        (self.b / "environment/deps/package.json").write_text(json.dumps({"dependencies": {"left-pad": "1.3.0"}}))
+        (self.b / "environment/deps/requirements.txt").write_text("fastapi==0.110.0\n")
+        self.chain("node", post_install=[
+            "npm install --prefix /opt/deps --no-audit --save-exact next@15.5.18 @types/node@22.19.19 eslint@^9",
+            "/opt/deps/venv/bin/pip install --no-cache-dir uvicorn==0.30.1"])
+        found = {f["subject"]: f["detail"] for f in shipcheck.deps_declared(self.b)}
+        self.assertEqual(sorted(found), ["package.json"])      # uvicorn pinned by post_install
+        self.assertIn("eslint", found["package.json"])          # a range is not installed pinned
+        self.assertNotIn("next", found["package.json"])
+        self.assertNotIn("@types/node", found["package.json"])
+
     def test_a_doc_requiring_a_newer_toolchain_is_flagged(self):
         self.chain("go")
         self.repo("btmonit/README.md", "# btmonit\nwritten in Go 1.26+\n\nNeeds Go 1.26 or later.\nGo 1.21+ works.\n")

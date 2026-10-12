@@ -185,6 +185,53 @@ def _node_requirements(text: str) -> set[str]:
     return {k for section in ("dependencies", "devDependencies") for k in (doc.get(section) or {})}
 
 
+_NPM_VALUE_FLAGS = {"--prefix", "-C", "--registry", "--cache", "--userconfig", "--workspace", "-w", "--tag"}
+_PIP_VALUE_FLAGS = {"-r", "--requirement", "-c", "--constraint", "-t", "--target", "-i", "--index-url",
+                    "--extra-index-url", "--prefix", "--root", "-f", "--find-links", "--platform", "--python-version"}
+
+
+def _post_install_pins(steps) -> tuple[set[str], set[str]]:
+    """Packages a post_install step installs at an exact version: (python, node).
+
+    ship15 2026-10-12 (c-007-nextjs-fintech-webapp): every declared package was installed
+    pinned by `npm install --prefix /opt/deps ... next@15.5.18 ...` and the image probe
+    resolved them, yet this detector read only environment/deps and refused the build
+    twice -- a repeated finding, terminal. Only exact pins count; a range is not installed
+    "pinned" (C-015).
+    """
+    import shlex
+    py, node = set(), set()
+    for step in steps or []:
+        for segment in re.split(r"&&|\|\||;|\n", str(step)):
+            try:
+                words = shlex.split(segment)
+            except ValueError:
+                continue
+            for i, word in enumerate(words):
+                if word not in ("install", "i", "add") or not i:
+                    continue
+                tool = words[i - 1].rsplit("/", 1)[-1]
+                npm = tool in ("npm", "pnpm", "yarn")
+                pip = tool in ("pip", "pip3") or tool.startswith("pip3.")
+                if not (npm or pip):
+                    continue
+                flags, skip = (_NPM_VALUE_FLAGS if npm else _PIP_VALUE_FLAGS), False
+                for arg in words[i + 1:]:
+                    if skip or arg in flags:
+                        skip = not skip
+                        continue
+                    if arg.startswith("-"):
+                        continue
+                    if npm:
+                        name, at, version = arg.rpartition("@")
+                        if at and name and re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.]+)?", version):
+                            node.add(name)
+                    elif m := re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?==[\w.+!-]+", arg):
+                        py.add(_norm_py(m.group(1)))
+                break
+    return py, node
+
+
 def deps_declared(bundle: Path) -> list[dict]:
     repo = bundle / "environment/repo"
     deps = bundle / "environment/deps"
@@ -193,6 +240,8 @@ def deps_declared(bundle: Path) -> list[dict]:
         if (deps / "requirements.txt").is_file() else set()
     installed_node = _node_requirements((deps / "package.json").read_text()) \
         if (deps / "package.json").is_file() else set()
+    extra_py, extra_node = _post_install_pins(doc.get("post_install"))
+    installed_py, installed_node = installed_py | extra_py, installed_node | extra_node
     out = []
     for rel, path in _repo_files(repo):
         name = path.name
