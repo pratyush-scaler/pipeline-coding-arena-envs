@@ -197,6 +197,12 @@ def verify(bundle: Path, fixture: Path, ws: rec.Workspace, session_id: str) -> d
         if source is None:
             raise ValueError(f"{rel}: redaction source hash/citation is absent from the trusted trace")
         transformed, changes = transform(source.content, row["kinds"])
+        if not public.exists():
+            # The designer removed this file from the fixture after extraction redacted it: nothing of it
+            # ships, so there is nothing to verify (ship15, 2026-10-12: the ledger crashed on such a removal).
+            verified[rel] = {"citation": row["citation"], "source_sha256": row["source_sha256"],
+                             "public_sha256": row["public_sha256"], "changes": changes, "removed_from_fixture": True}
+            continue
         public_bytes = public.read_bytes()
         if transformed.encode() != public_bytes or sha(public_bytes) != row["public_sha256"]:
             raise ValueError(f"{rel}: fixture differs from the verified privacy redaction")
