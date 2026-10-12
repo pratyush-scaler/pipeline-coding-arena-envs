@@ -321,24 +321,6 @@ class RepairTerminates(unittest.TestCase):
         ok, why = repair.admissible(self.bundle, review)
         self.assertTrue(ok, why)
 
-    def test_a_first_ship_readiness_sweep_is_not_measured_against_the_gates(self):
-        # ship15 2026-10-12 (c-013-express-rest-api): one leak.sweep finding, fixed; the
-        # ship-time sweep, which runs only on a green gate chain, then found 15.
-        repair.record_pass(self.bundle, ["leak.sweep: grader-reference: jest.config.js mentions the grader's paths "
-                                         "[environment/repo/jest.config.js]"], "charged")
-        sweep = [f"ship.readiness: coverage.gap: 01-x#{i}: scores 1.0 while violating rule {i} [tests/checks.json]"
-                 for i in range(15)]
-        ok, why = repair.admissible(self.bundle, sweep)
-        self.assertTrue(ok, why)
-
-    def test_a_ship_readiness_sweep_must_still_shrink_within_its_stage(self):
-        repair.record_pass(self.bundle, [f"ship.readiness: coverage.gap: 01-x#{i}: rule {i} [tests/checks.json]"
-                                         for i in range(3)], "charged")
-        ok, why = repair.admissible(self.bundle, [f"ship.readiness: image.imports: node:p{i} [authoring/spec.json]"
-                                                  for i in range(3)])
-        self.assertFalse(ok)
-        self.assertIn("ship-readiness", why)
-
     def test_shrinking_is_still_required_within_a_stage(self):
         repair.record_pass(self.bundle, ["Semantic review obj_a: x [tests/checks.json]",
                                          "Semantic review obj_b: y [tests/checks.json]"], "charged")

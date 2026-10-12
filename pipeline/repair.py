@@ -279,17 +279,11 @@ def finding_stage(finding: str) -> str:
     """The grading stage that raised a finding (or its fingerprint).
 
     The semantic review's findings are rendered `Semantic review <id>: ...`
-    (orchestrate._review_candidate, repair.feedback); the ship-time sweep's are
-    `ship.readiness: ...` and, like the review, it runs only once the gate chain
-    is green (orchestrate._build_one), so its first findings follow a repair that
-    cleared every gate finding (ship15 2026-10-12: four builds went leak.sweep 1
-    -> ship.readiness 5..15 and were refused as churn). Everything else comes from
+    (orchestrate._review_candidate, repair.feedback); everything else comes from
     the gate chain -- static gates, probes and executed controls.
     """
-    text = (finding or "").strip().lower()
-    if text.startswith("semantic review "):
-        return "semantic-review"
-    return "ship-readiness" if text.startswith("ship.readiness:") else "gates"
+    return ("semantic-review" if (finding or "").strip().lower().startswith("semantic review ")
+            else "gates")
 
 
 def _identity_if_available(bundle: Path) -> str | None:
