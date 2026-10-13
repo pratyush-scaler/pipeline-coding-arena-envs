@@ -14,7 +14,8 @@ typed by hand. Thresholds live in `policy` (SIGNAL_*).
 
     summary(spec, per_model)   free-weight share, independent hard decisions, per-model reward
                                spread, the decisive trap types
-    problems(summary)          what keeps the signal from being usable (empty when it is)
+    problems(summary)          what keeps the signal from being usable (empty when it is): free points, independent decisions
+    advisories(summary)        reward spread: aimed at and reported, never a refusal
     from_screen(bundle, screen) / from_release(version)
 """
 from __future__ import annotations
@@ -119,10 +120,18 @@ def problems(s: dict) -> list[str]:
         out.append(f"signal: {s.get('independent_hard', 0)} independent hard decision(s) (checks failed by >= "
                    f"{policy.SIGNAL_HARD_FAIL_RATE:.0%} of a model's runs, one per trap); at least "
                    f"{policy.SIGNAL_MIN_INDEPENDENT_HARD} needed so partial progress earns partial reward")
+    return out
+
+
+def advisories(s: dict) -> list[str]:
+    """Reward spread: aimed at and reported, never a refusal. A model can return byte-identical solutions in every
+    run (validation session 2026-10-13, c-011-quant: 10/10 Astra repos identical on 300 fuzz frames), so a spread
+    floor would refuse a task whose grader is sound; only fresh episodes can show spread there."""
+    out = []
     for model, sp in (s.get("spread") or {}).items():
         if sp.get("stdev") is not None and sp["stdev"] < policy.SIGNAL_REWARD_SPREAD_MIN:
-            out.append(f"signal: {model.split('/')[-1]} runs are flat (rewards {sp['min']}-{sp['max']}, stdev "
-                       f"{sp['stdev']}): every run scores about the same, nothing to learn from")
+            out.append(f"signal advisory: {model.split('/')[-1]} runs are flat (rewards {sp['min']}-{sp['max']}, stdev "
+                       f"{sp['stdev']}): every run scores about the same")
     return out
 
 
@@ -187,6 +196,9 @@ mix by weakening or removing a trap: split one blocker into separate decisions, 
 sometimes gets right.
   - VARY THE DECISIVE TRAP across the batch: the trap that decides pass or fail must test a different skill from the \
 other tasks' (Arena found five tasks that all reduced to the same out-of-sync-clock puzzle).
+  - DECOUPLE THE CHECKS: one decision per check, and grade a downstream check against the solution's OWN upstream \
+value where the rule allows (consistency credit), so one early mistake does not zero every later check. This turns a \
+flat all-fail into a spread without loosening any rule (validation-session pilot, 2026-10-13).
   - EVERY INFERENCE RESOLVABLE from the instruction and the repository: no fact the solver cannot obtain from the \
 materials, however hard the task.
 """

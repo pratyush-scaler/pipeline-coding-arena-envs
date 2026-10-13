@@ -486,7 +486,10 @@ def _signal_text(version) -> str:
         screen = json.loads((Path(version) / "verification/screen.json").read_text())
         found = screen.get("signal_problems")
         if found is None:
-            found = learning_signal.problems(learning_signal.from_screen(Path(version), screen))
+            sig = learning_signal.from_screen(Path(version), screen)
+            found = learning_signal.problems(sig) + learning_signal.advisories(sig)
+        else:
+            found = list(found) + list(screen.get("signal_advisories") or [])
     except (OSError, ValueError, KeyError, TypeError):
         return ""
     if not found:

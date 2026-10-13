@@ -58,14 +58,16 @@ class Summary(unittest.TestCase):
         rows = {m: {"episode_rewards": [0.72] * 10, "checks": {f"{S}/o_free": counts(10, 0),
                                                                f"{S}/o_clock": counts(0, 10), f"{S}/o_clock2": counts(0, 10)}}
                 for m in ("anthropic/fable", "openai/astra")}
-        found = learning_signal.problems(learning_signal.summary(sp, rows))
+        s = learning_signal.summary(sp, rows)
+        found = learning_signal.problems(s)
         self.assertTrue(any("passed by every run" in p for p in found), found)
         self.assertTrue(any("independent hard decision" in p for p in found), found)
-        self.assertEqual(sum("flat" in p for p in found), 2, found)
+        self.assertFalse(any("flat" in p for p in found), found)            # spread is never a refusal
+        self.assertEqual(sum("flat" in a for a in learning_signal.advisories(s)), 2)
 
     def test_all_fail_with_varied_partial_scores_is_not_flat(self):
         s = learning_signal.summary(spec(), self.per_model([0.2, 0.5, 0.7, 0.4, 0.6], [0.1, 0.3, 0.6, 0.2, 0.5], (3, 3, 3)))
-        self.assertFalse(any("flat" in p for p in learning_signal.problems(s)))
+        self.assertFalse(any("flat" in p for p in learning_signal.problems(s) + learning_signal.advisories(s)))
         self.assertEqual(s["spread"]["anthropic/fable"]["full_passes"], 0)
 
     def test_episode_rewards_skip_voids_and_average_steps(self):

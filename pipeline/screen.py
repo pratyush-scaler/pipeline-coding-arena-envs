@@ -476,6 +476,7 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
         "census": census,
         "signal": learning_signal,
         "signal_problems": _signal.problems(learning_signal) if learning_signal else [],
+        "signal_advisories": _signal.advisories(learning_signal) if learning_signal else [],
         "shippable": not shippable,
         "shippable_problems": shippable,
         "target_gap": target_gap,

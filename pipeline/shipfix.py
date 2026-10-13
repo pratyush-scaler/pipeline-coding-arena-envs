@@ -519,6 +519,7 @@ def release(version: Path) -> dict:
         try:
             signal = learning_signal.from_release(version)
             why += learning_signal.problems(signal)
+            signal["advisories"] = learning_signal.advisories(signal)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             signal = None
             why.append(f"signal: could not be measured ({type(exc).__name__}: {str(exc)[:160]})")

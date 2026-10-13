@@ -781,9 +781,10 @@ SIGNAL_FREE_WEIGHT_MAX = 0.5
 #:     primary trap (checks that turn on the same decision count as one);
 SIGNAL_MIN_INDEPENDENT_HARD = 3
 SIGNAL_HARD_FAIL_RATE = 0.3
-#:   - each model's valid-episode rewards are not flat ("all 10 runs scored the same
-#:     ... no mix, nothing to learn from"): their standard deviation is at least this.
-#:     A model that fails every run is acceptable only when its partial scores vary.
+#: Each model's valid-episode rewards should not be flat ("all 10 runs scored the same ... no mix"):
+#: a standard deviation under this is REPORTED and aimed at, never a refusal -- a model can return
+#: byte-identical solutions every run, which no grader design can spread (validation session,
+#: 2026-10-13, c-011-quant).
 SIGNAL_REWARD_SPREAD_MIN = 0.05
 #: Decisive-trap variety across a batch ("chapter, poster, viva, redirect-map and wiring
 #: all reduce to the same clock puzzle"): a trap type may be the decisive one of at most
