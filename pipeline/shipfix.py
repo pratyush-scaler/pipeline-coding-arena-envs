@@ -455,7 +455,8 @@ def release(version: Path) -> dict:
       qualify     release.qualify, 10 episodes x 2 models; the final's reviewer, whose verdict it
                   reuses rather than asking again
       genuine     the certificate over the calibration campaigns that ship, re-graded
-      hardness    pass@1 and every step under policy.STEP_PASS_RATE_MAX on both models
+      hardness    pass@1 and every step under policy.STEP_PASS_RATE_MAX on both models, and a
+                  usable learning signal (pipeline.learning_signal, Arena spec Oct 12)
       shipcheck   the sweep with the image probe and the from-scratch rebuild
     """
     from . import genuine, policy, release as release_mod, shipcheck
@@ -512,7 +513,16 @@ def release(version: Path) -> dict:
                 if v > policy.STEP_PASS_RATE_MAX]
         if len(rates) < 2:
             why.append(f"measured {sorted(rates)} only")
-        return {"pass_at_1": rates, "step_pass_rates": steps,
+        # Arena spec Oct 12: hard is not enough -- the 10 x 2 must carry a learning signal (free points
+        # bounded, several independent hard decisions, each model's rewards spread). policy.SIGNAL_*.
+        from . import learning_signal
+        try:
+            signal = learning_signal.from_release(version)
+            why += learning_signal.problems(signal)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            signal = None
+            why.append(f"signal: could not be measured ({type(exc).__name__}: {str(exc)[:160]})")
+        return {"pass_at_1": rates, "step_pass_rates": steps, "signal": signal,
                 "valid": {m: r.get("episodes_valid") for m, r in metrics.items()}, "not_hard": why}
 
     hard = step("hardness", hardness)

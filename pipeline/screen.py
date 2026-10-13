@@ -338,6 +338,7 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
     from .metrics import hardness, task_metrics
     from .release import calibration_measurement
     from . import attribution
+    from . import learning_signal as _signal
 
     bundle = Path(bundle)
     episodes = episodes or policy.SCREEN_EPISODES_PER_MODEL
@@ -387,6 +388,8 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
             "reward_hacking": hits,
             "checks": _check_rows(measured),
             "capability_edges": _capability_edges(measured, verdicts),
+            # Per valid episode, for the reward-spread half of the learning signal (Arena spec Oct 12).
+            "episode_rewards": _signal.episode_rewards(measured),
         }
     try:
         from .author.contracts import strict_json
@@ -441,6 +444,10 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
                           "can aim at it, nothing is blocked by it")
 
     try:
+        learning_signal = _signal.from_screen(bundle, {"per_model": per_model})
+    except (OSError, ValueError, KeyError, TypeError):
+        learning_signal = None
+    try:
         sha = identity(bundle)
     except (OSError, ValueError):
         sha = None
@@ -467,6 +474,8 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
         "extreme_confirmation": confirmation,
         "measurement_complete": measurement_complete,
         "census": census,
+        "signal": learning_signal,
+        "signal_problems": _signal.problems(learning_signal) if learning_signal else [],
         "shippable": not shippable,
         "shippable_problems": shippable,
         "target_gap": target_gap,

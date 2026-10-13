@@ -316,6 +316,8 @@ calibration models (Fable 5.1 in Claude Code, GPT 6 Astra in Codex, high effort,
 turn or time limits, a full shell, no network). Aim past it -- a frontier engineer \
 working carefully completes the whole task with pass@1 <= \
 {policy.AUTHOR_TARGET_PASS_AT_1} on EACH model -- an advisory design goal, measured later -- \
+with the same model's runs DIFFERING (some decisions right, some wrong, partial scores varied; an \
+occasional full pass is fine, identical failures every run are not), \
 and fails because the JUDGMENT defeated it, \
 never because it could not tell what was asked. The bar that keeps that honest -- NOT UNPASSABLE: an \
 expert practitioner given ONLY the instruction and the repository must be able to get \
@@ -339,9 +341,11 @@ aimed at both families, in EVERY step, each proved by an idiomatic-baseline muta
 and a partial mutant per lever. Visible inputs are the ordinary cases; the hidden \
 suite sits where the published rule and the natural code diverge.
   - Same-type traps are correlated: a model that sees the principle once applies it \
-everywhere. Vary the levers. Keep each trap's affected population small and the checks \
-COUPLED: route several checks through one wrong premise, since pass@1 counts only \
-FULL success.
+everywhere. Vary the levers. Keep each trap's affected population small, and SPREAD the \
+difficulty over several INDEPENDENT decisions (LEARNING SIGNAL, in your opening brief): \
+full success needs every decision right, so pass@1 stays low, while each decision fails \
+on its own and partial progress earns partial reward. Never hang several checks off one \
+premise as the whole difficulty -- every run then scores the same.
   - WORKED EXAMPLE (an interlock, from the six-step parser). The user's rule names two \
 placeholders to drop, "only those"; another rule says a fenced run is text wherever it \
 sits. The visible dumps carry the two placeholders unfenced. A hidden question carries \
@@ -1600,6 +1604,11 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             advisories = validate_mod.overfit_advisories(spec, bundle)
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories = [f"ADVISORY unavailable: {type(exc).__name__}: {exc}"]
+        try:
+            from .. import learning_signal as _learning_signal
+            advisories += _learning_signal.design_advisories(spec)
+        except Exception as exc:  # noqa: BLE001  advisories never block
+            advisories.append(f"ADVISORY learning signal unavailable: {type(exc).__name__}: {exc}")
         strength = difficulty_profile(spec)
         try:
             doctrine = levers_mod.diagnostics(spec, bundle)
@@ -1776,6 +1785,7 @@ def _operator_brief_lines(row: dict) -> list[str]:
 
 
 def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> str:
+    from .. import learning_signal as _learning_signal
     repo = bundle / "environment" / "repo"
     files = [p for p in repo.rglob("*") if p.is_file()] if repo.is_dir() else []
     langs: dict[str, int] = {}
@@ -1845,6 +1855,8 @@ def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> s
            f"{policy.STEP_PASS_RATE_MAX} on each model.")
         if type(row.get("step_budget")) is int else "STEP BUDGET: not assigned (legacy build).",
         *_operator_brief_lines(row),
+        "",
+        *_learning_signal.guidance().rstrip("\n").splitlines(),
         "",
         "BUDGET AND FLOORS, enforced during downstream validation:",
         f"  - at least {MIN_OBJECTIVES} objectives, at least one guardrail, at least three traps, a mutant per trap, an alternative fix per step",

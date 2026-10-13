@@ -769,6 +769,27 @@ STEP_PASS_RATE_MAX = 0.5
 #: `int()` no sentence publishes, while every objective scored 0.68-1.0.
 SHIP_GUARDRAIL_FAIL_SHARE_MAX = 0.6
 
+#: Learning signal (Arena spec, Oct 12, the highlighted paragraphs; Arena review of the
+#: delivered batch: "about 70% of the points are checks that every model passes ... good
+#: and bad solutions both score about 0.72, and there is nothing to learn from"). A
+#: measured task (pilot or the 10 x 2 of record) carries a usable signal only when:
+#:   - at most this share of objective weight sits in checks EVERY valid episode of
+#:     BOTH models passed (free points);
+SIGNAL_FREE_WEIGHT_MAX = 0.5
+#:   - at least this many INDEPENDENT hard decisions exist: objective checks failed by
+#:     at least SIGNAL_HARD_FAIL_RATE of one model's valid episodes, counted once per
+#:     primary trap (checks that turn on the same decision count as one);
+SIGNAL_MIN_INDEPENDENT_HARD = 3
+SIGNAL_HARD_FAIL_RATE = 0.3
+#:   - each model's valid-episode rewards are not flat ("all 10 runs scored the same
+#:     ... no mix, nothing to learn from"): their standard deviation is at least this.
+#:     A model that fails every run is acceptable only when its partial scores vary.
+SIGNAL_REWARD_SPREAD_MIN = 0.05
+#: Decisive-trap variety across a batch ("chapter, poster, viva, redirect-map and wiring
+#: all reduce to the same clock puzzle"): a trap type may be the decisive one of at most
+#: this share of a batch's measured-hard tasks; designers are told which types are over it.
+SIGNAL_DECISIVE_TYPE_MAX_SHARE = 0.25
+
 #: User, 2026-10-03: "most of the tasks single step ... only 10% of the tasks
 #: need to be multi-step ... all the steps are extremely hardened and meet the
 #: criteria of pass@1<=0.5". A batch designates this share of its seeds -- the

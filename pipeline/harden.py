@@ -439,12 +439,13 @@ How each check behaved in calibration (the trap has to move these):
    resolution fails differently -- and give EVERY step its own. Prove each with an
    idiomatic-baseline mutant (m_baseline_...) and one partial mutant per lever
    (m_partial_...), and record it in quality.lever_plan. Keep each trap's affected
-   population small; route several checks through one wrong premise, since pass@1
-   counts only FULL success. Vary the levers across items.
+   population small, and spread the difficulty over several INDEPENDENT decisions
+   (LEARNING SIGNAL below) -- never several checks hanging off one premise as the
+   whole difficulty. Vary the levers across items.
 
 3. ROUTE GENUINE OBJECTIVES THROUGH EACH PREMISE. One failed objective already
    defeats full-task success. Re-aim the free checks above so
-   they read through the trap; never split one behaviour into several checks
+   they read through DIFFERENT traps, one decision each; never split one behaviour into several checks
    to multiply its weight. Every new trap needs its OWN MUTANT (a plausible
    wrong fix that fails exactly the checks the trap drives, passes at least one
    objective) and its misreading in quality.difficulty_case. Every rule a test
@@ -478,6 +479,22 @@ Source rejection is reserved for evidence that no fair coding task is possible.
 """
 
 
+def _signal_text(version) -> str:
+    """The measured version's learning-signal problems (pipeline.learning_signal), for the brief."""
+    from . import learning_signal
+    try:
+        screen = json.loads((Path(version) / "verification/screen.json").read_text())
+        found = screen.get("signal_problems")
+        if found is None:
+            found = learning_signal.problems(learning_signal.from_screen(Path(version), screen))
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    if not found:
+        return ""
+    return ("  MEASURED ON THIS VERSION -- fix these without weakening any trap:\n"
+            + "".join(f"    - {p}\n" for p in found))
+
+
 def _bands_text() -> str:
     from .author.quality import BAND_LIMITS
     return ", ".join(f"{band} {low}-{high}" for band, (low, high) in BAND_LIMITS.items())
@@ -494,7 +511,7 @@ ever ({left} left after this one), and any after this exist only to repair what
 this revision breaks or to tighten what its measurement shows it missed.
 Hold nothing back for a later round: install every genuine premise trap this
 source supports NOW, of varied
-types, route every free check through one, and make each as deceptive as the
+types, route the free checks through them -- each through its own independent decision -- and make each as deceptive as the
 EVIDENCE legitimately allows -- never the requirements, which stay perfectly
 clear -- while the task keeps meeting every requirement of
 the ARENA QUALITY BAR (system prompt): every rule published, every check
@@ -826,7 +843,11 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
             budget=_budget_text(faithfulness_budget(bundle, ledger,
                                                   preserve_level=policy.HARDENING_PRESERVE_LEVEL)))
         from .author.difficulty import EXTREME_PROMPT
-        brief += f"\nAim for pass@1 <= {policy.EXTREME_TARGET_PASS_AT_1} on EACH model.\n" + EXTREME_PROMPT
+        brief += (f"\nAim for pass@1 <= {policy.EXTREME_TARGET_PASS_AT_1} on EACH model, with the same model's runs "
+                  "differing (partial scores varied; an occasional full pass is fine, identical failures are not).\n"
+                  + EXTREME_PROMPT)
+        from . import learning_signal as _learning_signal
+        brief += "\n" + _learning_signal.guidance() + _signal_text(measured or bundle)
         brief += _lever_text(measured or bundle, spec, row)
         if kind == "extend":
             from .author.cases import checkpoint_template

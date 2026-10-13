@@ -211,7 +211,14 @@ aimed at what Astra's episodes miss (and Fable's, where Fable passes). The re-gr
 you chose the cases with these trees in view -- so it is reported only as provisional; the revision is then
 validated and screened on FRESH episodes, and only that screen counts. Aim for a provisional full-pass rate of
 0-1 of 5 per model per step so that a fresh screen lands at or under 50%.
+
+Arena spec, Oct 12 (learning signal): aim the new cases at SEVERAL DIFFERENT habits, each its own decision, so the
+re-grade shows episodes failing DIFFERENT checks with DIFFERENT partial scores -- not one case every episode fails
+the same way. A set where each episode gets some decisions right and some wrong is what the model learns from.
 """
+
+from . import learning_signal as _learning_signal
+FAST_BRIEF = FAST_BRIEF + "\n" + _learning_signal.guidance()
 
 
 def episode_summary(episodes: list[dict], screen_record: dict | None) -> str:

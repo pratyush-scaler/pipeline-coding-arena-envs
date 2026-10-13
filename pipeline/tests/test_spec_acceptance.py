@@ -1534,7 +1534,7 @@ class DifficultyGuidanceReachesTheModelActuallyUsed(unittest.TestCase):
 
     MARKERS = ("NOT UNPASSABLE", "expert practitioner given ONLY",
                "ZERO times", "search query and called it a task",
-               "WORKED EXAMPLE", "COUPLED")
+               "WORKED EXAMPLE", "INDEPENDENT decisions")
 
     def test_the_agent_designer_system_prompt_carries_it(self):
         from pipeline.author import agent_designer
@@ -2082,7 +2082,7 @@ class CodingPromptCarriesThePolicy(unittest.TestCase):
                      "EXTREMELY HARD", "ARENA QUALITY BAR", "WHAT THE INDEPENDENT REVIEWER REJECTS",
                      "Publish the RULE, never its RESULT", "THE DIFFICULTY SELF-AUDIT",
                      "quality.difficulty_case", "NOT UNPASSABLE", "expert practitioner given ONLY",
-                     "ZERO times", "search query and called it a task", "WORKED EXAMPLE", "COUPLED",
+                     "ZERO times", "search query and called it a task", "WORKED EXAMPLE", "INDEPENDENT decisions",
                      "CRITERIA, NOT RECIPES", "No pre-judged evidence"):
             self.assertIn(text, a.SYSTEM, text)
         self.assertIn(f"pass@1 <= {policy.AUTHOR_TARGET_PASS_AT_1} on EACH model", a.SYSTEM)
