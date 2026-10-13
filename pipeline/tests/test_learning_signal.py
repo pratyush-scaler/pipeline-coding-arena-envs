@@ -87,6 +87,9 @@ class BatchAndDesign(unittest.TestCase):
         self.assertEqual(ledger["tasks"], 8)
 
     def test_design_advisories(self):
+        orig = learning_signal.ledger_path
+        learning_signal.ledger_path = lambda: Path("/nonexistent/decisive-traps.json")    # never the live batch ledger
+        self.addCleanup(setattr, learning_signal, "ledger_path", orig)
         self.assertEqual(learning_signal.design_advisories(spec()), [])
         heavy = spec(floor_weight=200)
         found = learning_signal.design_advisories(heavy)
