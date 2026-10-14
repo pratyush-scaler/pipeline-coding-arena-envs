@@ -11,6 +11,16 @@ from .author.contracts import contained, strict_json
 
 PATH = 'verification/checkpoint.json'
 WORKSPACE = ('environment/repo', 'environment/deps', 'provenance')
+# The build deletes environment/deps and rewrites it from the submitted spec's own `deps` and the
+# toolchain's empty manifests, so what a build left there before an interrupted check adds nothing
+# the submitted.json hash does not already cover (c-025-python-rules-engine, 2026-10-14: a build
+# wrote deps/requirements.txt, then every resume was refused). The repository and provenance must
+# still match byte for byte.
+REGENERATED = ('environment/deps/',)
+
+
+def _durable(inventory):
+    return {k: v for k, v in (inventory or {}).items() if not k.startswith(REGENERATED)}
 
 
 def digest(value):
@@ -64,7 +74,7 @@ def submitted_spec(bundle, state=None):
     path = contained(bundle, descriptor['path'])
     if hashlib.sha256(path.read_bytes()).hexdigest() != descriptor['sha256']:
         raise ValueError('Submitted design changed after checkpoint')
-    if evidence_inventory(Path(bundle), WORKSPACE) != state.get('workspace_files'):
+    if _durable(evidence_inventory(Path(bundle), WORKSPACE)) != _durable(state.get('workspace_files')):
         raise ValueError('Submitted design workspace changed after checkpoint')
     return strict_json(path.read_text())
 

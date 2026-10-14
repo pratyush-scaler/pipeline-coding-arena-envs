@@ -96,5 +96,27 @@ class NeverStartedCheckpoint(unittest.TestCase):
         self.assertFalse(orchestrate._never_started({"stage": "validated"}))
 
 
+class SubmittedDesignAfterBuild(unittest.TestCase):
+    """A build that ran before an interrupted check must not make the submitted design unresumable
+    (c-025-python-rules-engine, 2026-10-14); a changed repository still is refused."""
+
+    def test_regenerated_deps_are_excused_and_repo_changes_are_not(self):
+        from pipeline import checkpoint
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            (bundle / "environment/repo").mkdir(parents=True)
+            (bundle / "environment/repo/app.py").write_text("x = 1\n")
+            (bundle / "provenance").mkdir()
+            session = bundle / "verification/session"
+            session.mkdir(parents=True)
+            checkpoint.submitted(bundle, session, {"deps": {"requirements.txt": "rich==13.7.1\n"}})
+            (bundle / "environment/deps").mkdir()
+            (bundle / "environment/deps/requirements.txt").write_text("rich==13.7.1\n")
+            self.assertEqual(checkpoint.submitted_spec(bundle)["deps"], {"requirements.txt": "rich==13.7.1\n"})
+            (bundle / "environment/repo/app.py").write_text("x = 2\n")
+            with self.assertRaisesRegex(ValueError, "workspace changed"):
+                checkpoint.submitted_spec(bundle)
+
+
 if __name__ == "__main__":
     unittest.main()
