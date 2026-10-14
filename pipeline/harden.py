@@ -1090,7 +1090,12 @@ def attempt(original: Path, target: Path, targets: list[dict], findings: list[st
         raise SeedRejected(source_rejection)
     from . import fastharden
     hidden_only = fastharden.hidden_only_problems(before, revised) if fast else []
-    if problems := validate(revised, target) + revision_problems(before, revised, targets, new_lineage=kind == "extend") \
+    # A check the independent review marked for revision is one this round must repair, so it
+    # counts as targeted; no check may still be removed or have its dependency chain rewired.
+    from .review import review_flagged_checks
+    reviewed = [{"id": cid} for cid in sorted(review_flagged_checks(original))]
+    if problems := validate(revised, target) + revision_problems(before, revised, targets + reviewed,
+                                                                  new_lineage=kind == "extend") \
             + hidden_only:
         return problems
     build_stage.build(revised, target)

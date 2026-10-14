@@ -218,6 +218,29 @@ def review_findings(bundle: Path) -> list[str]:
     return out
 
 
+def review_flagged_checks(bundle: Path) -> set[str]:
+    """Ids of the checks the current review did not pass or named as affected by a finding.
+    The repair the review asks for may change them: harden.revision_problems treats them as
+    targeted (2026-10-14: seven review repairs were refused for changing exactly the guardrail
+    the review had marked 'revise'). Empty when the review passed, is absent, or reviewed
+    other bytes."""
+    try:
+        report = strict_json((Path(bundle) / "verification/semantic-review.json").read_text())
+        if report.get("artifact_sha256") != identity(Path(bundle)):
+            return set()
+        doc, _ = load_review_deliverable(contained(Path(bundle), report["work_dir"]).joinpath(
+            "deliverables/review.json"))
+    except (OSError, ValueError, KeyError, TypeError):
+        return set()
+    out = {str(c["id"]) for c in doc.get("checks") or []
+           if isinstance(c, dict) and c.get("id") and c.get("verdict") != "pass"}
+    for key in ("ambiguities", "shortcut_risks", "privacy_findings", "substantive_gaps"):
+        for item in doc.get(key) or []:
+            if isinstance(item, dict):
+                out |= {str(cid) for cid in item.get("affected_checks") or [] if cid}
+    return out
+
+
 def _quoted(quote: str, text: str, rel: str) -> bool:
     """The quote is in the cited file verbatim -- or, in a JSON file, verbatim
     once the file's own backslash escaping is applied to it.
