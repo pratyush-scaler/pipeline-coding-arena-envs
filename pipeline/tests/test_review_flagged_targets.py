@@ -74,5 +74,19 @@ class RevisionInvariantsInCheckDraft(unittest.TestCase):
             self.assertTrue(any(p.startswith("REVISION: revision removes measured checks ['o_b']") for p in out["problems"]))
 
 
+    def test_unrouted_new_trap_and_dropped_trace_trap_are_reported(self):
+        from pipeline.author import agent_designer
+        base = {"checks": [{"id": "o_a", "kind": "objective", "weight": 5, "step": "01-fix"}],
+                "steps": [{"name": "01-fix"}],
+                "traps": [{"id": "t_real", "provenance": "trace_derived", "checks": ["o_a"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            draft = Path(tmp) / "draft.json"
+            check = agent_designer._with_revision_invariants(lambda **_: {"clean": True, "problems": []}, base, draft)
+            draft.write_text(json.dumps(dict(base, traps=[{"id": "t_new", "provenance": "authored", "checks": []}])))
+            problems = check()["problems"]
+            self.assertTrue(any("new trap t_new drives 0 graded objective" in p for p in problems), problems)
+            self.assertTrue(any("trace-derived trap(s) ['t_real']" in p for p in problems), problems)
+
+
 if __name__ == "__main__":
     unittest.main()

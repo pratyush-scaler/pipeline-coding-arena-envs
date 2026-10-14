@@ -1986,10 +1986,19 @@ def _with_revision_invariants(check: Callable, base: dict, draft_path: Path) -> 
     def wrapped(**kwargs):
         out = check(**kwargs)
         try:
-            from ..harden import revision_problems
+            from ..harden import revision_problems, routing_problems
             draft = strict_json(Path(draft_path).read_text())
             found = revision_problems(base, draft, [{"id": c.get("id")} for c in base.get("checks") or []
                                                     if isinstance(c, dict)])
+            # 2026-10-14 multiplayer: two new traps drove no graded objective; lightning: a
+            # trace-derived trap was dropped. Both were refused only after the session.
+            old, new = base.get("traps") or [], draft.get("traps") or []
+            found += routing_problems(old, new, draft.get("checks") or [])
+            derived = {t.get("id") for t in old if isinstance(t, dict) and t.get("provenance") == "trace_derived"}
+            kept = {t.get("id") for t in new if isinstance(t, dict) and t.get("provenance") == "trace_derived"}
+            if derived - kept:
+                found.append(f"the revision removes or relabels trace-derived trap(s) {sorted(derived - kept)}; "
+                             "a trap from a real correction is the task's faithfulness")
         except Exception as exc:  # noqa: BLE001  advisory, never blocks the session
             found = [f"revision invariants could not be checked: {type(exc).__name__}: {exc}"]
         if found and isinstance(out, dict):
