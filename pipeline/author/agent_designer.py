@@ -189,7 +189,10 @@ REVIEWER_OBJECTIONS = (
     "failure, or a crash inside the submission. A command-runner suite that prints its own messages must "
     "label an assertion failure, and only an assertion failure, as a line starting 'AssertionError: '; "
     "otherwise every failure stays 'suspect' and the task cannot ship (2026-10-14, wordpress v7: hard "
-    "0.0/0.0, all failures uncertified).")
+    "0.0/0.0, all failures uncertified). The grader keeps only the last 4000 characters of a check's "
+    "output, so keep assertion messages short: assertIn(key, a_large_dict) prints the whole dict and "
+    "pushes the 'AssertionError' line out of view (2026-10-15, fastapi v7: 10 failures unreadable); "
+    "test membership against sorted(d) or report a count.")
 
 #: User, 2026-10-04: "aim that we meet the score criteria genuinely in the baseline
 #: task creation itself ... target to achieve pass@1<=0.5 in the baseline task".
