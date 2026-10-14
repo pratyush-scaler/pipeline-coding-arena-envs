@@ -387,6 +387,8 @@ def cmd_harden(args) -> int:
         extra.append("--fast")
     if getattr(args, "review_repair", False):
         extra.append("--review-repair")
+    if getattr(args, "repair_root", False):
+        extra.append("--repair-root")
     for fix in getattr(args, "fix", None) or []:
         extra += ["--fix", fix]
     if getattr(args, "reopen_stopped", False):
@@ -810,6 +812,9 @@ def build_parser():
     h.add_argument("--review-repair", action="store_true",
                    help="repair the semantic review's validity findings on the lineage's latest measured "
                         "revision, reopening a target-met lineage; the repair is screened against the same bar")
+    h.add_argument("--repair-root", action="store_true",
+                   help="with --review-repair, operator decision: repair the lineage's ORIGINAL build itself "
+                        "when it is the hard one and its later revisions measured easy (recorded)")
     h.add_argument("--out", help="fresh destination for --extend-steps")
     h.set_defaults(fn=cmd_harden)
 

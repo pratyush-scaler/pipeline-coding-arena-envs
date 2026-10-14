@@ -1291,6 +1291,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="a defect of the task the round must fix (repeatable); nothing else changes")
     ap.add_argument("--review-repair", action="store_true",
                     help="repair the semantic review's validity findings on the latest measured revision")
+    ap.add_argument("--repair-root", action="store_true",
+                    help="with --review-repair, operator decision: repair the lineage's ORIGINAL build itself "
+                         "when it is the hard one and its later revisions measured easy (recorded)")
     ap.add_argument("--out", help="fresh destination for --extend-steps")
     ns = ap.parse_args(argv)
 
@@ -1374,7 +1377,8 @@ def main(argv: list[str] | None = None) -> int:
     requested = requested_traps(ns.trap, ns.traps) + [FIX_PREFIX + fix for fix in (ns.fix or [])]
     try:
         return run_lineage(bundle, report, requested, screen=not ns.no_screen, attempt_budget=ns.attempt_budget,
-                           fast=ns.fast, review_repair=ns.review_repair, reopen_stopped=ns.reopen_stopped)
+                           fast=ns.fast, review_repair=ns.review_repair, reopen_stopped=ns.reopen_stopped,
+                           repair_root=ns.repair_root and ns.review_repair)
     except RuntimeError as exc:
         print(f"  REFUSED: {exc}")
         return 1
@@ -1581,7 +1585,7 @@ def _rule_stopped_revision(root: Path, ledger: dict) -> Path | None:
 
 def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool = True,
                 *, attempt_budget: int | None = None, fast: bool = False,
-                review_repair: bool = False, reopen_stopped: bool = False) -> int:
+                review_repair: bool = False, reopen_stopped: bool = False, repair_root: bool = False) -> int:
     """Harden `bundle` within its lineage's attempt budget. The one loop.
 
     Each iteration is one designer call. An attempt is recorded the moment the
@@ -1660,8 +1664,15 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
             # A named revision is repaired as named (c-029, 2026-10-04: its reviewed v2 met
             # the bar while a later, never-measured v3 would otherwise be the resume point).
             named = Path(bundle).resolve()
-            review_resume = (named if named != root.resolve()
+            # --repair-root (2026-10-14): a hard original whose later revisions measured easy is
+            # repaired itself; without it the original continues from its latest valid revision.
+            review_resume = (named if named != root.resolve() or repair_root
                              else _resume_point(root, ledger) or root.resolve())
+            if repair_root and named == root.resolve():
+                ledger.setdefault("reopened", []).append(
+                    {"at": time.time(), "from": ledger.get("status"), "revision": ".",
+                     "why": "operator --repair-root: the original is the hard build; its later revisions measured easy"})
+                _save(root, ledger)
             if review_resume is None or not review_repairs(review_resume):
                 raise RuntimeError(f"{root.name}: --review-repair needs a measured revision "
                                    "with current review findings")
@@ -1675,7 +1686,8 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
             raise RuntimeError(f"{root.name}: hardening has ended -- "
                                f"{TERMINAL.get(ledger['status'], ledger['status'])}")
         current, targets = Path(bundle).resolve(), report["floor"]
-        if current == root and (resume := _resume_point(root, ledger)) is not None:
+        if current == root and not (repair_root and review_resume is not None) \
+                and (resume := _resume_point(root, ledger)) is not None:
             # `arena harden <original> --apply` on a lineage that already has a
             # measured revision continues from that revision. Starting again
             # from the original threw the measured progress away and spent an
