@@ -667,6 +667,31 @@ THE INDEPENDENT REVIEWER'S VALIDITY FINDINGS on the version you start from. Repa
 EVERY one in this revision; each is a defect of the task, not of the models:
 {items}
 
+THE REPAIR PROTOCOL -- execution-gated, one finding at a time (2026-10-14: every hard
+revision that reached release was rejected, and fixes made without reproducing a finding
+or checking their own diff missed findings or created new ones):
+  1. Number the findings R1..Rn as listed. Each ends FIXED or REFUTED; none is skipped
+     and none is changed silently.
+  2. Reproduce before fixing: write the finding's counterexample as a hidden case and
+     sandbox_grade the CURRENT reference and alternative. A static claim the reviewer did
+     not execute is a hypothesis (LLM reviewers over-flag correct code): if the case
+     passes on the current reference, the finding is REFUTED -- change no code for it,
+     keep the case, and put the executed evidence in the affected check's basis.
+  3. Fix the root cause in the reference AND the alternative (every step's patch and
+     solution/fix.patch), then sweep for the same class of defect: cover what the
+     published instruction settles and record what it does not under untested_surfaces.
+  4. Regression gate after every change: the reference (three runs) and the alternative
+     stay at 1.0, and run_controls holds for every control and mutant exactly as declared.
+  5. Scope: change only what a finding needs. Before submitting, read your diff against
+     the starting version; every changed file, check, case, sentence and patch must trace
+     to a numbered finding, and anything that does not is reverted.
+  6. Write the resolution ledger in solution_notes, one line per finding:
+     "R<k> <id>: FIXED|REFUTED -- case <name>: before <result>, after <reference and
+     alternative results>; files <paths>". The reviewer reads it.
+  7. pre_review the final draft and resolve whatever it raises with this same protocol;
+     do not submit while it reports a substantive gap you have not FIXED or REFUTED with
+     executed evidence.
+
 How to judge each one (the user's standard): some ambiguity is required, and a task
 is valid as long as it stays CORRECT and a careful human can understand and perform
 it from the instruction and the repository.
