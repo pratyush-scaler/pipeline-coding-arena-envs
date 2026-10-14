@@ -691,6 +691,11 @@ or checking their own diff missed findings or created new ones):
   7. pre_review the final draft and resolve whatever it raises with this same protocol;
      do not submit while it reports a substantive gap you have not FIXED or REFUTED with
      executed evidence.
+  8. Run coverage_critic on the final draft. Release runs the same critic AFTER the 10 x 2
+     calibration, and a realistic gap (a wrong implementation the suite scores 1.0) blocks
+     shipping there (2026-10-14, cli-tool v8: 5 gaps found only at acceptance). Close each
+     with a hidden case its published sentence settles, or record it under untested_surfaces
+     when the sentence does not settle it.
 
 How to judge each one (the user's standard): some ambiguity is required, and a task
 is valid as long as it stays CORRECT and a careful human can understand and perform
