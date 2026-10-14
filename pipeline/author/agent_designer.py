@@ -183,7 +183,13 @@ REVIEWER_OBJECTIONS = (
     "  10. A mutant that does not do what it claims: it must implement exactly its trap's misreading, fail "
     "exactly the checks it declares (run_controls shows `failed` next to `declared`), pass at least one "
     "objective, and apply cleanly on top of the earlier steps' reference. Re-run run_controls after ANY "
-    "test or patch change; a stale mismatch is the most common deterministic rejection.")
+    "test or patch change; a stale mismatch is the most common deterministic rejection.\n"
+    "  11. An uncertifiable failure: a task ships only when the genuine-failure audit certifies every counted "
+    "failure as the model's, and it recognises pytest, node and go assertions, a JSON report's matcher "
+    "failure, or a crash inside the submission. A command-runner suite that prints its own messages must "
+    "label an assertion failure, and only an assertion failure, as a line starting 'AssertionError: '; "
+    "otherwise every failure stays 'suspect' and the task cannot ship (2026-10-14, wordpress v7: hard "
+    "0.0/0.0, all failures uncertified).")
 
 #: User, 2026-10-04: "aim that we meet the score criteria genuinely in the baseline
 #: task creation itself ... target to achieve pass@1<=0.5 in the baseline task".
