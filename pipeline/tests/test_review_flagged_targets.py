@@ -118,5 +118,21 @@ class SubmittedDesignAfterBuild(unittest.TestCase):
                 checkpoint.submitted_spec(bundle)
 
 
+class ComputedSuiteLoads(unittest.TestCase):
+    """check_draft advises when a hidden suite loads a module by a computed name (2026-10-15, ai-agent v9)."""
+
+    def test_computed_import_is_advised_and_literal_imports_are_not(self):
+        from pipeline.author.agent_designer import computed_load_advisories
+        computed = "import importlib\ndef make(name):\n    return importlib.import_module(name)\n"
+        built = ("import sys\nfrom types import ModuleType\ndef make(name, path, source):\n"
+                 "    m = ModuleType(name); sys.modules[name] = m\n"
+                 "    exec(compile(source, str(path), 'exec'), m.__dict__)\n    return m\n"
+                 "import deepseek_agent.agent.core\n")
+        spec = {"suites": {"conftest.py": computed, "test_ok.py": built, "data/x.json": "{}"}}
+        out = computed_load_advisories(spec)
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0].startswith("ADVISORY suites/conftest.py:"))
+
+
 if __name__ == "__main__":
     unittest.main()

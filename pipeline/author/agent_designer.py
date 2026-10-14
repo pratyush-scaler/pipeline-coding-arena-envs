@@ -1619,6 +1619,10 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories = [f"ADVISORY unavailable: {type(exc).__name__}: {exc}"]
         try:
+            advisories += computed_load_advisories(spec)
+        except Exception as exc:  # noqa: BLE001  advisories never block
+            advisories.append(f"ADVISORY suite load scan unavailable: {type(exc).__name__}: {exc}")
+        try:
             from .. import learning_signal as _learning_signal
             advisories += _learning_signal.design_advisories(spec)
         except Exception as exc:  # noqa: BLE001  advisories never block
@@ -1977,6 +1981,21 @@ def validate_source_capacity(spec: dict, bundle: Path, *, source_root=None) -> d
 #: model reads. The names are re-exported here for the tests.
 from .prompt_cache import (CACHE_MARK, CACHEABLE_BLOCKS,  # noqa: E402,F401
                            _marked_tail, with_cache_breakpoints)
+
+
+def computed_load_advisories(spec: dict) -> list[str]:
+    """A hidden Python suite that loads a module by a computed name or path stops the grader's static
+    reachability walk, and every file an agent adds is then scanned as if the tests imported it
+    (c-001-python-ai-agent v9, 2026-10-15: an agent's own unimported fixture with `import builtins`
+    refused every check of 5 of 8 Astra episodes)."""
+    from .grader_runtime.grade import _computed_loads
+    return [f"ADVISORY suites/{path}: loads a module by a computed name or path, so the grader scans EVERY "
+            "file an agent adds and refuses the whole tree when an unimported helper of theirs mentions "
+            "builtins, ctypes or sys.modules. Import fixed modules with import statements, and build a "
+            "module the test writes itself with types.ModuleType + exec(compile(source, path, 'exec'), "
+            "module.__dict__) registered in sys.modules."
+            for path, text in sorted((spec.get("suites") or {}).items())
+            if path.endswith(".py") and isinstance(text, str) and _computed_loads(text)]
 
 
 def _with_revision_invariants(check: Callable, base: dict, draft_path: Path) -> Callable:
