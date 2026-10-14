@@ -103,12 +103,26 @@ function has(dir, name) {
   }
   return ["/opt/deps/node_modules", "/usr/local/lib/node_modules"].some(g => fs.existsSync(path.join(g, name, "package.json")));
 }
+// The innermost block around the import is a `try` block: an optional package the code itself
+// catches (`try { return require('canvas'); } catch {}`), as the Python scan honours
+// `except ImportError` (c-006-node-weather-backend, 2026-10-14).
+function guarded(text, at) {
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    if (text[i] === "}") depth++;
+    else if (text[i] === "{") {
+      if (depth === 0) return /\btry\s*$/.test(text.slice(Math.max(0, i - 16), i));
+      depth--;
+    }
+  }
+  return false;
+}
 function scan(p) {
   const text = fs.readFileSync(p, "utf8").split("\n").filter(l => !/^\s*(\/\/|\*)/.test(l)).join("\n");
   let m;
   while ((m = RE.exec(text))) {
     const s = m[1];
-    if (/^(\.|\/|node:|https?:|data:|#)/.test(s) || s.includes("${")) continue;
+    if (/^(\.|\/|node:|https?:|data:|#)/.test(s) || s.includes("${") || guarded(text, m.index)) continue;
     const name = s.startsWith("@") ? s.split("/").slice(0, 2).join("/") : s.split("/")[0];
     if (builtins.has(name) || !/^(@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name)) continue;
     if (!has(path.dirname(p), name)) (miss[name] = miss[name] || new Set()).add(path.relative(ROOT, p));

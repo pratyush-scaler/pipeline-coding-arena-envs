@@ -9,6 +9,7 @@ episodes failed), and C-006/C-013 (a counter-implementation scoring 1.0).
 """
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -196,6 +197,20 @@ class ImportProbe(unittest.TestCase):
         self.assertNotIn("@PY_IMPORTS@", text)
         self.assertNotIn("@NODE_IMPORTS@", text)
         compile(image_probe.PY_IMPORTS, "py_imports", "exec")
+
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_a_require_the_code_catches_is_optional(self):
+        from pipeline import image_probe
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, True)
+        (repo / "index.js").write_text(
+            "const express = require('express');\n"
+            "function loadCanvas() {\n  try { return require('canvas'); } catch (e) { return null; }\n}\n"
+            "try {\n  if (x) { const sharp = require('sharp'); }\n} catch (e) {}\n"
+            "if (ok) { require('left-pad'); }\n")
+        script = image_probe.NODE_IMPORTS.replace('"/app/repo"', json.dumps(str(repo)))
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(sorted(l.split("|")[1] for l in out.splitlines()), ["express", "left-pad", "sharp"])
 
 
 class CoverageCritic(unittest.TestCase):
