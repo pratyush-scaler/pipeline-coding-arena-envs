@@ -467,7 +467,7 @@ def _build_one(row: dict, index: int, out_root: Path, designer: Callable,
             return retained
         resumed = ({**progress.read(bundle), "stage": "stalled"} if stalled
                    else progress.resumable(bundle))
-        if progress.read(bundle) and not resumed:
+        if progress.read(bundle) and not resumed and not _never_started(progress.read(bundle)):
             raise ValueError('Existing checkpoint is not resumable; retain this attempt instead of resetting it')
         if resumed:
             preserve_workspace = True
@@ -902,6 +902,13 @@ def _screen_as_built(bundle: Path) -> None:
         print(f"  screened as built {bundle.name}: {screen._one_line(record)}", flush=True)
     except Exception as exc:                     # noqa: BLE001 -- calibrate_batch retries it
         print(f"  screen as built {bundle.name} failed: {type(exc).__name__}: {exc}"[:400], flush=True)
+
+
+def _never_started(state: dict) -> bool:
+    """A checkpoint that recorded no stage and no authoring session: the attempt ended before any
+    design work (2026-10-14: 13 F0 seeds died at extract because a workspace's dump copy lacked their
+    trace files). Nothing was spent, so the seed may start fresh; any checkpoint with a stage is kept."""
+    return not state.get("stage") and not state.get("authoring_session")
 
 
 def _bundle_for(out_root: Path, row: dict, slug: str) -> Path:

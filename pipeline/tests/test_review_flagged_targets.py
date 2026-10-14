@@ -88,5 +88,13 @@ class RevisionInvariantsInCheckDraft(unittest.TestCase):
             self.assertTrue(any("trace-derived trap(s) ['t_real']" in p for p in problems), problems)
 
 
+class NeverStartedCheckpoint(unittest.TestCase):
+    def test_only_a_stageless_checkpoint_may_start_fresh(self):
+        from pipeline import orchestrate
+        self.assertTrue(orchestrate._never_started({"schema": "arena-pipeline/checkpoint/1", "gate_repairs_remaining": 2}))
+        self.assertFalse(orchestrate._never_started({"stage": "authoring", "authoring_session": {"id": "x"}}))
+        self.assertFalse(orchestrate._never_started({"stage": "validated"}))
+
+
 if __name__ == "__main__":
     unittest.main()
