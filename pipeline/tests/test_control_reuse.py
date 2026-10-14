@@ -152,6 +152,26 @@ class ControlReuse(unittest.TestCase):
         self.assertFalse(stale["ok"])
         self.assertIn("controls: receipt is for another version of this bundle", stale["problems"])
 
+    def test_a_check_killed_at_its_limit_is_a_failure_not_missing_evidence(self):
+        path, original = self.evidence(self.execute())
+        step = self.steps[0]
+        label = next(l for l in original["records"] if l == "nop" or l.startswith("mutant:"))
+        shape = {s: set(original["records"]["golden-1"]["steps"][s]["grade"]["checks"]) for s in self.steps}
+        for passed, accepted in ((False, True), (True, False)):
+            with self.subTest(passed=passed):
+                evidence = deepcopy(original)
+                item = next(iter(evidence["records"][label]["steps"][step]["grade"]["checks"].values()))
+                item.update(timed_out=True, passed=passed)
+                path.unlink(missing_ok=True)
+                path = control_cache.retain(self.bundle / control_cache.ROOT, evidence["inputs"],
+                                            evidence["receipt"], evidence["records"])[0]
+                read = lambda: control_cache.read(path, evidence["inputs"], list(evidence["records"]), self.steps, shape)
+                if accepted:
+                    self.assertEqual(read()["records"][label], evidence["records"][label])
+                else:
+                    with self.assertRaisesRegex(ValueError, "per-check control evidence"):
+                        read()
+
     def test_partial_invalid_failed_or_summary_evidence_is_never_reused(self):
         source = self.execute()
         path, original = self.evidence(source)

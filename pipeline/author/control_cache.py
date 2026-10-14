@@ -143,10 +143,16 @@ def read(path: Path, inputs: dict, labels, steps: list, checks: dict) -> dict:
             if not isinstance(grade, dict):
                 raise ValueError("invalid grader evidence")
             flags = grade.get("checks") or {}
+            # A check the grader killed at its limit is a complete observation of a failure
+            # (grade.py records passed=False); a nop or mutant whose code hangs fails that way, and
+            # _evaluate refuses it on a reference. Refusing it here left two tasks whose controls
+            # held unvalidatable by any repair (c-021 trading-analysis, c-002 aiogram, 2026-10-14).
+            # A timed-out check that claims to pass is still refused.
             if (not isinstance(flags, dict) or entry.get("valid") is not True or entry.get("error") or entry.get("timed_out")
                     or set(flags) != set(checks[step])
                     or not _reward(entry.get("reward"))
-                    or any(not isinstance(item, dict) or type(item.get("passed")) is not bool or item.get("timed_out")
+                    or any(not isinstance(item, dict) or type(item.get("passed")) is not bool
+                           or (item.get("timed_out") and item.get("passed") is not False)
                            for item in flags.values())):
                 raise ValueError("invalid or incomplete per-check control evidence")
     return evidence
