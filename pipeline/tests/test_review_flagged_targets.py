@@ -133,6 +133,14 @@ class ComputedSuiteLoads(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertTrue(out[0].startswith("ADVISORY suites/conftest.py:"))
 
+    def test_command_check_in_a_python_task_is_advised(self):
+        from pipeline.author.agent_designer import computed_load_advisories
+        checks = [{"id": "g_scan", "runner": {"type": "command", "shell": "grep -r x ."}},
+                  {"id": "o_a", "runner": {"type": "pytest", "select": ["t.py::t"]}}]
+        self.assertEqual([a.split(":")[0] for a in computed_load_advisories(
+            {"toolchain": {"name": "python"}, "checks": checks})], ["ADVISORY checks/g_scan"])
+        self.assertEqual(computed_load_advisories({"toolchain": {"name": "node"}, "checks": checks}), [])
+
 
 if __name__ == "__main__":
     unittest.main()

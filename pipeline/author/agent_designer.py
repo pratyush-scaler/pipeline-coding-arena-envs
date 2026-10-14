@@ -1995,7 +1995,14 @@ def computed_load_advisories(spec: dict) -> list[str]:
             "module the test writes itself with types.ModuleType + exec(compile(source, path, 'exec'), "
             "module.__dict__) registered in sys.modules."
             for path, text in sorted((spec.get("suites") or {}).items())
-            if path.endswith(".py") and isinstance(text, str) and _computed_loads(text)]
+            if path.endswith(".py") and isinstance(text, str) and _computed_loads(text)] + [
+            f"ADVISORY checks/{c.get('id')}: a `command` check is pre-scanned over EVERY file of the tree, so an "
+            "agent's own unimported helper that mentions builtins, ctypes or sys.modules refuses it and voids the "
+            "episode (c-072 2026-10-08; c-001 ai-agent v10, 2026-10-15: 5 of 5 Astra episodes). In a Python task "
+            "put the same scan in a pytest or unittest test: only the files the hidden tests import are pre-scanned."
+            for c in spec.get("checks") or []
+            if (spec.get("toolchain") or {}).get("name") == "python"
+            and (c.get("runner") or {}).get("type") == "command"]
 
 
 def _with_revision_invariants(check: Callable, base: dict, draft_path: Path) -> Callable:
