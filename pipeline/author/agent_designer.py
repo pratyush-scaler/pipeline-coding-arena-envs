@@ -1970,6 +1970,29 @@ from .prompt_cache import (CACHE_MARK, CACHEABLE_BLOCKS,  # noqa: E402,F401
                            _marked_tail, with_cache_breakpoints)
 
 
+def _with_revision_invariants(check: Callable, base: dict, draft_path: Path) -> Callable:
+    """check_draft for a revision also reports the invariants validation enforces after the
+    session (2026-10-14: 12 of 25 review repairs and the nfse round were refused only then, for
+    removing a measured check): no check removed, no dependency chain rewired, the step inventory
+    unchanged. Every starting check is passed as targeted, so a guardrail edit is left to the
+    post-session judgement against the review's flagged checks. Advisory like check_draft:
+    submit_draft is unaffected."""
+    def wrapped(**kwargs):
+        out = check(**kwargs)
+        try:
+            from ..harden import revision_problems
+            draft = strict_json(Path(draft_path).read_text())
+            found = revision_problems(base, draft, [{"id": c.get("id")} for c in base.get("checks") or []
+                                                    if isinstance(c, dict)])
+        except Exception as exc:  # noqa: BLE001  advisory, never blocks the session
+            found = [f"revision invariants could not be checked: {type(exc).__name__}: {exc}"]
+        if found and isinstance(out, dict):
+            out["problems"] = list(out.get("problems") or []) + [f"REVISION: {p}" for p in found]
+            out["clean"] = False
+        return out
+    return wrapped
+
+
 def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budget=None,
            feedback: list[str] | None = None, initial_spec: dict | None = None,
            resume_session: dict | None = None, revision: bool = False) -> dict:
@@ -1993,6 +2016,9 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     if level == "F3" and not policy.HARDENING_PRESERVE_LEVEL:
         level = "F2"  # Source category stays intact; the ledger measures the final level.
     handlers = _handlers(bundle, extraction, trace, log / "draft.json", level=level, row=row, log=log)
+    if revision and initial_spec is not None:
+        handlers["check_draft"] = _with_revision_invariants(handlers["check_draft"], copy.deepcopy(initial_spec),
+                                                            log / "draft.json")
     tools = _tools(len(trace.get("messages", [])))
     if row.get("_captured_episodes"):
         tools = tools + FAST_TOOLS

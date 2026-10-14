@@ -55,5 +55,24 @@ class FlaggedChecks(unittest.TestCase):
                             harden.revision_problems(before, dropped, [{"id": "g_grep"}])))
 
 
+class RevisionInvariantsInCheckDraft(unittest.TestCase):
+    """check_draft in a revision session reports a removed check before submission (2026-10-14, nfse)."""
+
+    def test_removed_check_is_reported_and_unchanged_draft_stays_clean(self):
+        from pipeline.author import agent_designer
+        base = {"checks": [{"id": "o_a", "kind": "objective", "weight": 5, "step": "01-fix"},
+                           {"id": "o_b", "kind": "objective", "weight": 5, "step": "01-fix"}],
+                "steps": [{"name": "01-fix"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            draft = Path(tmp) / "draft.json"
+            check = agent_designer._with_revision_invariants(lambda **_: {"clean": True, "problems": []}, base, draft)
+            draft.write_text(json.dumps(base))
+            self.assertEqual(check(), {"clean": True, "problems": []})
+            draft.write_text(json.dumps(dict(base, checks=base["checks"][:1])))
+            out = check()
+            self.assertFalse(out["clean"])
+            self.assertTrue(any(p.startswith("REVISION: revision removes measured checks ['o_b']") for p in out["problems"]))
+
+
 if __name__ == "__main__":
     unittest.main()
