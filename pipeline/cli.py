@@ -522,6 +522,9 @@ def cmd_tasks_check(args) -> int:
     """`harbor tasks-check`, which the spec makes a 100%-of-tasks criterion."""
     from .benchmark import tasks_check
 
+    # `harbor check` runs a Claude Code trial: without keys.env loaded it ended in
+    # AgentAuthenticationError, an unverified receipt (c-001 v12, 2026-10-15).
+    load_keys(prompt_if_missing=False)
     worst = 0
     for bundle in _bundles(Path(args.root)):
         record = tasks_check.run(bundle)
