@@ -491,6 +491,18 @@ def release(version: Path) -> dict:
         receipt = tasks_check.retained(version)
         if receipt is None or receipt.get("status") not in ("pass", "fail"):
             out["tasks_check"] = tasks_check.run(version).get("status")
+        # Likewise the coverage critic: shipcheck needs its receipt for THIS version, which a harden
+        # round never writes (c-001 v12, 2026-10-15). The ship rule (closed-and-verified) is what
+        # `finish` runs, never a fresh search.
+        from . import coverage_critic
+        from .artifacts import identity
+        try:
+            critic = json.loads((version / coverage_critic.RECEIPT).read_text())
+        except (OSError, ValueError):
+            critic = None
+        if not isinstance(critic, dict) or critic.get("artifact_sha256") != identity(version):
+            result = coverage_critic.ship_critic(version, record_dir=version / "verification")
+            out["critic"] = {"gaps": len(result["gaps"]), "mode": result.get("mode", "search")}
         return out
 
     step("revalidate", revalidate)
