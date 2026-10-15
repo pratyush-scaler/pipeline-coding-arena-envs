@@ -39,8 +39,10 @@ from pathlib import Path
 
 from . import policy
 
-#: Designer turns for a hidden-only round: a bounded edit, not a redesign.
-FAST_MAX_STEPS = 90
+#: Designer turns for a hidden-only round: a bounded edit, not a redesign. 90 until 2026-10-15: two gap
+#: rounds (club-management, nfse) spent all 90 on piecemeal stage_spec edits and read_draft (89 + 57 and
+#: 52 + 32 calls) and never submitted.
+FAST_MAX_STEPS = 150
 REGRADE_WORKERS = 6
 RECEIPT = "verification/fast-regrade.json"
 
@@ -182,6 +184,11 @@ HIDDEN-ONLY HARDENING (fast round). The step instructions, the fixture, the tool
 deliverables are FROZEN -- byte for byte. You may change only what the agent never sees: hidden suites
 (tests/suites), checks, traps, mutants, and the reference/alternative patches (only if a new published case
 shows the reference itself was incomplete).
+
+TURN BUDGET: this round has a fixed number of turns and an unsubmitted draft is lost. Plan the edits first,
+stage each file in ONE stage_spec call carrying every change to it (not one call per line), call read_draft
+only when you need content you have not seen, run the controls once the draft is complete, and submit_draft
+well before the last fifth of your turns -- a submitted draft with a known gap beats a lost one.
 
 You have the task's screen episodes: every captured final repository of every Fable 5.1 and GPT-6 Astra
 episode. Use them:
