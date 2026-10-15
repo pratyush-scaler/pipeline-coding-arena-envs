@@ -506,6 +506,18 @@ def release(version: Path) -> dict:
         return out
 
     step("revalidate", revalidate)
+    # Open coverage gaps hold a version at shipcheck whatever its calibration says, and qualify registers
+    # an accepted version in the release registry, where it then refuses its own gap-closing successor by
+    # novelty (forum-ui v6 -> v7, club-management v3, nfse v7; 2026-10-15). Stop before calibrating and
+    # registering: close the gaps with a hidden-only round and release that version.
+    gaps = [f for f in shipcheck.coverage(version) if f.get("check") == "coverage.gap"]
+    if gaps:
+        record["steps"]["critic_gate"] = {"ok": False, "result": {
+            "open_gaps": [f.get("subject") for f in gaps],
+            "next": "close these gaps with `harden <version> --apply --fast` (hidden-only), then release that version"}}
+        record["ready"] = False
+        path.write_text(json.dumps(record, indent=1, default=str))
+        return record
     primary, secondary = policy.resolve_calibration_models()
     reviewer = review_model(version)
     qualified = step("qualify", lambda: {k: v for k, v in release_mod.qualify(
