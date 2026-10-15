@@ -28,7 +28,9 @@ in the workspace:
                       alt/ (an independently written second correct fix)
   controls.json, probes.json   what the executed controls found (untouched
                       fixture 0, reference 1.0, alternative 1.0, each mutant's
-                      failures, tamper immunity, determinism)
+                      failures, tamper immunity, determinism). A draft reviewed
+                      before its controls ran has neither: judge the tests and
+                      patches themselves; their absence is not a finding.
   blind-solve.json    when present: an independent model's fix from the instruction
                       and repository alone, with the shipped grader's per-check
                       results on it. A check that fix fails is either a trap the
@@ -125,7 +127,10 @@ VALIDITY -- what to check, check by check:
   exercises changes no score -- a correct fix still earns 1.0 and a wrong one
   still fails -- so report it in untested_surfaces with the concrete input
   (the executed coverage critic decides coverage), not as a substantive gap.
-- MUTANTS GENUINE: each mutant is a plausible wrong fix a strong engineer might
+- MUTANTS GENUINE (evidence quality, ADVISORY): the controls execute every
+  mutant and a gate refuses one that changes no behaviour, so mutants never
+  change how the shipped grader scores a fix. Put these in difficulty_advisories,
+  never in the defect arrays: each mutant is a plausible wrong fix a strong engineer might
   ship (a symptom patch, a narrower reading), not a no-op or nonsense; and its
   declared misreading in quality.difficulty_case is what that mutant does.
 - FIXTURE HONEST: no leaked fix (a .orig, a comment naming the solution, git
@@ -172,12 +177,15 @@ Use write_file with path="review.json" to write this exact shape:
 VALIDITY DECIDES THE VERDICT; DIFFICULTY NEVER DOES. Use revise whenever any validity or novelty
 defect remains: a hidden requirement, a text-bound test, a flaky test, a
 gameable test, an ambiguity a careful engineer cannot settle, a reference wrong
-on tested behaviour, a fake mutant, a leak, a privacy finding, an assistant-voice
+on tested behaviour, a leak, a privacy finding, an assistant-voice
 instruction, a missing output path, or a duplicate. For grading defects the test
 is their effect on the shipped grader: a correct fix scored below 1.0, a wrong
 fix scored 1.0, or a score that can be forged, leaks the answer or flakes. A
 concern that changes none of these goes in untested_surfaces or
-difficulty_advisories, never in the defect arrays or a check's revise. Every check needs its own justification; a
+difficulty_advisories, never in the defect arrays or a check's revise: the
+quality of the mutants or of the alternative as evidence, an instruction that
+asks for more than the tests check, a stronger test you would have written.
+Every check needs its own justification; a
 passing objective cites the instruction sentence it enforces (steps/...) and
 the test that enforces it (private-grader/suites/...). Each quote must be one
 contiguous substring of at least 15 characters from that file; JSON files may

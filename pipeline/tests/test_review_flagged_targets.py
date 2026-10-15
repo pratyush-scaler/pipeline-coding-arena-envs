@@ -155,6 +155,16 @@ class ReviewStandard(unittest.TestCase):
         self.assertIn("a correct fix scored below 1.0, a wrong fix scored 1.0", flat)
         self.assertIn("report it in untested_surfaces with the concrete input", flat)
         self.assertNotIn("an unstated edge case", flat)
+        self.assertIn("MUTANTS GENUINE (evidence quality, ADVISORY)", flat)
+        self.assertIn("their absence is not a finding", flat)
+        self.assertNotIn("a fake mutant, a leak", flat)
+
+    def test_pre_review_uses_the_gate_reviewer_and_the_brief_lists_the_common_rejections(self):
+        from pipeline.benchmark import coder_run
+        from pipeline.author import agent_designer
+        self.assertNotIn("ARENA_PRE_REVIEW_MODEL", coder_run.DEFAULT_REMOTE_ENV)
+        brief = " ".join(agent_designer.__dict__.get("BRIEF", "").split()) or " ".join(open(agent_designer.__file__).read().split())
+        self.assertIn("What the release review rejects most", brief)
 
 
 if __name__ == "__main__":

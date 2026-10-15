@@ -71,11 +71,13 @@ AUTHORING_PYTHON = "3.12"            # .python-version: the control fingerprints
 #: The remote runner reads this many native episodes at once by default; the
 #: QC template is rated for about 20 concurrent trials on 32 vCPUs.
 #: Control runs execute three trials at once (`controls.default_workers`).
-#: Advisory pre-reviews run on gpt-5.6 so gpt-6-astra's TPM is left to calibration
-#: and the gate review (agent_designer.pre_review).
+#: Advisory pre-reviews ran on gpt-5.6 (2026-10-04, to leave gpt-6-astra's TPM to calibration). The
+#: designer then tuned drafts against a different reviewer than the gate: in 21 of 23 cases a pre-review
+#: pass was followed by a gate revise of the same version (2026-10-15). They now use the gate's own
+#: reviewer (agent_designer.pre_review); set ARENA_PRE_REVIEW_MODEL again if Astra's TPM saturates.
 DEFAULT_REMOTE_ENV = {"ARENA_NATIVE_BACKEND": "local", "ARENA_NATIVE_CONCURRENCY": "20",
                       "ARENA_LOCAL_WORKERS": "1", "ARENA_CONTROL_WORKERS": "3",
-                      "ARENA_PRE_REVIEW_MODEL": "gpt-5.6", "ARENA_CODEX_SLOTS": "10", "ARENA_TRIAL_SLOTS": "24",
+                      "ARENA_CODEX_SLOTS": "10", "ARENA_TRIAL_SLOTS": "24",
                       "PYTHONUNBUFFERED": "1"}
 
 

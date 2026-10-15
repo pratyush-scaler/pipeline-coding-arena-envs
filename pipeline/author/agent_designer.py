@@ -192,7 +192,20 @@ REVIEWER_OBJECTIONS = (
     "0.0/0.0, all failures uncertified). The grader keeps only the last 4000 characters of a check's "
     "output, so keep assertion messages short: assertIn(key, a_large_dict) prints the whole dict and "
     "pushes the 'AssertionError' line out of view (2026-10-15, fastapi v7: 10 failures unreadable); "
-    "test membership against sorted(d) or report a count.")
+    "test membership against sorted(d) or report a count.\n"
+    "  12. What the release review rejects most (546 reviews, 2026-10-15). It blocks a test that scores a "
+    "correct fix below 1.0 or a wrong fix 1.0, so: observe only through the public surface the instruction "
+    "names, never entry points, file layout, DOM order, element type (read text AND form-control values), "
+    "object identity or process model it does not state; make guardrails behavioural, never lexical scans "
+    "or byte budgets; assert identities and values, not counts; give every published clause and sibling "
+    "path a case the plausible partial fix fails; make test doubles load and dispatch like the real "
+    "platform and run your alternative, written in a different idiom, through them; parse outputs with "
+    "real parsers and compare values, not spelling or delimiters; freeze clocks, seed randomness, wait on "
+    "states, and set timeouts above the slowest correct fix; derive expected values only from inputs the "
+    "verifier owns (copy them before agent code runs), never from objects, reports or streams agent code "
+    "can touch; keep hidden inputs inside the repository's documented formats; assert a boundary only "
+    "where a careful human reaches it from the instruction and the repository, else state it in the "
+    "user's words or drop it.")
 
 #: User, 2026-10-04: "aim that we meet the score criteria genuinely in the baseline
 #: task creation itself ... target to achieve pass@1<=0.5 in the baseline task".
