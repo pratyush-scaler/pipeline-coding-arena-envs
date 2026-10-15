@@ -483,6 +483,14 @@ def release(version: Path) -> dict:
             out["controls"] = bool(controls.run(version, workers=3).get("ok"))
         if stale["probes"] or stale["controls"]:
             out["probes"] = bool(probes.run(version).get("ok"))
+        # qualify requires a harbor tasks-check receipt for this exact version. A version a harden
+        # round produced never had one, so its release calibrated 10 x 2 and was then refused for the
+        # receipt alone (c-001 v12, 2026-10-15). A recorded fail is kept; a missing or unverified one
+        # (infrastructure) is run again.
+        from .benchmark import tasks_check
+        receipt = tasks_check.retained(version)
+        if receipt is None or receipt.get("status") not in ("pass", "fail"):
+            out["tasks_check"] = tasks_check.run(version).get("status")
         return out
 
     step("revalidate", revalidate)
