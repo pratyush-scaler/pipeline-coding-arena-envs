@@ -142,5 +142,20 @@ class ComputedSuiteLoads(unittest.TestCase):
         self.assertEqual(computed_load_advisories({"toolchain": {"name": "node"}, "checks": checks}), [])
 
 
+class ReviewStandard(unittest.TestCase):
+    """The reviewer applies the user's ambiguity standard and judges grading defects by their effect on scores
+    (user, 2026-10-15: 477 of 546 reviews this run asked for revision; "ensure the semantic review is not overly strict")."""
+
+    def test_prompt_carries_the_users_standard_and_the_score_test(self):
+        from pipeline.review import PROMPT
+        flat = " ".join(PROMPT.split())
+        self.assertIn("UNAMBIGUOUS, BY THE USER'S STANDARD (user, 2026-10-04): some ambiguity is required", flat)
+        self.assertIn("is NOT a defect: note it in difficulty_advisories", flat)
+        self.assertIn("A case the instruction does not enumerate is still PUBLISHED", flat)
+        self.assertIn("a correct fix scored below 1.0, a wrong fix scored 1.0", flat)
+        self.assertIn("report it in untested_surfaces with the concrete input", flat)
+        self.assertNotIn("an unstated edge case", flat)
+
+
 if __name__ == "__main__":
     unittest.main()

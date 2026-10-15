@@ -44,8 +44,13 @@ VALIDITY -- what to check, check by check:
   Compare each check's basis and rule_quote with the instruction, then read the
   test itself. A test that asserts an implementation detail (a function name
   the instruction never fixes, an internal data structure, an exact message
-  the instruction does not specify), an unstated edge case, or a behaviour the
-  instruction only implies by example is a HIDDEN REQUIREMENT: revise.
+  the instruction does not specify) is a HIDDEN REQUIREMENT: revise. A case the
+  instruction does not enumerate is still PUBLISHED when the plain meaning of a
+  stated rule, read with the repository's own code, conventions and data,
+  decides its outcome: the instruction is the user's voice and must not list
+  hidden cases (HUMAN VOICE), and such edge cases are the task's difficulty.
+  It is a hidden requirement only when the stated rules leave the outcome open
+  and the test decides it -- then apply UNAMBIGUOUS.
 - BEHAVIOUR, NOT TEXT: a test must not depend on the reference's wording.
   Confirm the alternative fix passes (controls.json) and judge whether a third
   correct fix of a different shape would too. A test that greps for a line of
@@ -103,11 +108,23 @@ VALIDITY -- what to check, check by check:
   it with the exact code. A payload that merely behaves differently under test
   without any of that is what calibration attribution reads trajectories for,
   not a release blocker.
-- UNAMBIGUOUS: could two careful engineers produce different defensible fixes
-  that score differently? If the instruction leaves a rule open (a boundary,
-  a format, an error convention) that a test then decides: revise.
+- UNAMBIGUOUS, BY THE USER'S STANDARD (user, 2026-10-04): some ambiguity is
+  required; a task stays valid while it is correct and a careful human can
+  understand and perform it from the instruction and the repository. An open
+  point that a careful engineer settles from the instruction, the repository
+  (its existing code, README, conventions, sample data) and the user's evident
+  intent is NOT a defect: note it in difficulty_advisories. Revise only when
+  two careful engineers who read all of that could still defensibly reach
+  different fixes that the tests score differently (a boundary, a format, an
+  error convention left open); name both readings and say why nothing in the
+  instruction or the repository settles it.
 - REFERENCE CORRECT: read the reference patch against the instruction. A
-  reference that satisfies the tests but not the instruction is a defect.
+  reference (or alternative) that is wrong on behaviour a shipped hidden test
+  exercises, or whose recorded 1.0 the controls contradict, is a defect:
+  revise. A flaw you derive by reading code on an input NO hidden test
+  exercises changes no score -- a correct fix still earns 1.0 and a wrong one
+  still fails -- so report it in untested_surfaces with the concrete input
+  (the executed coverage critic decides coverage), not as a substantive gap.
 - MUTANTS GENUINE: each mutant is a plausible wrong fix a strong engineer might
   ship (a symptom patch, a narrower reading), not a no-op or nonsense; and its
   declared misreading in quality.difficulty_case is what that mutant does.
@@ -154,8 +171,13 @@ Use write_file with path="review.json" to write this exact shape:
 \"untested_surfaces\":[\"remaining concrete limitations\"]}.
 VALIDITY DECIDES THE VERDICT; DIFFICULTY NEVER DOES. Use revise whenever any validity or novelty
 defect remains: a hidden requirement, a text-bound test, a flaky test, a
-gameable test, an ambiguity, an incorrect reference, a fake mutant, a leak, a
-privacy finding, or a duplicate. Every check needs its own justification; a
+gameable test, an ambiguity a careful engineer cannot settle, a reference wrong
+on tested behaviour, a fake mutant, a leak, a privacy finding, an assistant-voice
+instruction, a missing output path, or a duplicate. For grading defects the test
+is their effect on the shipped grader: a correct fix scored below 1.0, a wrong
+fix scored 1.0, or a score that can be forged, leaks the answer or flakes. A
+concern that changes none of these goes in untested_surfaces or
+difficulty_advisories, never in the defect arrays or a check's revise. Every check needs its own justification; a
 passing objective cites the instruction sentence it enforces (steps/...) and
 the test that enforces it (private-grader/suites/...). Each quote must be one
 contiguous substring of at least 15 characters from that file; JSON files may
