@@ -49,6 +49,7 @@ from . import creation, quality, sandbox, toolchain
 from . import traps as traps_mod
 from . import trap_research
 from . import bites as bites_mod
+from . import difficulty_gate
 from . import validate as validate_mod
 from .contracts import ContractError, contained, strict_json
 from .outcomes import AuthoringStalled, SeedRejected
@@ -247,7 +248,32 @@ BITE_AUDIT = (
     f"{policy.MIN_BITING_TRAPS_PER_FAMILY} bite each family, and the biting traps span at least "
     f"{policy.MIN_BITING_TRAP_TYPES} types. Never make a trap bite by loosening the instruction or grading "
     "something it does not state.")
-DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT
+#: User, 2026-10-17: "ensure the tasks are built extremely hard from the authoring phase itself".
+HARDNESS_GATE = (
+    "THE HARDNESS GATE IS BINDING (creation_status lists it as HARDNESS GATE components; submit_draft keeps the "
+    "session open until it holds). On the CURRENT tests and instruction, the latest graded blind solve of EACH "
+    "family must fail at least one step, no step may be fully passed by both, at least "
+    f"{policy.MIN_BINDING_BITES_PER_FAMILY} determinate traps must bite EACH family, and the biting traps must span "
+    f"at least {policy.MIN_BINDING_BITING_TYPES} trap types. A trap counts for a family when a check it owns fails in "
+    "that family's solve AND that check carries a determinacy_probe(check='<id>', ...) in which both families answer "
+    "the case right when asked directly: the instruction settles it, the code still gets it wrong -- a genuine "
+    "capability failure, never ambiguity. Any change to steps, checks, suites, toolchain or deps makes earlier "
+    "solves stale: solve again after you strengthen. The gate waives itself (recorded) only when the blind-solve "
+    f"budget is spent, the sandbox is unavailable, or {policy.DIFFICULTY_GATE_RESERVE_STEPS} turns remain -- so "
+    "solve EARLY (as soon as check_draft is clean), strengthen, and solve again; do not leave the first solve to the "
+    "end.\n\n"
+    "THE DIVERGENCE HUNT -- the fastest way to traps that bite. After a blind solve, apply ITS patch "
+    "(sandbox_run(command, patch=<the solver's patch>)) and your reference side by side and feed both the same "
+    "inputs: dozens of inputs generated from the PUBLISHED rules (generate_cases, or a small script) -- other "
+    "members of each stated class, other shapes of each datum, empty / single / duplicate / boundary values, two "
+    "rules meeting, reruns and sequences, the second entry point, error paths. Every input on which their outputs "
+    "differ is a candidate: keep it only when the instruction settles it (determinacy_probe with check=...), and "
+    "prefer divergences both families share or that follow from a habit (the same idiom on several inputs) over one "
+    "solver's typo. Turn each kept divergence into a hidden case on its own objective check owned by its own trap, "
+    "typed by its actual failure mode, with an m_partial_ mutant that writes the solver's behaviour. Grade "
+    "behaviour through the published interface only; never assert the reference's private structure.")
+
+DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT + "\n\n" + HARDNESS_GATE
 
 
 def _resume_guidance(messages: list[dict], updates: list[tuple[str, str]]) -> list[str]:
@@ -796,7 +822,9 @@ def _tools(n_msgs: int) -> list[dict]:
              "expected": {"type": "string", "description": "the reference's answer, in the answer form"},
              "answer_form": {"type": "string", "description": "e.g. 'yes or no', 'an integer', 'a JSON list'"},
              "context": {"type": "string", "description": "verbatim repository excerpt the agent would also see"},
-             "step": {"type": "string"}},
+             "step": {"type": "string"},
+             "check": {"type": "string", "description": "the hidden check this case decides; a determinate probe "
+                                                         "linked to a check lets its trap count toward the hardness gate"}},
              "required": ["case", "question", "expected", "answer_form"]}},
         {"name": "stage_spec", "description": "Assemble the spec incrementally: set a nested field by key/index path; "
          "append=true extends an array or updates an object. Empty path replaces the root.",
@@ -1546,12 +1574,15 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         from ..artifacts import atomic_json
         MAX_BLIND_SOLVES_PER_SESSION = _blind_budget()
         if blind_n["n"] >= MAX_BLIND_SOLVES_PER_SESSION:
-            return {"error": f"blind_solve budget spent ({MAX_BLIND_SOLVES_PER_SESSION} per session)"}
+            difficulty_gate.waive(bundle, "blind-solve budget spent")
+            return {"error": f"blind_solve budget spent ({MAX_BLIND_SOLVES_PER_SESSION} per session); the hardness "
+                             "gate is waived for this session"}
         family = str(model or "").strip().casefold()
         if family and family not in BLIND_FAMILIES:
             return {"error": f"model must be one of {sorted(BLIND_FAMILIES)}"}
         ok, why = sandbox.available()
         if not ok:
+            difficulty_gate.waive(bundle, f"sandbox unavailable: {why}"[:200])
             return {"error": why}
         verdict = check_spec(draft_spec())
         if not verdict["clean"]:
@@ -1568,6 +1599,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             return {"error": f"the independent solve did not complete: {type(exc).__name__}: {exc}"[:2000]}
         record["n"] = blind_n["n"]
         record["draft_sha256"] = hashlib.sha256(json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest()
+        record["grading_sha256"] = difficulty_gate.grading_sha(draft_spec())
         atomic_json(log / f"blind-solve-{blind_n['n']:03d}.json", record)
         atomic_json(bundle / "verification/blind-solve.json", record)
         atomic_json(bundle / f"verification/blind-solve-{_family_of(record.get('model'))}.json", record)
@@ -1581,6 +1613,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "too_easy_steps": [name for name, row in (record.get("by_step") or {}).items()
                                    if row.get("reward") == 1.0],
                 "trap_bites": bites_mod.summary_line(draft_spec(), record),
+                "hardness_gate": difficulty_gate.creation_status(draft_spec(), bundle)["missing"],
                 "how_to_read": "For each failing check decide: TRAP (the solver adopted the misreading the task is "
                                "built on; record it in quality.difficulty_case) or OVER-FIT (the solver's fix is "
                                "correct under the instruction and the test asserts your reference's convention; "
@@ -1758,7 +1791,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         regrade_n["n"] += 1
         atomic_json(log / f"regrade-{regrade_n['n']:03d}.json", summary)
         atomic_json(bundle / fastharden.RECEIPT, {**summary, "draft_sha256": hashlib.sha256(
-            json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest()})
+            json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest(),
+            "grading_sha256": difficulty_gate.grading_sha(draft_spec())})
         try:
             trap_rows = bites_mod.from_regrade(draft_spec(), summary)
             graded = set(bites_mod.objective_traps(draft_spec()))
@@ -1808,7 +1842,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "diff": text[int(offset):int(offset) + 15000], "total_chars": len(text)}
 
     def determinacy_probe(case: str, question: str, expected: str, answer_form: str = "a short answer",
-                          context: str = "", step: str | None = None, **_):
+                          context: str = "", step: str | None = None, check: str | None = None, **_):
         from .determinacy import probe
         steps = draft_spec().get("steps") or []
         chosen = next((s for s in steps if s.get("name") == step), steps[0] if steps else None)
@@ -1816,6 +1850,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             return {"error": "the draft has no step instruction yet"}
         result = probe(chosen.get("instruction", ""), case, question, expected, context=context,
                        answer_form=answer_form, record_dir=bundle / "verification/determinacy")
+        if check:
+            difficulty_gate.link_probe(bundle, str(check), result, case)
         return {"determinate": result["determinate"],
                 "answers": {m: {k: a.get(k) for k in ("answer", "agrees", "undetermined", "error")}
                             for m, a in result["answers"].items()}}
@@ -2165,6 +2201,9 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         opening += "\n\n" + TRAP_POLICY[level]
     research_floor = 0 if revision else policy.MIN_RESEARCHED_TRAPS
     trap_research.begin(bundle, research_floor)
+    # Creation never needs Docker: the gate waives itself when a blind solve finds no sandbox.
+    difficulty_gate.arm(bundle, ("fast" if row.get("_captured_episodes") else "creation")
+                        if policy.DIFFICULTY_GATE_AT_CREATION else None)
     from ..config import ARTIFACTS as _artifacts
     opening += "\n\n" + trap_research.opening_text(bundle, _artifacts / "waves/decisive-traps.json", research_floor)
     if initial_spec is not None:
@@ -2206,6 +2245,8 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                 bundle, _artifacts / "waves/decisive-traps.json", research_floor))]
             if not revision:
                 updates.append(("THE BITE AUDIT", BITE_AUDIT))
+            if policy.DIFFICULTY_GATE_AT_CREATION and not row.get("_captured_episodes"):
+                updates.append(("THE HARDNESS GATE IS BINDING", HARDNESS_GATE))
             if added := _resume_guidance(messages, updates):
                 atomic_json(log / "resume-guidance.json", {"appended": added})
         atomic_json(log / "continuation.json", resume_session)
@@ -2312,6 +2353,8 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
             verdict = handlers["submit_check"](spec)
             if verdict["clean"]:
                 accepted_submissions += 1
+                if max_steps - (step + 1) <= policy.DIFFICULTY_GATE_RESERVE_STEPS:
+                    difficulty_gate.waive(bundle, f"turn budget: {max_steps - (step + 1)} turns left")
                 status = creation.inventory(spec, bundle)
                 atomic_json(log / "submissions" / f"{step + 1:03d}.json", spec)
                 atomic_json(log / "submissions" / f"{step + 1:03d}-creation.json", status)

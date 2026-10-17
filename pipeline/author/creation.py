@@ -127,6 +127,11 @@ def inventory(spec: dict, bundle: Path) -> dict:
         have = trap_research.researched(traps, on_record)
         need(f"researched traps ({len(have)}/{floor}): traps carrying research {{research_id, sources, finding, "
              "executed}} from a successful research_traps call, each verified by sandbox_run", len(have) >= floor)
+    # The binding hardness bar (author/difficulty_gate.py): armed per session, waived when the
+    # budget runs out; lists what the current blind solves or re-grade still fall short of.
+    from . import difficulty_gate
+    for gap in difficulty_gate.requirement(spec, bundle):
+        need(gap, False)
     for i, raw in enumerate(mutants):
         mutant = _object(raw)
         label = mutant.get("id") if _text(mutant.get("id")) else str(i)

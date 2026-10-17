@@ -844,6 +844,20 @@ DIVERSITY_OVERUSED_SHARE = 0.15
 TRAP_BITE_SHARE_TARGET = 0.6
 MIN_BITING_TRAPS_PER_FAMILY = 6
 MIN_BITING_TRAP_TYPES = 4
+#: The BINDING hardness bar at creation (user, 2026-10-17: "ensure the tasks are built extremely
+#: hard from the authoring phase itself"; author/difficulty_gate.py). Of 31 designs that finished
+#: creation that evening Astra's blind solve fully passed 25, and five of the first six screens were
+#: 1.0 / 1.0. A creation component, not a validation refusal: the session keeps working within its
+#: budget until each family's current graded blind solve fails a step, at least this many determinate
+#: traps bite each family, spanning at least this many types -- or waives itself (recorded) when
+#: fewer than DIFFICULTY_GATE_RESERVE_STEPS turns remain, the blind-solve budget is spent or the
+#: sandbox is unavailable. Hidden-only rounds: at most FAST_GATE_MAX_FULL_PASSES of the captured
+#: episodes may fully pass a step, and the same number of traps must fail 2+ episodes per model.
+DIFFICULTY_GATE_AT_CREATION = True
+MIN_BINDING_BITES_PER_FAMILY = 3
+MIN_BINDING_BITING_TYPES = 3
+FAST_GATE_MAX_FULL_PASSES = 1
+DIFFICULTY_GATE_RESERVE_STEPS = 30
 
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the

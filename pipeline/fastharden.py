@@ -213,6 +213,10 @@ Every new hidden case must:
     it -- drop the case, never reword the instruction;
   * fail in the re-grade by assertion or by the submission's own crash -- never by a test that cannot read
     the output, an import the instruction never named, a timeout or an environment difference.
+THE HARDNESS GATE IS BINDING in this round: the session stays open until the latest regrade_episodes of the CURRENT
+hidden tests shows every step fully passed by at most 1 of each model's episodes and at least 3 objective-driving traps
+failing in 2 or more episodes of EACH model (creation_status lists what is missing; it waives itself only when 30
+turns remain). Re-grade after every change to the tests.
 TRAP BITES: regrade_episodes also returns trap_bites -- per objective-driving trap, how many episodes of each
 model fail a check it owns, and no_episode_fails (traps every episode of both models gets right). Those traps
 are coverage, not difficulty: aim new hidden cases first at them, at the input where the episodes' shared code
