@@ -203,6 +203,13 @@ def _openai_loop(instruction: str, model: str, tools: SandboxTools, max_steps: i
             "stop_reason": stop_reason, "complete": stop_reason == "completed"}
 
 
+# One response may write a whole file (a single-file HTML app is often 60-70 KB); at 16000 output
+# tokens Fable's write was cut off and the solve ended incomplete (c-006-html-canvas-3d-viewer and
+# c-018-markdown-to-docx-cli, 2026-10-18). The transport streams, so the larger cap costs nothing
+# unless used.
+ANTHROPIC_MAX_TOKENS = 64000
+
+
 def _anthropic_loop(instruction: str, model: str, tools: SandboxTools, max_steps: int, effort: str,
                     call: Callable) -> dict:
     from .prompt_cache import with_cache_breakpoints
@@ -212,7 +219,7 @@ def _anthropic_loop(instruction: str, model: str, tools: SandboxTools, max_steps
     steps = 0
     stop_reason = "max_steps"
     for steps in range(1, max_steps + 1):
-        response = call(with_cache_breakpoints({"model": model, "max_tokens": 16000, "system": SOLVER_SYSTEM,
+        response = call(with_cache_breakpoints({"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "system": SOLVER_SYSTEM,
                                                 "output_config": {"effort": effort}, "tools": specs,
                                                 "messages": messages}))
         for key, value in (response.get("usage") or {}).items():
@@ -309,7 +316,8 @@ def solve(package: Path, model: str, work: Path, *, max_steps: int = 60, effort:
     record = {"schema": "arena-coding/blind-solve/2", "model": model, "step": steps[0],
               "step_names": steps, "steps": sum(r["steps"] for r in by_step.values()),
               "complete": complete, "advisory_only": True, "by_step": by_step,
-              "limits": {"max_turns_per_step": max_steps, "max_output_tokens": 16000,
+              "limits": {"max_turns_per_step": max_steps,
+                         "max_output_tokens": 16000 if model.startswith("gpt-") else ANTHROPIC_MAX_TOKENS,
                          "shell_timeout_s": 300, "effort": effort, "native_harness": False},
               "tool_calls": tools.calls, "usage": usage, "patch_bytes": len(patch.encode()),
               "seconds": round(time.monotonic() - started, 1), "reward": None, "checks": {}, "failing": {}}
