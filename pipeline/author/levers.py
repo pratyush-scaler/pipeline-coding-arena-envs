@@ -1313,6 +1313,15 @@ def relevant_text(classification: dict | None = None, repo: Path | None = None, 
     pairs = suggested_interlocks(ranked)
     if pairs:
         lines.append("  Interlocks that aim at both families from this list: " + "; ".join(pairs))
+    # The researched modes (W11) carry no evidence bonus, so the list above rarely shows them;
+    # name the ones this code's own signals point at, as material for the researched traps.
+    researched = [r for r in relevant(classification, repo, corrections=corrections, steps=steps, limit=len(LEVERS))
+                  if r["lever"] in RESEARCH_LEVERS][:8]
+    if researched:
+        lines.append("  RESEARCHED MODES THIS CODE SUGGESTS (W11; executed semantics, unmeasured here -- verify in "
+                     "the pinned toolchain, interlock, then research_traps for what is specific to this stack): "
+                     + "; ".join(f"{r['lever']} [{RESEARCH_LEVERS[r['lever']]['trap_type']}, aims at {r['targets']}]"
+                                 for r in researched))
     return "\n".join(lines)
 
 
