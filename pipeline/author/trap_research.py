@@ -26,6 +26,7 @@ waived and says so.
 from __future__ import annotations
 
 import collections
+import hashlib
 import json
 import re
 import threading
@@ -457,6 +458,11 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
     if diversity["tasks"]:
         shares = ", ".join(f"{k} {v:.0%}" for k, v in list(diversity["shares"].items())[:8])
         unused = [t for t in RECOMMENDED_TYPES if t in traps_mod.TAXONOMY and t not in diversity["shares"]]
+        # Rotated per task (stable): concurrent designs reading one list in one order would all
+        # start from its first entry and make a new monoculture.
+        if unused:
+            turn = int(hashlib.sha256(Path(bundle).name.encode()).hexdigest(), 16) % len(unused)
+            unused = unused[turn:] + unused[:turn]
         lines.append(f"  - BATCH DIVERSITY ({diversity['tasks']} tasks): trap-type shares so far {shares}. "
                      f"Over-used: {', '.join(diversity['over_used']) or 'none'}. Prefer failure modes the batch has "
                      f"not yet used where this code supports them: {', '.join(unused[:14]) or 'any'}. Within this "
