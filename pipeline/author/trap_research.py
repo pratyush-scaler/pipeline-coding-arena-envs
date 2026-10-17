@@ -441,13 +441,14 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
         "by an m_baseline_ mutant (the idiom) and an m_partial_ mutant per lever -> record "
         "research {research_id, sources, finding, executed} on the trap. A trace-derived trap may carry research "
         "too (it keeps its trace provenance); prefer that where the user's own correction is the seed.",
-        "  - A researched fact is NOT a trap by itself. Measured 2026-10-17: the first designs planted 7-9 researched traps
-    each and both blind solvers scored 1.0, because the instruction sentence that "settled" each one named the
-    variant (a model that reads it implements it). Publish the rule at the level the user states it about their
-    domain, never the character, format quirk or mechanism; then put the researched divergence on ONE hidden item
-    together with a library lever (scope, class member, second path, rerun, two rules meeting), so knowing the
-    fact is not enough. A researched trap neither blind solver fails gets re-aimed (THE BITE AUDIT), not kept as is.
-  - ADD AS MANY extremely hard traps as the code genuinely supports, researched and library alike, "
+        "  - A researched fact is NOT a trap by itself. Measured 2026-10-17: the first designs planted 7-9 researched "
+        "traps each and both blind solvers scored 1.0, because the instruction sentence that 'settled' each one named "
+        "the variant (a model that reads it implements it). Publish the rule at the level the user states it about "
+        "their domain, never the character, format quirk or mechanism; then put the researched divergence on ONE "
+        "hidden item together with a library lever (scope, class member, second path, rerun, two rules meeting), so "
+        "knowing the fact is not enough. A researched trap neither blind solver fails gets re-aimed (THE BITE "
+        "AUDIT), not kept as is.",
+        "  - ADD AS MANY extremely hard traps as the code genuinely supports, researched and library alike, "
         "provided every one passes the admission test; a trap the instruction does not settle is a defect.",
         "  - Research questions that pay off: the pinned versions' documented semantics that differ from what "
         "an engineer writes from memory; format/protocol corner cases the data's real producers emit; the "

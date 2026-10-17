@@ -29,7 +29,7 @@ class TrapBites(unittest.TestCase):
         self.assertEqual(bites.objective_traps(_spec()), ["t_a", "t_b", "t_c"])
 
     def test_blind_solve_and_regrade_views(self):
-        record = {"checks": {"o_a": True, "o_b": False, "o_shared": True, "g_keep": True}}
+        record = {"reward": 0.6, "checks": {"o_a": True, "o_b": False, "o_shared": True, "g_keep": True}}
         self.assertEqual(bites.from_blind(_spec(), record), {"t_a": False, "t_b": True, "t_c": False, "t_g": False})
         self.assertEqual(bites.summary_line(_spec(), record), {"biting": ["t_b"], "not_biting": ["t_a", "t_c"],
                                                                "share": 0.33})
@@ -48,7 +48,7 @@ class TrapBites(unittest.TestCase):
             for family, checks in (("astra", {"o_a": False, "o_b": True, "o_shared": True}),
                                    ("fable", {"o_a": True, "o_b": True, "o_shared": True})):
                 (bundle / f"verification/blind-solve-{family}.json").write_text(
-                    json.dumps({"checks": checks, "draft_sha256": sha}))
+                    json.dumps({"reward": 0.5, "checks": checks, "draft_sha256": sha}))
             report = bites.audit(spec, bundle)
             self.assertEqual(report["biting"], ["t_a"])
             self.assertEqual(report["non_biting"], ["t_b", "t_c"])

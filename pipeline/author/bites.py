@@ -78,8 +78,8 @@ def audit(spec: dict, bundle: Path) -> dict:
     """The latest blind solve of each family against this draft's traps."""
     current = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()
     types = {t.get("id"): t.get("type") for t in spec.get("traps") or [] if isinstance(t, dict)}
-    graded = objective_traps(spec)
-    bites, stale, seen = {t: {} for t in graded}, [], []
+    objective = objective_traps(spec)
+    bites, stale, seen = {t: {} for t in objective}, [], []
     for family in FAMILIES:
         try:
             record = json.loads((Path(bundle) / f"verification/blind-solve-{family}.json").read_text())
@@ -95,9 +95,9 @@ def audit(spec: dict, bundle: Path) -> dict:
                 bites[trap][family] = bit
     biting = [t for t, row in bites.items() if any(row.values())]
     per_family = {f: sum(1 for row in bites.values() if row.get(f)) for f in seen}
-    return {"objective_traps": len(graded), "solved_by": seen, "stale": stale, "bites": bites,
-            "biting": biting, "non_biting": [t for t in graded if t not in biting] if seen else [],
-            "per_family": per_family, "share": round(len(biting) / len(graded), 2) if graded and seen else None,
+    return {"objective_traps": len(objective), "solved_by": seen, "stale": stale, "bites": bites,
+            "biting": biting, "non_biting": [t for t in objective if t not in biting] if seen else [],
+            "per_family": per_family, "share": round(len(biting) / len(objective), 2) if objective and seen else None,
             "biting_types": sorted({types.get(t) for t in biting if types.get(t)})}
 
 
@@ -125,7 +125,7 @@ def advisories(spec: dict, bundle: Path) -> list[str]:
 
 def summary_line(spec: dict, record: dict) -> dict:
     """What blind_solve hands back about traps."""
-    graded = set(objective_traps(spec))
-    bit = {t: v for t, v in from_blind(spec, record).items() if t in graded}
+    objective = set(objective_traps(spec))
+    bit = {t: v for t, v in from_blind(spec, record).items() if t in objective}
     return {"biting": sorted(t for t, v in bit.items() if v), "not_biting": sorted(t for t, v in bit.items() if not v),
             "share": round(sum(bit.values()) / len(bit), 2) if bit else None}
