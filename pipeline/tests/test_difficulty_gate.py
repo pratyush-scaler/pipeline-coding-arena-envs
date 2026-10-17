@@ -100,3 +100,13 @@ class HardnessGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Arming(unittest.TestCase):
+    def test_the_gate_arms_for_designs_and_hardening_never_for_repairs(self):
+        import inspect
+        from pipeline.author import agent_designer
+        src = inspect.getsource(agent_designer.design)
+        self.assertIn('row.get("_harden_kind") not in (None, "repair")', src)
+        from pipeline import harden
+        self.assertIn("_harden_kind=kind", inspect.getsource(harden))

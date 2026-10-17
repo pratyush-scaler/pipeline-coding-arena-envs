@@ -932,6 +932,8 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         brief = (fastharden.FAST_BRIEF + "\n" + fastharden.episode_summary(
             episodes, _screen.current(measured or bundle)) + "\n\n" + brief)
     source = spec["source"]
+    # The hardness gate arms in hardening rounds (harden, extend, fast), never in a review repair.
+    row = dict(row, _harden_kind=kind)
     revised = agent_designer.design(
         row, extract.extract(source["session_id"], source["seed_index"]), bundle,
         initial_spec=staged, feedback=[brief, *(findings or [])], revision=True, **options)

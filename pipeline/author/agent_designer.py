@@ -2215,9 +2215,14 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         opening += "\n\n" + TRAP_POLICY[level]
     research_floor = 0 if revision else policy.MIN_RESEARCHED_TRAPS
     trap_research.begin(bundle, research_floor)
-    # Creation never needs Docker: the gate waives itself when a blind solve finds no sandbox.
-    difficulty_gate.arm(bundle, ("fast" if row.get("_captured_episodes") else "creation")
-                        if policy.DIFFICULTY_GATE_AT_CREATION else None)
+    # Creation never needs Docker: the gate waives itself when a blind solve finds no sandbox. It arms for
+    # fresh designs and hardening rounds; a validity repair or a review repair fixes findings and is not
+    # pushed toward stricter tests.
+    gate_mode = (None if not policy.DIFFICULTY_GATE_AT_CREATION
+                 else "fast" if row.get("_captured_episodes")
+                 else "creation" if (not revision or row.get("_harden_kind") not in (None, "repair"))
+                 else None)
+    difficulty_gate.arm(bundle, gate_mode)
     from ..config import ARTIFACTS as _artifacts
     opening += "\n\n" + trap_research.opening_text(bundle, _artifacts / "waves/decisive-traps.json", research_floor)
     if initial_spec is not None:
@@ -2259,7 +2264,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                 bundle, _artifacts / "waves/decisive-traps.json", research_floor))]
             if not revision:
                 updates.append(("THE BITE AUDIT", BITE_AUDIT))
-            if policy.DIFFICULTY_GATE_AT_CREATION and not row.get("_captured_episodes"):
+            if gate_mode == "creation":
                 updates.append(("THE HARDNESS GATE IS BINDING", HARDNESS_GATE))
             if added := _resume_guidance(messages, updates):
                 atomic_json(log / "resume-guidance.json", {"appended": added})
