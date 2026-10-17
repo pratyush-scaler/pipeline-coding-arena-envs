@@ -451,6 +451,20 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
     if required == 0:
         lines[1] = ("  - This is a revision session: research_traps is available, and any trap you ADD should be "
                     "researched and interlocked the same way; the researched-trap floor applies to fresh designs.")
+    prior = [c for c in (load(bundle) or {}).get("calls") or [] if c.get("ok")]
+    if prior:
+        # A resumed or invalidated session has lost the conversation that held these findings;
+        # the record keeps them, so the new session builds on them instead of re-researching.
+        lines.append(f"  - RESEARCH ALREADY ON RECORD ({len(prior)} call(s); cite these ids, budget left "
+                     f"{policy.TRAP_RESEARCH_MAX_CALLS - len((load(bundle) or {}).get('calls') or [])}):")
+        for call in prior[:10]:
+            modes = call.get("findings") if isinstance(call.get("findings"), list) else []
+            lines.append(f"    {call['id']} ({len(call.get('sources') or [])} sources) Q: {str(call.get('question'))[:140]}")
+            for mode in modes[:6]:
+                lines.append(f"      * {str(mode.get('mode'))[:60]} [{mode.get('aims_at')}] hidden: "
+                             f"{str(mode.get('hidden_case'))[:170]} | settles: {str(mode.get('settling_sentence'))[:130]}")
+            if not modes:
+                lines.append(f"      text: {str(call.get('text'))[:400]}")
     try:
         diversity = batch_diversity(bundle, ledger)
     except Exception:  # noqa: BLE001  advisory context only

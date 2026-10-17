@@ -130,6 +130,15 @@ class TrapResearch(unittest.TestCase):
         self.assertTrue(any("trap diversity" in n for n in notes))
         self.assertTrue(any("the floor for a fresh design" in n for n in notes))
 
+    def test_a_resumed_session_sees_the_research_already_on_record(self):
+        trap_research.begin(self.bundle, 6)
+        research, _ = self.tool([_search_response(FINDINGS, ["https://docs.python.org/3/library/stdtypes.html"])])
+        research(question="splitlines semantics", stack="python 3.12")
+        text = trap_research.opening_text(self.bundle, None, 6)
+        self.assertIn("RESEARCH ALREADY ON RECORD (1 call(s)", text)
+        self.assertIn("r_01", text)
+        self.assertIn("splitlines_boundaries", text)
+
     def test_batch_diversity_reads_the_ledger_and_sibling_specs(self):
         tree = self.bundle / "tree"
         bundle = tree / "target-F2-scenario" / "c-001-a"
