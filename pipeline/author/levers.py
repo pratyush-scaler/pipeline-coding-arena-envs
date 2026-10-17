@@ -705,7 +705,7 @@ RESEARCH_LEVERS = {
         "Python -1//256 = -1 and -7%2 = 1; JS/Go/SQLite truncate (-7/2 -> -3, -7%2 -> -1); int(-1/256) = 0.",
         "Publish the bucket in domain words ('tile -1 covers -256..-1', 'an event belongs to the hour it happened "
         "in'). Hidden: negative coordinates or pre-1970 timestamps; baseline truncates.",
-        [r"Math\.floor|Math\.trunc|\| ?0|int\(.*/|//|%|bucket|tile|grid"]),
+        [r"Math\.floor|Math\.trunc|\| ?0\b|int\(\w+ ?/|divmod|bucket|tile|grid|negative"]),
     "nan_poisons_order": _r("idiom", "fable", "absence_semantics",
         "sorted([3,nan,1,2]) returns the input unchanged; max([nan,1,2]) is nan but max([1,nan,2]) is 2.",
         "Publish 'runs without a score are left out of the ranking'. Hidden: a NaN score mid-list; baseline sorts "
@@ -761,7 +761,7 @@ RESEARCH_LEVERS = {
         "split a code point.",
         "Publish the limit in bytes ('at most 255 bytes of UTF-8'). Hidden: multibyte text at the limit must stay "
         "valid UTF-8; baseline counts characters.",
-        [r"Content-Length|byteLength|len\(body\)|VARCHAR\(\d+\)|max_bytes|encode\("]),
+        [r"Content-Length|byteLength|len\(body\)|VARCHAR\(\d+\)|max_bytes|\bbytes\b.*limit"]),
     "cutset_vs_affix": _r("idiom", "astra", "text_semantics",
         "'context.txt'.rstrip('.txt') = 'conte'; 'https://shop.example'.lstrip('https://') = 'op.example'; Go "
         "TrimRight takes a cutset.",
@@ -818,7 +818,7 @@ RESEARCH_LEVERS = {
         "{**a, **b} / a | b are shallow; RFC 7396: null deletes, arrays replace whole, objects recurse.",
         "Publish 'PATCH bodies are JSON Merge Patch documents (RFC 7396)'. Hidden: nested null deletion and array "
         "replacement in one patch; baseline dict update.",
-        [r"PATCH|merge|deep_update|\{\*\*|Object\.assign|\.\.\."]),
+        [r"PATCH|patch\(|merge_patch|deep_update|deepmerge|\{\*\*\w+, \*\*|Object\.assign"]),
     # ---- HTTP and protocols ------------------------------------------------------------
     "form_vs_percent_plus": _r("representation", "astra", "protocol_semantics",
         "URLSearchParams and parse_qs decode '+' as a space; decodeURIComponent/unquote do not (MDN).",
@@ -945,7 +945,7 @@ RESEARCH_LEVERS = {
         "Go: b := append(a,1); c := append(a,2) with spare capacity makes b's last element 2.",
         "Publish the output (every path from the root, each listed once). Hidden: a DFS whose path slices share "
         "capacity; baseline appends to a shared prefix.",
-        [r"append\(|\[\]\w+\{|dfs|path"]),
+        [r"(?<![.\w])append\(\w+, |\[\]\w+\{", r"\bfunc \w+\(|package main"]),
     "tie_order_by_insertion": _r("idiom", "astra", "ordering_semantics",
         "Counter('bbaacc').most_common(2) is [('b',2),('a',2)]; itertools.groupby('aabaa') yields 3 groups; JS "
         "[10,9,1,2,100].sort() is [1,10,100,2,9].",
@@ -956,7 +956,7 @@ RESEARCH_LEVERS = {
         "SWE-ABS django-10973: subprocess env={'PGPASSWORD': 123456} raises TypeError; YAML 'pin: 0123' loads as 83.",
         "Publish what the value is ('the PIN is digits, kept as written'). Hidden: an all-digit value through the "
         "boundary; baseline passes the parsed int.",
-        [r"subprocess|environ|env=|yaml|pin|password|code"]),
+        [r"subprocess\.run\(.*env=|environ\[|yaml\.|pin_code|\bpin\b|password"]),
     "port_semantic_drift": _r("carry", "both", "library_semantics",
         "Multi-SWE-bench: agents strong in Python generalise poorly to other languages; division, rounding, split "
         "and sort defaults differ by runtime.",
