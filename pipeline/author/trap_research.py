@@ -98,8 +98,12 @@ technical terms only: never put people, organisations, file paths, credentials o
 into a query.
 
 What makes a trap mode good here:
-  - DETERMINATE: one plain user sentence makes the correct behaviour unambiguous to a careful \
-expert; no "it depends" and no version-dependent claim unless the version is the pinned one.
+  - DETERMINATE BUT UNANNOUNCED: the correct behaviour follows from a GENERAL rule the user would \
+state about their own domain ("a reading is a duplicate only when it happened at the same instant", \
+"amounts are kept in each currency's own minor unit"), never from a sentence that names the variant, \
+the character, the format quirk or the mechanism. Both agent families read every sentence and \
+implement it literally: a sentence that names the edge case makes the trap free. The trap works only \
+when the NATURAL implementation of the general sentence is wrong on the hidden input.
   - DEFAULT-WRONG: the idiom (exact match after one normalisation, first match, round()/toFixed, \
 naive datetime, str.lower, split on a literal, string sort, last-key-wins dict, a regex that \
 generalises a named list, recompute-from-scratch, a library default) gives a different answer.
@@ -121,7 +125,8 @@ protocol|numeric|text|temporal|absence|resource|concurrency|security|error|libra
    "executable_fact": exact program + exact output in the pinned version,
    "idiomatic_wrong": the code a strong engineer writes and why it is wrong,
    "hidden_case": concrete input -> correct output vs idiomatic output,
-   "settling_sentence": the plain sentence a user would write that settles it,
+   "settling_sentence": the GENERAL rule in the user's words that settles it WITHOUT naming the variant,
+   "idiom_that_breaks": the code a strong engineer writes FROM THAT GENERAL SENTENCE and why it fails,
    "fits_when": the code or data in a repository that makes this trap natural,
    "validity_risks": what could make it ambiguous, version-dependent or unfair,
    "sources": [{"url": "...", "title": "...", "finding": "one line"}]}
@@ -436,7 +441,13 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
         "by an m_baseline_ mutant (the idiom) and an m_partial_ mutant per lever -> record "
         "research {research_id, sources, finding, executed} on the trap. A trace-derived trap may carry research "
         "too (it keeps its trace provenance); prefer that where the user's own correction is the seed.",
-        "  - ADD AS MANY extremely hard traps as the code genuinely supports, researched and library alike, "
+        "  - A researched fact is NOT a trap by itself. Measured 2026-10-17: the first designs planted 7-9 researched traps
+    each and both blind solvers scored 1.0, because the instruction sentence that "settled" each one named the
+    variant (a model that reads it implements it). Publish the rule at the level the user states it about their
+    domain, never the character, format quirk or mechanism; then put the researched divergence on ONE hidden item
+    together with a library lever (scope, class member, second path, rerun, two rules meeting), so knowing the
+    fact is not enough. A researched trap neither blind solver fails gets re-aimed (THE BITE AUDIT), not kept as is.
+  - ADD AS MANY extremely hard traps as the code genuinely supports, researched and library alike, "
         "provided every one passes the admission test; a trap the instruction does not settle is a defect.",
         "  - Research questions that pay off: the pinned versions' documented semantics that differ from what "
         "an engineer writes from memory; format/protocol corner cases the data's real producers emit; the "

@@ -80,3 +80,13 @@ class ResumeGuidance(unittest.TestCase):
         fresh = [{"role": "user", "content": "opening with THE BITE AUDIT already"}]
         self.assertEqual(a._resume_guidance(fresh, [("THE BITE AUDIT", a.BITE_AUDIT)]), [])
         self.assertIn("THE BITE AUDIT", a.AUTHORING_MANDATE)
+
+
+class UngradedSolves(unittest.TestCase):
+    def test_a_solve_that_never_graded_is_no_evidence(self):
+        record = {"reward": None, "complete": False, "checks": {"o_a": False, "o_b": False, "o_shared": False}}
+        self.assertEqual(bites.summary_line(_spec(), record)["biting"], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp); (bundle / "verification").mkdir()
+            (bundle / "verification/blind-solve-fable.json").write_text(json.dumps(record))
+            self.assertEqual(bites.audit(_spec(), bundle)["solved_by"], [])

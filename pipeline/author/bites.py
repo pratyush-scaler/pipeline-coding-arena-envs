@@ -50,8 +50,15 @@ def objective_traps(spec: dict) -> list[str]:
             if isinstance(t, dict) and owned.get(t.get("id"), set()) & objectives]
 
 
+def graded(record: dict) -> bool:
+    """A solve that never finished grading is no evidence: every check reads as failed."""
+    return record.get("reward") is not None and record.get("complete") is not False and bool(record.get("checks"))
+
+
 def from_blind(spec: dict, record: dict) -> dict[str, bool]:
-    """trap -> did this solve fail one of its owned checks."""
+    """trap -> did this solve fail one of its owned checks (all False for an ungraded solve)."""
+    if not graded(record):
+        return {trap: False for trap in owned_checks(spec)}
     passed = record.get("checks") or {}
     return {trap: any(passed.get(cid) is False for cid in cids) for trap, cids in owned_checks(spec).items()}
 
@@ -77,6 +84,8 @@ def audit(spec: dict, bundle: Path) -> dict:
         try:
             record = json.loads((Path(bundle) / f"verification/blind-solve-{family}.json").read_text())
         except (OSError, ValueError):
+            continue
+        if not graded(record):
             continue
         seen.append(family)
         if record.get("draft_sha256") != current:
