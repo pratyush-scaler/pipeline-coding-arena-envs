@@ -65,3 +65,18 @@ class TrapBites(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResumeGuidance(unittest.TestCase):
+    def test_a_resumed_conversation_gets_the_mandates_its_opening_lacks_once(self):
+        from pipeline.author import agent_designer as a
+        messages = [{"role": "user", "content": "old opening"}, {"role": "assistant", "content": [{"type": "text", "text": "x"}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}]
+        added = a._resume_guidance(messages, [("THE BITE AUDIT", a.BITE_AUDIT), ("ABSENT", "")])
+        self.assertEqual(added, ["THE BITE AUDIT"])
+        self.assertEqual(messages[-1]["content"][0]["type"], "tool_result")       # tool results stay first
+        self.assertIn("THE BITE AUDIT", messages[-1]["content"][-1]["text"])
+        self.assertEqual(messages[0], {"role": "user", "content": "old opening"})  # the replayed prefix is unchanged
+        fresh = [{"role": "user", "content": "opening with THE BITE AUDIT already"}]
+        self.assertEqual(a._resume_guidance(fresh, [("THE BITE AUDIT", a.BITE_AUDIT)]), [])
+        self.assertIn("THE BITE AUDIT", a.AUTHORING_MANDATE)

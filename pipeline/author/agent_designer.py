@@ -228,7 +228,10 @@ DIFFICULTY_LOOP = (
     "and the alternative passing and a mutant writing that family's answer failing; then blind_solve again. "
     "Stop when every step fails for both families, or when the budget is spent; record each solve in "
     "quality.difficulty_case. A failure a solver hits because the task is unclear, under-specified or graded "
-    "on something the instruction never stated is a defect, not difficulty.\n\n"
+    "on something the instruction never stated is a defect, not difficulty.")
+
+#: User, 2026-10-17: "ensure more traps bite the models ... most of them should defeat the model".
+BITE_AUDIT = (
     "THE BITE AUDIT (user, 2026-10-17: most traps must defeat the models). Every objective-driving trap is a "
     "decision the model must get right, and a trap neither blind solver fails is coverage, not difficulty: in the "
     "four tasks released last week 23-37 traps were planted and only 5-8 bit each model, and on two of them both "
@@ -244,6 +247,27 @@ DIFFICULTY_LOOP = (
     f"{policy.MIN_BITING_TRAPS_PER_FAMILY} bite each family, and the biting traps span at least "
     f"{policy.MIN_BITING_TRAP_TYPES} types. Never make a trap bite by loosening the instruction or grading "
     "something it does not state.")
+DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT
+
+
+def _resume_guidance(messages: list[dict], updates: list[tuple[str, str]]) -> list[str]:
+    """Append to a resumed conversation the mandates its opening predates (append-only).
+
+    A resumed session replays its retained conversation; a mandate added to the opening
+    since it began never reaches it (2026-10-17: 59 resumed designs kept an opening without
+    THE BITE AUDIT). The text joins the pending user turn, so the replayed prefix is unchanged.
+    """
+    opening = json.dumps(messages[:1], ensure_ascii=False)
+    missing = [(marker, text) for marker, text in updates if text and marker not in opening]
+    if not missing or not messages or messages[-1].get("role") != "user":
+        return []
+    note = ("PIPELINE UPDATE since this session began -- it governs from now on, alongside everything above:\n\n"
+            + "\n\n".join(text for _, text in missing))
+    content = messages[-1].get("content")
+    content = (content + "\n\n" + note if isinstance(content, str)
+               else list(content or []) + [{"type": "text", "text": note}])
+    messages[-1] = {**messages[-1], "content": content}
+    return [marker for marker, _ in missing]
 
 AUTHORING_MANDATE = (
     "YOUR MANDATE: on this first attempt, design a coding task that is BOTH of EXCELLENT "
@@ -2178,6 +2202,12 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
             if retired:
                 messages.append({"role": "user", "content": f"The retired tool(s) {', '.join(retired)} were "
                                  "removed from this session; continue with the tools available."})
+            updates = [("TRAP RESEARCH AND FAILURE-MODE DIVERSITY", trap_research.opening_text(
+                bundle, _artifacts / "waves/decisive-traps.json", research_floor))]
+            if not revision:
+                updates.append(("THE BITE AUDIT", BITE_AUDIT))
+            if added := _resume_guidance(messages, updates):
+                atomic_json(log / "resume-guidance.json", {"appended": added})
         atomic_json(log / "continuation.json", resume_session)
     atomic_json(log / "request-config.json", request_config)
     atomic_json(log / "conversation.json", messages)
