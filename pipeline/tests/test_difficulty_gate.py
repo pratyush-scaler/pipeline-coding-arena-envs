@@ -56,7 +56,7 @@ class HardnessGate(unittest.TestCase):
         self.solve("fable", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.4)
         missing = " ".join(gate.requirement(_spec(), self.bundle))
         self.assertIn("astra's blind solve fully passes every step", missing)
-        self.assertIn("0 determinate trap(s) bite fable", missing)      # no probe linked yet
+        self.assertIn("0 independent determinate decision(s) bite fable", missing)      # no probe linked yet
         self.probe("o_a", "o_b", "o_c")
         missing = " ".join(gate.requirement(_spec(), self.bundle))
         self.assertNotIn("bite fable", missing)
@@ -69,6 +69,15 @@ class HardnessGate(unittest.TestCase):
         self.assertEqual(gate.requirement(_spec(), self.bundle), [])
         with patch.object(policy, "MIN_BINDING_BITING_TYPES", 4):
             self.assertIn("span 3 type(s)", " ".join(gate.requirement(_spec(), self.bundle)))
+
+    def test_checks_of_one_decision_count_once(self):
+        gate.arm(self.bundle, "creation")
+        spec = _spec()
+        spec["quality"] = {"decisions": [{"id": "d_one", "checks": ["o_a", "o_b", "o_c"]}, {"id": "d_two", "checks": ["o_d"]}]}
+        self.solve("astra", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3, spec=spec)
+        self.solve("fable", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3, spec=spec)
+        self.probe("o_a", "o_b", "o_c", "o_d")
+        self.assertIn("1 independent determinate decision(s) bite astra", " ".join(gate.requirement(spec, self.bundle)))
 
     def test_creation_inventory_lists_the_gate(self):
         gate.arm(self.bundle, "creation")

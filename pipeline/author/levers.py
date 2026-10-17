@@ -635,6 +635,66 @@ def _r(family, targets, trap_type, evidence, recipe, signals):
             "signals": signals}
 
 
+#: The proxy levers (analysis/web-research/W13, measured on the four releases that both families
+#: failed 20/20; W12 the five designs both solved). Status "measured": each bit both families in
+#: clean capability episodes.
+PROXY_LEVERS = {
+    "concept_vs_proxy": {
+        "family": "scope", "targets": "both", "status": "measured",
+        "evidence": "W13: the one both-family 10/10 decision in each of four 0/20 releases -- rows vs orders (club), "
+                    "ASCII [\\s\\-()] vs 'dashes and brackets' (forum), schema at registration vs 'each request' "
+                    "(ai-agent), containment vs 'came along in the response' (nfse). W12: 0 of 56 announced traps bit.",
+        "recipe": "The instruction states a general concept in domain words; the existing code, docs and seed data "
+                  "implement a narrower proxy that every visible input satisfies; hidden inputs sit where proxy and "
+                  "concept part ways. Leaving the code as it is loses; the visible symptom is fixable without the "
+                  "general reading. Never name the variant.",
+        "signals": [r"\.find\(|\[0\]|first|\.length|len\(|count|replace\(/|re\.sub|startswith|==", r"."]},
+    "second_writer_unexemplified": {
+        "family": "scope", "targets": "both", "status": "measured",
+        "evidence": "W13: 'the admin panel also edits the ledger' (club: an order written twice), the user's own "
+                    "regression modules (ai-agent), each prefeitura's layout (nfse), the user's keyboard (forum). "
+                    "Models model the repository's own writer.",
+        "recipe": "Name a second writer or source of the data in one clause, never exemplified; only hidden data "
+                  "carries what that writer produces (duplicates, other statuses, other layouts, other input methods).",
+        "signals": [r"import|load|read|parse|fetch|admin|sync|webhook|upload|export"]},
+    "identity_by_reference": {
+        "family": "representation", "targets": "both", "status": "measured",
+        "evidence": "W13 nfse: the cancellation sits loose in the list and names its note by number; every run of "
+                    "both families searched only inside the note's own element (10/10). Club: one order, two rows.",
+        "recipe": "The published rule relates two records by identity ('the cancellation of that note'); the code "
+                  "and docs relate them by containment or position. Hidden data links them only by an identifier.",
+        "signals": [r"parent|child|find\(|xpath|querySelector|\[\d\]|index|nested"]},
+    "negative_definition_status": {
+        "family": "scope", "targets": "astra", "status": "measured",
+        "evidence": "W13 club: 'placed and not cancelled' -- Astra whitelisted status === 'committed' (3/10 runs "
+                    "overall failed three checks); hidden statuses shipped, paid, processing, a localized one.",
+        "recipe": "State membership negatively ('everything except what was cancelled'); the visible data shows one "
+                  "positive status; hidden data carries other live statuses, including a localized word.",
+        "signals": [r"status|state|===\s*['\"]|==\s*['\"]|in \(|includes\("]},
+    "order_of_operations_hidden_value": {
+        "family": "interaction", "targets": "fable", "status": "measured",
+        "evidence": "W13 club: Fable floored before clamping to a fractional cap (7/10; Astra 0/10); ai-agent: a block "
+                    "outgrowing the cap mid-round (Fable 10/10, Astra 2/10).",
+        "recipe": "Two published operations whose order matters only for values the visible data never has "
+                  "(a fractional cap, a block larger than the limit, a boundary crossed mid-sequence). Put it on the "
+                  "same hidden item as an Astra-aimed unseen shape.",
+        "signals": [r"floor|round|clamp|min\(|max\(|cap|limit|trim|truncate"]},
+    "unseen_shape_off_documented_path": {
+        "family": "representation", "targets": "astra", "status": "measured",
+        "evidence": "W13 nfse: Astra 10/10 on fixed XPaths -- a 1.00-layout document, a tomador id without its "
+                    "wrapper, a date already formatted dd/mm/yyyy; Fable 0/10.",
+        "recipe": "The documented path covers the visible shape; hidden data carries the same datum one wrapper off, "
+                  "already formatted, or as an empty placeholder sibling -- all plainly covered by the concept sentence.",
+        "signals": [r"xpath|find\(|get\(|\[['\"]|fromisoformat|strptime|json\[|\.get\("]},
+    "proxy_x_unseen_shape": {
+        "family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W13: the both-family biters plus the family-specific levers on the same items.",
+        "recipe": "One hidden item where concept_vs_proxy (both families keep the proxy) meets "
+                  "unseen_shape_off_documented_path (Astra) or order_of_operations_hidden_value (Fable): resolving the "
+                  "proxy alone still fails the shape or the order.",
+        "signals": []},
+}
+
 RESEARCH_LEVERS = {
     # ---- time and calendar -----------------------------------------------------------
     "recurrence_anchor_drift": _r("state", "fable", "temporal_semantics",
@@ -1008,6 +1068,7 @@ RESEARCH_HAZARDS = (
     "SemVer argmax across build metadata", "'case-insensitive' without naming lower/upper/casefold, or "
     "'valid email' without a grammar")
 
+LEVERS.update(PROXY_LEVERS)
 LEVERS.update(RESEARCH_LEVERS)
 
 INTERLOCK_RECIPES = tuple(name for name, meta in LEVERS.items() if meta["status"] == "interlock")
@@ -1069,6 +1130,45 @@ CODING DIFFICULTY DOCTRINE (2026-10-03) -- READ FIRST. Where anything later in t
 prompt conflicts with this block on HOW TO MAKE A TASK HARD, this block wins. The
 validity rules later in the prompt are never relaxed by it.
 ================================================================================
+THE PROXY DOCTRINE -- MEASURED 2026-10-17, READ THIS FIRST (analysis/web-research/W12, W13).
+Four released tasks that both families failed 20/20 and five fresh designs both solved
+1.0/1.0, trap by trap. Every bite had ONE shape; its absence explains every miss.
+  BITES: the instruction states a GENERAL CONCEPT in the user's domain words ("orders
+  placed and not cancelled", "dashes and brackets don't count", "the types reported each
+  time a request goes out", "the cancellation that came along in the response"); the
+  EXISTING code, docs and seed data implement a NARROWER PROXY of it (ledger rows, an
+  ASCII whitespace-dash-bracket class, the schema built once at registration, a child of the note's
+  element); every visible input is consistent with the proxy; the hidden input sits
+  exactly where proxy and concept part ways -- the order the desk wrote twice, the
+  full-width bracket from the user's keyboard, the name defined later in the module, the
+  cancellation loose in the list naming its note by number. Leaving the existing code
+  as it is LOSES; the visible symptom is fixable without the general reading, and the
+  trap sits one step past that fix in the same subsystem. A second writer or source is
+  named once ("the admin panel also edits the ledger", "each prefeitura", "my keyboard")
+  and only hidden data exercises it.
+  DOES NOT BITE (measured, 56 traps in five designs): 80% were ANNOUNCED -- the sentence
+  named the variant, the character, the case pair or the mechanism, or restated the
+  researched fact ("VARCHAR counts characters", "a raised 2 is not a digit", "(sklearn
+  does exactly this)"); closed enumerations and spelled-out procedures (40/40 runs
+  implement them literally); behaviours named in the complaint; common knowledge (the
+  models write casefold, NFC, Decimal, Intl.Segmenter, utf-8-sig unprompted); 13% sat on
+  a path the natural fix of another clause rewrites anyway; 5% predicted an idiom no
+  model wrote. 0 of 37 researched traps bit. Researched facts make HIDDEN INPUTS and
+  MUTANTS, never sentences.
+  SO, FOR EVERY GRADED DECISION: (1) find or plant a proxy the existing code already
+  implements and that every visible artefact agrees with; (2) state the concept in the
+  user's words -- general, a class or a negative definition, never a list, never the
+  variant, never "not X / instead of / even when" contrasts aimed at the case; (3) put
+  the hidden input where proxy and concept part ways, through the channel the user says
+  changes (a swapped data file, another writer, another machine), never in a visible
+  example; (4) keep it out of code another clause's natural fix rewrites; (5) give it its
+  own check over its own data so an upstream miss cannot mask or cascade into it --
+  judge downstream behaviour against the agent's own upstream output; (6) plan two or
+  three independent both-family biters per step, plus a Fable-aimed order-of-operations
+  or mid-sequence value and an Astra-aimed unseen shape off the documented path on the
+  same items. Fairness is unchanged: the concept sentence must settle the hidden case for
+  a careful expert (determinacy_probe), and an independently written fix must pass.
+
 WHAT WAS MEASURED. Both calibration agents read every file they are pointed at, run
 every visible input, write a test of their own, and transcribe each published rule
 into one correct line of code. A trap that only needs NOTICING costs them nothing:

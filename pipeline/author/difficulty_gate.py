@@ -115,14 +115,25 @@ def creation_status(spec: dict, bundle: Path) -> dict:
     objective = set(bites.objective_traps(spec))
     sure = determinate_checks(bundle)
     types = {t.get("id"): t.get("type") for t in spec.get("traps") or [] if isinstance(t, dict)}
+    # Independent decisions, not checks: one upstream miss failing several checks is one bite
+    # (W13: "8 decisions" in a release were 1-3). quality.decisions groups checks into decisions;
+    # without it every trap is its own decision.
+    decision_of = {}
+    for row in ((spec.get("quality") or {}).get("decisions") or []):
+        if isinstance(row, dict) and row.get("id"):
+            for cid in row.get("checks") or []:
+                decision_of.setdefault(cid, row["id"])
     biting: dict[str, set[str]] = {}
     for family, record in solves.items():
         bit = bites.from_blind(spec, record)
+        failed = {cid for cid, ok in (record.get("checks") or {}).items() if ok is False}
         biting[family] = {t for t, v in bit.items() if v and t in objective and owned.get(t, set()) & sure}
-        if len(biting[family]) < policy.MIN_BINDING_BITES_PER_FAMILY:
-            missing.append(f"{len(biting[family])} determinate trap(s) bite {family} (need "
-                           f"{policy.MIN_BINDING_BITES_PER_FAMILY}; a trap counts when a check it owns fails "
-                           "in that solve AND carries a determinate determinacy_probe(check=...))")
+        units = {decision_of.get(cid, f"trap:{t}") for t in biting[family] for cid in owned.get(t, set()) & sure & failed}
+        if len(units) < policy.MIN_BINDING_BITES_PER_FAMILY:
+            missing.append(f"{len(units)} independent determinate decision(s) bite {family} (need "
+                           f"{policy.MIN_BINDING_BITES_PER_FAMILY}; a decision counts when a check of it, owned by an "
+                           "objective-driving trap, fails in that solve AND carries a determinate "
+                           "determinacy_probe(check=...); checks of one quality.decisions entry count once)")
     union = set().union(*biting.values()) if biting else set()
     kinds = {types.get(t) for t in union if types.get(t)}
     if solves and len(kinds) < policy.MIN_BINDING_BITING_TYPES:

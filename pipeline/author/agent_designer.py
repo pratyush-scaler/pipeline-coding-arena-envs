@@ -271,7 +271,17 @@ HARDNESS_GATE = (
     "prefer divergences both families share or that follow from a habit (the same idiom on several inputs) over one "
     "solver's typo. Turn each kept divergence into a hidden case on its own objective check owned by its own trap, "
     "typed by its actual failure mode, with an m_partial_ mutant that writes the solver's behaviour. Grade "
-    "behaviour through the published interface only; never assert the reference's private structure.")
+    "behaviour through the published interface only; never assert the reference's private structure.\n"
+    "Cheap first, before any blind solve: write each idiom these agents actually use (the repository's own proxy "
+    "left in place, first match, a status whitelist, fixed paths, containment instead of identity, ASCII-only "
+    "classes, floor-then-clamp) as a mutant and a small input generator per idiom whose validator encodes only "
+    "the published preconditions; keep the inputs that kill it while the reference passes. Then confirm with the "
+    "blind solves -- a predicted idiom no solver writes is not a trap (measured: 5% of planted traps).\n"
+    "Admission, for every hidden case: SPOTLIGHT -- asked directly with the instruction, both families answer it "
+    "right (determinacy_probe with check=...); IN CONTEXT -- a blind solve's code gets it wrong. Both, or it is "
+    "not a trap. Isolation: each check sets up its own module and data and judges downstream behaviour against the "
+    "agent's own upstream output, so one upstream miss neither masks nor cascades into it (measured: one miss "
+    "failed eight checks of a release, and the traps behind it were never exercised).")
 
 DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT + "\n\n" + HARDNESS_GATE
 
@@ -452,7 +462,10 @@ fence predicate (Astra's habit) misses the continuation; fixing only one of them
 a different wrong question. m_baseline_ is the literal transcription with those idioms; \
 m_partial_scope and m_partial_fence each resolve one lever; all three fail o_questions.
 
-THE TRAP HUNT -- think deeply BEFORE writing a test. Work every family against THIS \
+THE TRAP HUNT -- think deeply BEFORE writing a test. Start from THE PROXY DOCTRINE: list \
+every place where the existing code, docs or seed data implement a narrower proxy of a \
+concept the user cares about, and what real input (another writer, locale, layout, version) \
+breaks it -- those are the decisions that bite. Then work every family against THIS \
 repository and record what you find in quality.difficulty_case.pitfalls_considered:
   symptom_vs_cause, chained_defect, spec_reading, constraint, revert_residue, scope, \
 regression, decoy_location, stale_docs, premise_revision, unsatisfiable, environment, \

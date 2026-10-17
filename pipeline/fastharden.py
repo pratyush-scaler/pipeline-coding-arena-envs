@@ -217,6 +217,12 @@ THE HARDNESS GATE IS BINDING in this round: the session stays open until the lat
 hidden tests shows every step fully passed by at most 1 of each model's episodes and at least 3 objective-driving traps
 failing in 2 or more episodes of EACH model (creation_status lists what is missing; it waives itself only when 30
 turns remain). Re-grade after every change to the tests.
+THE PROXY DOCTRINE applies with the instruction frozen: look in the episodes for the narrower PROXY of a concept
+an EXISTING instruction sentence states in general words (rows for orders, an ASCII class for a punctuation class,
+containment for identity, one status for "not cancelled", a fixed path for a datum) that the episodes' code kept, and
+put the new hidden input exactly where proxy and concept part ways -- through the channel the instruction says
+changes (another writer, file, machine). A sentence that names a specific variant bit nothing; never add a case only
+a variant-naming sentence would settle.
 TRAP BITES: regrade_episodes also returns trap_bites -- per objective-driving trap, how many episodes of each
 model fail a check it owns, and no_episode_fails (traps every episode of both models gets right). Those traps
 are coverage, not difficulty: aim new hidden cases first at them, at the input where the episodes' shared code

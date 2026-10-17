@@ -118,6 +118,16 @@ GPT-family agents tend to code one exact predicate (ASCII-only class, line subst
 a field, first match, the reported boundary instead of its family), stop at the first green \
 test, and miss environment and error-path conventions.
 
+WHAT ACTUALLY BITES (measured on released tasks both agent families failed 20/20): a GENERAL concept the \
+user states in domain words, while existing code implements a NARROWER PROXY of it that every visible input \
+satisfies -- ledger rows for "orders", an ASCII separator class for "dashes and brackets", containment for \
+"came in the response", a schema built once for "each request". The hidden input sits where proxy and concept \
+part ways, usually produced by a second writer or source the code does not model (another system writing the \
+same records, another locale's keyboard, another vendor's layout, another version of a format). So research, for \
+the stack and domain given: which narrower proxies implementations of this concept typically use, and which \
+REAL inputs (other writers, locales, layouts, versions, producers) violate them -- with the exact input and \
+the exact wrong output.
+
 Answer with ONE JSON array inside a ```json fenced block, 4 to 8 objects, each:
   {"mode": snake_case name, "family": scope|interaction|representation|idiom|state|invariant|\
 protocol|numeric|text|temporal|absence|resource|concurrency|security|error|library,
@@ -125,7 +135,9 @@ protocol|numeric|text|temporal|absence|resource|concurrency|security|error|libra
    "executable_fact": exact program + exact output in the pinned version,
    "idiomatic_wrong": the code a strong engineer writes and why it is wrong,
    "hidden_case": concrete input -> correct output vs idiomatic output,
-   "settling_sentence": the GENERAL rule in the user's words that settles it WITHOUT naming the variant,
+   "concept_sentence": the GENERAL concept in the user's words that settles it WITHOUT naming the variant,
+   "proxy_in_code": the narrower proxy typical code (and likely this repository) implements instead,
+   "second_writer": the other producer of the data whose output breaks the proxy (or null),
    "idiom_that_breaks": the code a strong engineer writes FROM THAT GENERAL SENTENCE and why it fails,
    "fits_when": the code or data in a repository that makes this trap natural,
    "validity_risks": what could make it ambiguous, version-dependent or unfair,
@@ -441,6 +453,10 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
         "by an m_baseline_ mutant (the idiom) and an m_partial_ mutant per lever -> record "
         "research {research_id, sources, finding, executed} on the trap. A trace-derived trap may carry research "
         "too (it keeps its trace provenance); prefer that where the user's own correction is the seed.",
+        "  - RESEARCH FINDS PROXIES (THE PROXY DOCTRINE at the top of these instructions): ask which narrower "
+        "proxies of the user's concept this kind of code implements and which real inputs -- another writer, "
+        "locale, layout, version, producer -- break them. The repository's existing proxy and the visible data stay "
+        "as they are; the concept goes in the user's words; the researched input goes only in hidden data.",
         "  - A researched fact is NOT a trap by itself. Measured 2026-10-17: the first designs planted 7-9 researched "
         "traps each and both blind solvers scored 1.0, because the instruction sentence that 'settled' each one named "
         "the variant (a model that reads it implements it). Publish the rule at the level the user states it about "

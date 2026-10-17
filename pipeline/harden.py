@@ -450,6 +450,9 @@ How each check behaved in calibration (the trap has to move these):
    is coverage, not difficulty -- move its hidden case to the input where that
    solver's code diverges from the published rule, on its own objective check, until
    most traps bite and the two families fail different traps as well as shared ones.
+   Follow THE PROXY DOCTRINE: a redesign may restate a rule, but only as the
+   general concept in the user's words over code and data that hold a narrower
+   proxy -- never naming the variant, never a list.
    THE HARDNESS GATE is binding in this round as in a fresh design (each family's
    current blind solve fails a step; 3 determinate traps bite each family across 3
    types); run THE DIVERGENCE HUNT against each solver's patch to find them.
