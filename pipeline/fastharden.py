@@ -213,6 +213,11 @@ Every new hidden case must:
     it -- drop the case, never reword the instruction;
   * fail in the re-grade by assertion or by the submission's own crash -- never by a test that cannot read
     the output, an import the instruction never named, a timeout or an environment difference.
+TRAP BITES: regrade_episodes also returns trap_bites -- per objective-driving trap, how many episodes of each
+model fail a check it owns, and no_episode_fails (traps every episode of both models gets right). Those traps
+are coverage, not difficulty: aim new hidden cases first at them, at the input where the episodes' shared code
+diverges from the published rule, until most traps bite and the two models fail different traps as well as shared
+ones.
 RESEARCH (research_traps, up to 4 questions in parallel): ask about the documented semantics of the versions this
 fixture pins and the formats its data's real producers emit -- a researched fact is often exactly the shape the
 episodes share a miss on. Reproduce it with sandbox_run first; it then obeys every rule above, and the trap you

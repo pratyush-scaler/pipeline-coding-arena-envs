@@ -836,6 +836,14 @@ TRAP_RESEARCH_UNAVAILABLE_AFTER = 3
 #: over-used in every new design's opening message.
 TRAP_TYPE_MAX_SHARE = 0.34
 DIVERSITY_OVERUSED_SHARE = 0.15
+#: Traps that BITE (user, 2026-10-17: "ensure more traps bite the models ... most of them
+#: should defeat the model"; author/bites.py). The four ship15 releases planted 23-37 traps
+#: and 5-8 bit each model. Advisory targets for THE BITE AUDIT, read from blind solves at
+#: creation and from the screen re-grade in hidden-only rounds: the share of objective-
+#: driving traps a solver fails, the traps each family fails, and the types they span.
+TRAP_BITE_SHARE_TARGET = 0.6
+MIN_BITING_TRAPS_PER_FAMILY = 6
+MIN_BITING_TRAP_TYPES = 4
 
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the

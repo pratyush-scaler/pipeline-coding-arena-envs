@@ -445,7 +445,11 @@ How each check behaved in calibration (the trap has to move these):
    up to 4 questions in parallel) for the documented semantics of the versions and
    formats THIS fixture uses; verify each finding with sandbox_run before planting it,
    record research {{research_id, sources, finding, executed}} on the trap, and type it
-   by its actual failure mode, not the generic spec_misread.
+   by its actual failure mode, not the generic spec_misread. Run THE BITE AUDIT:
+   blind_solve returns trap_bites; every objective-driving trap neither solver fails
+   is coverage, not difficulty -- move its hidden case to the input where that
+   solver's code diverges from the published rule, on its own objective check, until
+   most traps bite and the two families fail different traps as well as shared ones.
 
 3. ROUTE GENUINE OBJECTIVES THROUGH EACH PREMISE. One failed objective already
    defeats full-task success. Re-aim the free checks above so

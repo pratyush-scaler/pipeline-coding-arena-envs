@@ -48,6 +48,7 @@ from . import extract as extract_mod
 from . import creation, quality, sandbox, toolchain
 from . import traps as traps_mod
 from . import trap_research
+from . import bites as bites_mod
 from . import validate as validate_mod
 from .contracts import ContractError, contained, strict_json
 from .outcomes import AuthoringStalled, SeedRejected
@@ -227,7 +228,22 @@ DIFFICULTY_LOOP = (
     "and the alternative passing and a mutant writing that family's answer failing; then blind_solve again. "
     "Stop when every step fails for both families, or when the budget is spent; record each solve in "
     "quality.difficulty_case. A failure a solver hits because the task is unclear, under-specified or graded "
-    "on something the instruction never stated is a defect, not difficulty.")
+    "on something the instruction never stated is a defect, not difficulty.\n\n"
+    "THE BITE AUDIT (user, 2026-10-17: most traps must defeat the models). Every objective-driving trap is a "
+    "decision the model must get right, and a trap neither blind solver fails is coverage, not difficulty: in the "
+    "four tasks released last week 23-37 traps were planted and only 5-8 bit each model, and on two of them both "
+    "models failed exactly the same traps. blind_solve returns trap_bites {biting, not_biting}. For EVERY "
+    "objective-driving trap in not_biting: read that solver's patch, find the concrete input where ITS code "
+    "diverges from the published rule (the member of the stated class it did not handle, the second live path, "
+    "the rerun or fault, two rules meeting, the version-specific behaviour research_traps documented) and move "
+    "or add the trap's hidden case there -- determinacy_probe first, its own objective check so each trap is an "
+    "independent decision, an m_partial_ mutant proving it -- then solve again. Make the two families fail "
+    "DIFFERENT traps as well as shared ones (Fable: scope, long tail, one branch, interaction, state; Astra: "
+    f"unseen shape, exact predicate, convention, first green). Targets: at least "
+    f"{policy.TRAP_BITE_SHARE_TARGET:.0%} of objective-driving traps bite a solver, at least "
+    f"{policy.MIN_BITING_TRAPS_PER_FAMILY} bite each family, and the biting traps span at least "
+    f"{policy.MIN_BITING_TRAP_TYPES} types. Never make a trap bite by loosening the instruction or grading "
+    "something it does not state.")
 
 AUTHORING_MANDATE = (
     "YOUR MANDATE: on this first attempt, design a coding task that is BOTH of EXCELLENT "
@@ -1389,6 +1405,10 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 if row.get("reward") == 1.0:
                     out.append(f"difficulty (advisory): {family}'s blind solve fully passed step {step}{stale} -- "
                                "expect its screen above the bar; add a determinate interlocked case it gets wrong")
+        try:
+            out += [f"difficulty (advisory): {a}" for a in bites_mod.advisories(spec, bundle)]
+        except Exception:  # noqa: BLE001  advisory only
+            pass
         return out
 
     def probe_patch(step: str, patch: str, hypothesis: str = "", expected_fails: list | None = None, **_):
@@ -1536,6 +1556,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "remaining": MAX_BLIND_SOLVES_PER_SESSION - blind_n["n"],
                 "too_easy_steps": [name for name, row in (record.get("by_step") or {}).items()
                                    if row.get("reward") == 1.0],
+                "trap_bites": bites_mod.summary_line(draft_spec(), record),
                 "how_to_read": "For each failing check decide: TRAP (the solver adopted the misreading the task is "
                                "built on; record it in quality.difficulty_case) or OVER-FIT (the solver's fix is "
                                "correct under the instruction and the test asserts your reference's convention; "
@@ -1659,6 +1680,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         try:
             advisories += computed_load_advisories(spec)
             advisories += trap_research.advisories(spec, bundle)
+            advisories += bites_mod.advisories(spec, bundle)
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories.append(f"ADVISORY suite load scan unavailable: {type(exc).__name__}: {exc}")
         try:
@@ -1713,8 +1735,16 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         atomic_json(log / f"regrade-{regrade_n['n']:03d}.json", summary)
         atomic_json(bundle / fastharden.RECEIPT, {**summary, "draft_sha256": hashlib.sha256(
             json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest()})
+        try:
+            trap_rows = bites_mod.from_regrade(draft_spec(), summary)
+            graded = set(bites_mod.objective_traps(draft_spec()))
+            trap_bites = {"failing_episodes": {t: r for t, r in trap_rows.items() if t in graded},
+                          "no_episode_fails": sorted(t for t, r in trap_rows.items()
+                                                     if t in graded and not any(r.values()))}
+        except Exception as exc:  # noqa: BLE001  advisory only
+            trap_bites = {"error": f"{type(exc).__name__}: {exc}"}
         return {"in_sample": True, "provisional_meets_bar": summary["provisional_meets_bar"],
-                "by_model": summary["by_model"], "problems": summary["problems"][:20],
+                "by_model": summary["by_model"], "problems": summary["problems"][:20], "trap_bites": trap_bites,
                 "note": "provisional: these trees were in view when the cases were chosen; only a fresh screen counts"}
 
     def read_episode(model: str, index: int, path: str | None = None, offset: int = 0, **_):
