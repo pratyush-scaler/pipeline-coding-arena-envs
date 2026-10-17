@@ -118,6 +118,15 @@ def inventory(spec: dict, bundle: Path) -> dict:
         for key in keys:
             need(f"traps[{label}].{key}", _text(trap.get(key)))
         need(f"mutant for trap {label}", any(_object(m).get("id") == trap.get("mutant") for m in mutants))
+    # A fresh design's researched-trap floor (policy.MIN_RESEARCHED_TRAPS, set per
+    # session in verification/trap-research.json; 0 for revisions, waived when the
+    # research tool was unavailable). Presence of well-formed, recorded research only.
+    from . import trap_research
+    floor, on_record = trap_research.requirement(bundle)
+    if floor:
+        have = trap_research.researched(traps, on_record)
+        need(f"researched traps ({len(have)}/{floor}): traps carrying research {{research_id, sources, finding, "
+             "executed}} from a successful research_traps call, each verified by sandbox_run", len(have) >= floor)
     for i, raw in enumerate(mutants):
         mutant = _object(raw)
         label = mutant.get("id") if _text(mutant.get("id")) else str(i)

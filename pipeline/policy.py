@@ -816,6 +816,27 @@ MULTI_STEP_MIN_STEPS = 3
 MIN_OBJECTIVES_PER_STEP = 4
 MIN_TRAPS_PER_STEP = 2
 
+#: Trap research (user, 2026-10-17: "a minimum goal of adding at least 6 extremely
+#: hard traps relevant to source traces using web search and research + additional
+#: traps from the library"; "diverse failure modes across tasks"). A fresh design
+#: plants at least this many traps carrying `research` from `research_traps`
+#: (author/trap_research.py) before creation counts as complete. A creation
+#: component, never a validation refusal; waived only when research is unavailable.
+MIN_RESEARCHED_TRAPS = 6
+#: research_traps calls per design session, and the server-side web searches and
+#: fetches one call may spend.
+TRAP_RESEARCH_MAX_CALLS = 14
+TRAP_RESEARCH_MAX_SEARCHES = 8
+TRAP_RESEARCH_MAX_FETCHES = 4
+#: Consecutive failed research calls, with none succeeding, after which research
+#: counts as unavailable for the session and the floor above is waived.
+TRAP_RESEARCH_UNAVAILABLE_AFTER = 3
+#: Failure-mode diversity (advisory): no trap type above this share of a task's
+#: traps; a type at or above DIVERSITY_OVERUSED_SHARE of the batch is named as
+#: over-used in every new design's opening message.
+TRAP_TYPE_MAX_SHARE = 0.34
+DIVERSITY_OVERUSED_SHARE = 0.15
+
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the
 #: designer, check_draft, the reviewer and hardening read; none of them blocks.

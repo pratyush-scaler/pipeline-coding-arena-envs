@@ -44,6 +44,8 @@ class CreationCompletion(unittest.TestCase):
             stack.enter_context(patch("pipeline.privacy.scan", return_value=[]))
             stack.enter_context(patch.object(author, "_opening", return_value="Write every task component."))
             stack.enter_context(patch.object(author.extract_mod, "usable_correction_count", return_value=0))
+            # The researched-trap floor has its own tests (test_trap_research.py).
+            stack.enter_context(patch.object(author.policy, "MIN_RESEARCHED_TRAPS", 0))
             validator = stack.enter_context(patch.object(author.validate_mod, "validate",
                 side_effect=AssertionError("creation cannot run acceptance validation")))
             controls = stack.enter_context(patch.object(author.controls_mod, "run",
@@ -225,6 +227,8 @@ class SubmitPreflight(unittest.TestCase):
             stack.enter_context(patch("pipeline.privacy.scan", return_value=[]))
             stack.enter_context(patch.object(author, "_opening", return_value="Write every task component."))
             stack.enter_context(patch.object(author.extract_mod, "usable_correction_count", return_value=0))
+            # The researched-trap floor has its own tests (test_trap_research.py).
+            stack.enter_context(patch.object(author.policy, "MIN_RESEARCHED_TRAPS", 0))
             stack.enter_context(patch.object(author, "_handlers", side_effect=handlers))
             call = stack.enter_context(patch.object(author, "_call", side_effect=responses))
             spec = author.design({}, self.extraction, self.root, initial_spec=deepcopy(self.spec), max_steps=steps)

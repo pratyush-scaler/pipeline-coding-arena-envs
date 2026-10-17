@@ -57,6 +57,42 @@ TAXONOMY = {
                               "a plausible local repair violates an observable invariant across modules"),
     "architectural_carry": (("spec_correction", "constraint_assertion"), "inference", "sequence",
                             "later published demands invalidate an earlier assumption; a local extension loses prior behaviour"),
+    # Failure modes by the SEMANTICS a researched trap turns on (user, 2026-10-17: diverse failure
+    # modes across tasks; author/trap_research.py). The batch ledger had 30% spec_misread and 22%
+    # semantic_decoy: generic labels hide which judgment failed, so tasks repeated one mode.
+    "library_semantics": (("persistent_defect", "spec_correction", "infrastructure"), "inference", "join",
+                          "the pinned library's documented behaviour differs from the idiom written from memory; "
+                          "the mutant uses the idiom"),
+    "protocol_semantics": (("persistent_defect", "spec_correction"), "inference", "join",
+                           "a valid message of the format or protocol (HTTP, URL, CSV, JSON, SQL, MIME) that the "
+                           "common shortcut mishandles; the mutant takes the shortcut"),
+    "numeric_semantics": (("persistent_defect", "spec_correction"), "inference", "arbitration",
+                          "precision, rounding stage, overflow or remainder allocation decides the value; the "
+                          "mutant uses the default arithmetic"),
+    "text_semantics": (("persistent_defect", "spec_correction"), "inference", "join",
+                       "code points, graphemes, line boundaries, case mapping or encoding decide membership; the "
+                       "mutant handles the ASCII member only or over-folds"),
+    "temporal_semantics": (("persistent_defect", "spec_correction"), "inference", "arbitration",
+                           "time zone, DST, calendar arithmetic or range inclusivity decides the result; the mutant "
+                           "uses the naive clock"),
+    "absence_semantics": (("persistent_defect", "spec_correction"), "inference", "arbitration",
+                          "missing vs null vs empty vs zero (or SQL NULL logic) carry different published meanings; "
+                          "the mutant collapses them"),
+    "ordering_semantics": (("persistent_defect", "spec_correction"), "inference", "arbitration",
+                           "ties, stability, precedence or first-vs-last decide the output; the mutant relies on a "
+                           "default order"),
+    "resource_semantics": (("persistent_defect", "constraint_assertion"), "execution", "carry",
+                           "a partial failure, retry or rerun must leave the published state; the mutant writes "
+                           "in place or repeats a side effect"),
+    "concurrency_semantics": (("persistent_defect", "spec_correction"), "execution", "sequence",
+                              "a deterministic interleaving or async ordering breaks the published rule; the mutant "
+                              "serialises or assumes completion order"),
+    "security_semantics": (("persistent_defect", "constraint_assertion"), "inference", "restraint",
+                           "an encoded, indirect or other-owner member of a published safety rule; the mutant "
+                           "blocks the obvious form only"),
+    "error_semantics": (("persistent_defect", "spec_correction"), "inference", "arbitration",
+                        "the published failure contract (what is refused, what it says, what stays on disk) on an "
+                        "error path the visible cases never reach; the mutant fails generically"),
 }
 TYPES = tuple(TAXONOMY)
 AXES = ("inference", "execution", "restraint")
@@ -77,6 +113,7 @@ class Trap:
     grounding: str | None = None
     grounded_in: str | None = None
     beatable_by: str | None = None
+    research: dict | None = None
 
     @classmethod
     def from_dict(cls, raw: dict) -> "Trap":

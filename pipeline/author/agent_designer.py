@@ -47,6 +47,7 @@ from . import controls as controls_mod
 from . import extract as extract_mod
 from . import creation, quality, sandbox, toolchain
 from . import traps as traps_mod
+from . import trap_research
 from . import validate as validate_mod
 from .contracts import ContractError, contained, strict_json
 from .outcomes import AuthoringStalled, SeedRejected
@@ -241,7 +242,10 @@ AUTHORING_MANDATE = (
     "misses the goal. Do not count on anything making this task harder after you submit: "
     "validity findings may come back for repair, difficulty feedback will not, and later "
     "hardening is manual, limited and not guaranteed. Reproduce the defect in the sandbox "
-    "before you write a test; work THE TRAP HUNT and prove every trap with a mutant; run the controls until they are "
+    "before you write a test; work THE TRAP HUNT and prove every trap with a mutant; RESEARCH this trace's stack with "
+    f"research_traps and plant at least {policy.MIN_RESEARCHED_TRAPS} execution-verified researched traps on top of the "
+    "library levers (more when the code genuinely supports them), each interlocked, settled by an instruction "
+    "sentence and proved by a mutant; vary the failure modes; run the controls until they are "
     "clean when possible; complete the difficulty self-audit. These checks guide creation and "
     "never prevent submission. Finish writing every task component before ending creation: fixture and "
     "provenance, toolchain and dependency manifests, all step instructions, checks and hidden suites, "
@@ -394,6 +398,24 @@ mutant)? Plant the ones that pass and make them interact; reject the rest with t
 reason. Then red-team your own draft: fix it the way a strong model would on a first quick \
 pass, grade that patch in the sandbox, and if it scores full marks the task is not done.
 
+THE TRAP RESEARCH -- the library above is the same for every task; the hardest traps \
+are specific to THIS trace's stack. After reading the trace and the fixture, list what \
+the fixture actually uses (language and pinned library versions, data formats and their \
+real producers, protocols, the domain's rules the user stated) and call research_traps \
+with focused questions about it: documented semantics of the pinned versions that differ \
+from what an engineer writes from memory, format and protocol corner cases, the domain's \
+conventions (rounding stage, time zone, identity, ordering, absence of a value, error \
+contract), known issues and migration notes, published agent failure analyses. Treat \
+every finding as a hypothesis: reproduce its executable fact with sandbox_run in the \
+agent image BEFORE planting it, and drop what does not reproduce or what the user's \
+instruction could not settle in one plain sentence. A researched trap is planted like any \
+other -- default-wrong (m_baseline_), unlabelled, determinate, interlocked with a library \
+lever on ONE hidden item aimed at the other family, proved by its mutant -- and carries \
+research {{research_id, sources, finding, executed}}. A trace-derived trap may carry research \
+too. Type each trap by its ACTUAL failure mode (library/protocol/numeric/text/temporal/ \
+absence/ordering/resource/concurrency/security/error semantics are first-class types); \
+the batch needs different failure modes across tasks, not one mode labelled spec_misread.
+
 YOU HAVE TOOLS. Use them; never design from assumption.
   - read_trace / list_corrections / read_signals: what the user disputed, with the \
 per-turn feedback (edit / disapprove / escape) on every response. Rejected turns are \
@@ -464,7 +486,8 @@ commands?, provenance {{origin: trace_accepted|trace_derived|authored, msg?, not
   alternative {{step: {{patch}}}} -- a SECOND correct fix, structurally different \
 (different decomposition, different data structure), that must also score 1.0.
   traps [{{id t_*, type, surface, provenance, checks, mutant, beatable_by, \
-derived_from/correction_class/quote | grounding/grounded_in}}] -- types: \
+derived_from/correction_class/quote | grounding/grounded_in, research? {{research_id r_NN, \
+sources [urls that call returned], finding, executed (what sandbox_run showed)}}}}] -- types: \
 {', '.join(traps_mod.TYPES)}.
   mutants [{{id m_*, trap, reason, patch, fails: [check ids]}}] -- a PLAUSIBLE WRONG FIX \
 per trap: it must fail exactly the checks it declares, pass at least one objective, and \
@@ -585,7 +608,8 @@ step covered, both families aimed at; check_draft audits it, advisory).
 WORKFLOW THAT WORKS: (1) read the corrections and the rejected turns; (2) find the \
 defect pair in the workspace history and read both trees; (3) materialize_fixture at \
 the right turn, remove anything that leaks the fix; (4) stage toolchain + deps, \
-sandbox_run the program to REPRODUCE the defect; (5) write the instruction and the \
+sandbox_run the program to REPRODUCE the defect; (4b) research_traps on the stack the \
+fixture pins and verify each finding with sandbox_run; (5) write the instruction and the \
 hidden tests, sandbox_run them against the fixture (they fail) and against the \
 reference patch (they pass); (6) write the alternative and a mutant per trap and \
 sandbox_grade each when useful; (7) check_draft and run_controls, and read every ADVISORY check_draft returns: each names a shape the independent reviewer rejects (a test using a name only the reference introduces, a file budget no sentence publishes, a test trusting a child process's output, a mutable oracle, asserted DOM structure, an imitated runtime); (8) optionally blind_solve across every step and classify failures; (9) pre_review once the controls are clean -- the same reviewer the gate runs; a batch that skipped it validated 0 of 10 tasks (census 2026-10-03) -- and fix every finding structurally, not locally; (10) self-audit, submit. submit_draft runs a one-time deterministic preflight (static validation and the executed controls) and hands back what validation would reject, so you can fix it within this session. No optional check is required for submission; downstream validation owns rejection.
@@ -780,6 +804,7 @@ def _tools(n_msgs: int) -> list[dict]:
                                                                "type": "object", "properties": {"file": {"type": "string"}, "quote": {"type": "string"}},
                                                                "required": ["file", "quote"], "additionalProperties": False}}},
                           "required": ["reason", "source_evidence"], "additionalProperties": False}},
+        trap_research.TOOL,
         SPEC_TOOL,
     ]
 
@@ -1633,6 +1658,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             advisories = [f"ADVISORY unavailable: {type(exc).__name__}: {exc}"]
         try:
             advisories += computed_load_advisories(spec)
+            advisories += trap_research.advisories(spec, bundle)
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories.append(f"ADVISORY suite load scan unavailable: {type(exc).__name__}: {exc}")
         try:
@@ -1787,7 +1813,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             "stage_spec": stage_spec, "read_draft": read_draft, "draft_spec": draft_spec,
             "retain_draft": retain_draft, "creation_status": creation_status,
             "check_spec": check_spec, "check_draft": lambda **_: check_spec(draft_spec()),
-            "submit_check": submit_check, "submit_preflight": submit_preflight}
+            "submit_check": submit_check, "submit_preflight": submit_preflight,
+            "research_traps": trap_research.make_tool(bundle)}
 
 
 # ---------------------------------------------------------------------------
@@ -2082,6 +2109,10 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     opening = _opening(row, extraction, bundle, level)
     if level in TRAP_POLICY:
         opening += "\n\n" + TRAP_POLICY[level]
+    research_floor = 0 if revision else policy.MIN_RESEARCHED_TRAPS
+    trap_research.begin(bundle, research_floor)
+    from ..config import ARTIFACTS as _artifacts
+    opening += "\n\n" + trap_research.opening_text(bundle, _artifacts / "waves/decisive-traps.json", research_floor)
     if initial_spec is not None:
         opening += "\nAn earlier draft is staged. Use read_draft and check_draft to inspect and repair it."
     if level in CATEGORY_GUIDANCE:
