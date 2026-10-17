@@ -213,6 +213,11 @@ Every new hidden case must:
     it -- drop the case, never reword the instruction;
   * fail in the re-grade by assertion or by the submission's own crash -- never by a test that cannot read
     the output, an import the instruction never named, a timeout or an environment difference.
+RESEARCH (research_traps, up to 4 questions in parallel): ask about the documented semantics of the versions this
+fixture pins and the formats its data's real producers emit -- a researched fact is often exactly the shape the
+episodes share a miss on. Reproduce it with sandbox_run first; it then obeys every rule above, and the trap you
+add carries research {research_id, sources, finding, executed} and is typed by its ACTUAL failure mode
+(library/protocol/numeric/text/temporal/absence/ordering/resource/concurrency/security/error semantics).
 Do not delete or weaken any existing check. Keep the Fable-side difficulty that already bites, and add cases
 aimed at what Astra's episodes miss (and Fable's, where Fable passes). The re-grade you see is IN-SAMPLE --
 you chose the cases with these trees in view -- so it is reported only as provisional; the revision is then

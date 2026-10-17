@@ -441,7 +441,11 @@ How each check behaved in calibration (the trap has to move these):
    (m_partial_...), and record it in quality.lever_plan. Keep each trap's affected
    population small, and spread the difficulty over several INDEPENDENT decisions
    (LEARNING SIGNAL below) -- never several checks hanging off one premise as the
-   whole difficulty. Vary the levers across items.
+   whole difficulty. Vary the levers across items. Use research_traps (web research,
+   up to 4 questions in parallel) for the documented semantics of the versions and
+   formats THIS fixture uses; verify each finding with sandbox_run before planting it,
+   record research {{research_id, sources, finding, executed}} on the trap, and type it
+   by its actual failure mode, not the generic spec_misread.
 
 3. ROUTE GENUINE OBJECTIVES THROUGH EACH PREMISE. One failed objective already
    defeats full-task success. Re-aim the free checks above so
