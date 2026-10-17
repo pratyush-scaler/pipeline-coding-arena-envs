@@ -215,8 +215,10 @@ Every new hidden case must:
     the output, an import the instruction never named, a timeout or an environment difference.
 THE HARDNESS GATE IS BINDING in this round: the session stays open until the latest regrade_episodes of the CURRENT
 hidden tests shows every step fully passed by at most 1 of each model's episodes and at least 3 objective-driving traps
-failing in 2 or more episodes of EACH model (creation_status lists what is missing; it waives itself only when 30
-turns remain). Re-grade after every change to the tests.
+failing in 2 or more episodes of EACH model, at least 2 of them failing in 2+ episodes of BOTH models, and the
+biting traps spanning at least 3 trap types (creation_status lists what is missing; it waives itself only when 30
+turns remain). Re-grade after every change to the tests. Diverse modes: one decision per mode, each its own check over
+its own data, so several different habits fail -- not one habit failing many checks.
 THE PROXY DOCTRINE applies with the instruction frozen: look in the episodes for the narrower PROXY of a concept
 an EXISTING instruction sentence states in general words (rows for orders, an ASCII class for a punctuation class,
 containment for identity, one status for "not cancelled", a fixed path for a datum) that the episodes' code kept, and

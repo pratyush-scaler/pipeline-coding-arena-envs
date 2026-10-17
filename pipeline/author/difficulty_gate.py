@@ -134,6 +134,13 @@ def creation_status(spec: dict, bundle: Path) -> dict:
                            f"{policy.MIN_BINDING_BITES_PER_FAMILY}; a decision counts when a check of it, owned by an "
                            "objective-driving trap, fails in that solve AND carries a determinate "
                            "determinacy_probe(check=...); checks of one quality.decisions entry count once)")
+    if len(biting) == len(FAMILIES):
+        shared = biting["astra"] & biting["fable"]
+        shared_units = {decision_of.get(cid, f"trap:{t}") for t in shared for cid in owned.get(t, set()) & sure}
+        if len(shared_units) < policy.MIN_SHARED_BITES:
+            missing.append(f"{len(shared_units)} determinate decision(s) bite BOTH families (need "
+                           f"{policy.MIN_SHARED_BITES}: THE PROXY DOCTRINE's concept-over-proxy decisions are the ones "
+                           "both families miss)")
     union = set().union(*biting.values()) if biting else set()
     kinds = {types.get(t) for t in union if types.get(t)}
     if solves and len(kinds) < policy.MIN_BINDING_BITING_TYPES:
@@ -155,11 +162,22 @@ def fast_status(spec: dict, bundle: Path) -> dict:
                                f"{cell.get('graded')} episodes (bar {policy.FAST_GATE_MAX_FULL_PASSES})")
     rows = bites.from_regrade(spec, receipt)
     objective = set(bites.objective_traps(spec))
+    types = {t.get("id"): t.get("type") for t in spec.get("traps") or [] if isinstance(t, dict)}
+    biting = {}
     for model in (receipt.get("by_model") or {}):
         name = model.split("/")[-1]
-        n = sum(1 for t, r in rows.items() if t in objective and (r.get(name) or 0) >= 2)
-        if n < policy.MIN_BINDING_BITES_PER_FAMILY:
-            missing.append(f"{n} trap(s) fail in 2+ episodes of {name} (need {policy.MIN_BINDING_BITES_PER_FAMILY})")
+        biting[name] = {t for t, r in rows.items() if t in objective and (r.get(name) or 0) >= 2}
+        if len(biting[name]) < policy.MIN_BINDING_BITES_PER_FAMILY:
+            missing.append(f"{len(biting[name])} trap(s) fail in 2+ episodes of {name} "
+                           f"(need {policy.MIN_BINDING_BITES_PER_FAMILY})")
+    if len(biting) >= 2:
+        shared = set.intersection(*biting.values())
+        if len(shared) < policy.MIN_SHARED_BITES:
+            missing.append(f"{len(shared)} trap(s) fail in 2+ episodes of EVERY model (need {policy.MIN_SHARED_BITES})")
+        kinds = {types.get(t) for t in set.union(*biting.values()) if types.get(t)}
+        if len(kinds) < policy.MIN_BINDING_BITING_TYPES:
+            missing.append(f"the biting traps span {len(kinds)} type(s) {sorted(kinds)}; need "
+                           f"{policy.MIN_BINDING_BITING_TYPES}")
     return {"missing": missing}
 
 

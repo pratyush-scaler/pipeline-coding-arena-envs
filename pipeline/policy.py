@@ -857,6 +857,9 @@ DIFFICULTY_GATE_AT_CREATION = True
 MIN_BINDING_BITES_PER_FAMILY = 3
 MIN_BINDING_BITING_TYPES = 3
 FAST_GATE_MAX_FULL_PASSES = 1
+#: Decisions that must defeat BOTH families (user, 2026-10-18: "make most of the trap modes bite both the
+#: models"; W13: every 0/20 release rested on at least one decision both families failed 10/10).
+MIN_SHARED_BITES = 2
 DIFFICULTY_GATE_RESERVE_STEPS = 30
 
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many

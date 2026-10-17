@@ -66,7 +66,7 @@ class HardnessGate(unittest.TestCase):
         self.solve("astra", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3)
         self.solve("fable", {"o_a": True, "o_b": False, "o_c": False, "o_d": False}, 0.4)
         self.probe("o_a", "o_b", "o_c", "o_d")
-        self.assertEqual(gate.requirement(_spec(), self.bundle), [])
+        self.assertEqual(gate.requirement(_spec(), self.bundle), [])      # o_b and o_c bite both
         with patch.object(policy, "MIN_BINDING_BITING_TYPES", 4):
             self.assertIn("span 3 type(s)", " ".join(gate.requirement(_spec(), self.bundle)))
 
@@ -78,6 +78,14 @@ class HardnessGate(unittest.TestCase):
         self.solve("fable", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3, spec=spec)
         self.probe("o_a", "o_b", "o_c", "o_d")
         self.assertIn("1 independent determinate decision(s) bite astra", " ".join(gate.requirement(spec, self.bundle)))
+
+    def test_decisions_that_bite_both_families_are_required(self):
+        gate.arm(self.bundle, "creation")
+        self.solve("astra", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3)
+        self.solve("fable", {"o_a": True, "o_b": True, "o_c": False, "o_d": False}, 0.4)
+        self.probe("o_a", "o_b", "o_c", "o_d")
+        with patch.object(policy, "MIN_BINDING_BITES_PER_FAMILY", 2):
+            self.assertIn("1 determinate decision(s) bite BOTH", " ".join(gate.requirement(_spec(), self.bundle)))
 
     def test_creation_inventory_lists_the_gate(self):
         gate.arm(self.bundle, "creation")
@@ -95,7 +103,8 @@ class HardnessGate(unittest.TestCase):
         missing = " ".join(gate.requirement(_spec(), self.bundle))
         self.assertIn("gpt-6-astra still fully passes step 01-fix in 3 of 5", missing)
         self.assertIn("1 trap(s) fail in 2+ episodes of gpt-6-astra", missing)
-        self.assertNotIn("claude-fable-5-1", missing)
+        self.assertNotIn("episodes of claude-fable-5-1", missing)
+        self.assertIn("1 trap(s) fail in 2+ episodes of EVERY model", missing)
 
 
 if __name__ == "__main__":
