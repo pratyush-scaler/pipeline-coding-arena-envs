@@ -57,6 +57,16 @@ class TrapResearch(unittest.TestCase):
         self.assertTrue(record["calls"][0]["ok"])
         self.assertEqual(trap_research.requirement(self.bundle), (6, {"r_01"}))
 
+    def test_several_questions_are_researched_in_parallel_and_recorded_separately(self):
+        trap_research.begin(self.bundle, 6)
+        research, calls = self.tool([_search_response(FINDINGS, [f"https://a.example/{i}"]) for i in range(3)])
+        out = research(questions=["q one", "q two", "q three"], stack="python 3.12")
+        self.assertEqual(sorted(r["research_id"] for r in out["results"]), ["r_01", "r_02", "r_03"])
+        record = trap_research.load(self.bundle)
+        self.assertEqual([c["ok"] for c in record["calls"]], [True, True, True])
+        self.assertFalse(any(c.get("pending") for c in record["calls"]))
+        self.assertEqual(out["remaining_calls"], policy.TRAP_RESEARCH_MAX_CALLS - 3)
+
     def test_pause_turn_is_continued_with_the_assistant_content(self):
         trap_research.begin(self.bundle, 6)
         paused = _search_response("", ["https://a.example/x"], stop="pause_turn")

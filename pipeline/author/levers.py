@@ -624,6 +624,392 @@ LEVERS["format_variant_unseen"]["evidence"] += (
     " TB ontology-kg-querying: Astra missed a coordinate-format variant on visible AND hidden data; TB2 extract-elf "
     "GPT-5.2 0/11 in three harnesses (W5).")
 
+#: Researched trap modes (analysis/web-research/W11-trap-modes-2026-10-17.md, 63 searches; every
+#: language claim executed on Python 3.13 / Node 25 / Go 1.23 / SQLite 3.50 / pandas 3.0). Status
+#: "hypothesis": the SEMANTICS are executed facts, but none is yet measured against Fable 5.1 or GPT 6
+#: Astra -- the screen decides. `trap_type` names the semantic failure mode (traps.TAXONOMY) so the
+#: batch's failure modes stay diverse. Each still needs the admission test and an interlock.
+def _r(family, targets, trap_type, evidence, recipe, signals):
+    return {"family": family, "targets": targets, "status": "hypothesis", "trap_type": trap_type,
+            "evidence": "W11 (exec-verified semantics, unmeasured here): " + evidence, "recipe": recipe,
+            "signals": signals}
+
+
+RESEARCH_LEVERS = {
+    # ---- time and calendar -----------------------------------------------------------
+    "recurrence_anchor_drift": _r("state", "fable", "temporal_semantics",
+        "Stripe billing anchors: Jan 31 bills Feb 29, Mar 31, Apr 30; relativedelta from the previous date gives "
+        "03-29, Go AddDate / JS setUTCMonth overflow to 03-02.",
+        "Publish 'a plan started on the 31st renews on the last day of shorter months and back on the 31st when the "
+        "month has one'. Hidden: anchor 2024-01-31, four renewals; baseline iterates from the previous due date.",
+        [r"relativedelta|addMonths|AddDate|setU?T?C?Month|renew|recurr|next_due|billing"]),
+    "same_zone_wall_arithmetic": _r("idiom", "astra", "temporal_semantics",
+        "Python aware datetimes sharing one tzinfo subtract by wall clock: NY 03-10 12:00 minus 03-09 12:00 is "
+        "1 day though 23 h elapsed (PEP 495; discuss.python.org DST thread).",
+        "Publish 'charge for the time that actually passed; the spring-forward night is an hour shorter'. Hidden: "
+        "a session across the DST change in a named zone; baseline subtracts same-zone datetimes.",
+        [r"ZoneInfo|pytz|tzinfo=|astimezone|timedelta", r"duration|elapsed|hours|minutes|bill"]),
+    "repeated_hour_identity": _r("representation", "both", "temporal_semantics",
+        "05:30Z and 06:30Z on 2024-11-03 are both NY 01:30 (fold 0/1); same-zone == is True, a set keeps one, "
+        "difference is 0, sorted() keeps input order.",
+        "Publish 'two readings are duplicates only if they happened at the same instant'. Hidden: the two "
+        "fall-back readings shown in local time, deduped and sorted; baseline compares local datetimes.",
+        [r"fold|dedup|set\(|sorted\(|astimezone\(|localize"]),
+    "date_only_parse_host_zone": _r("idiom", "astra", "temporal_semantics",
+        "new Date('2024-03-10') is UTC midnight, '2024-03-10T00:00' is local; under TZ=America/Los_Angeles getDate() "
+        "is 9; toISOString().slice(0,10) shifts days east of UTC (GitLab FE date guide).",
+        "Publish 'a task due 2024-03-10 is due on the 10th for every user'. Hidden tests set process.env.TZ "
+        "(deterministic) west and east of UTC; baseline parses date-only strings with new Date.",
+        [r"new Date\(|toISOString\(\)\.slice|getDate\(|Date\.parse"]),
+    "iso_week_year": _r("idiom", "astra", "temporal_semantics",
+        "strftime('%Y-%W') for 2024-12-30 is '2024-53' while ISO is 2025-W01; 2021-01-01 is ISO (2020, 53).",
+        "Publish 'weekly totals are by ISO week (weeks start Monday; week 1 holds the first Thursday)'. Hidden rows "
+        "on 2024-12-30 and 2021-01-01; baseline formats %Y-%W or getWeek.",
+        [r"%W|%U|weekofyear|getWeek|week_number|isocalendar|weekly"]),
+    "inclusive_end_on_timestamp": _r("scope", "astra", "temporal_semantics",
+        "SQLite: ts BETWEEN '2024-01-01' AND '2024-01-31' drops '2024-01-31 10:00:00' (2 of 3 January rows).",
+        "Publish 'the January report includes everything that happened on January 31st'. Hidden: a row on the "
+        "last day after midnight; baseline uses BETWEEN or <= end_date on timestamps.",
+        [r"BETWEEN|<= ?\?|end_date|date_to|created_at <=|to_date"]),
+    "excel_serial_epoch": _r("representation", "both", "numeric_semantics",
+        "Excel 1900 system counts phantom 1900-02-29 (serial 60); for serials >= 61 the base is 1899-12-30, so "
+        "date(1900,1,1)+(n-1) is one day late (Exceljet; Apache bug 39472).",
+        "Publish 'dates exported from Excel (1900 system) show the date Excel shows'. Hidden: 45292 -> 2024-01-01, "
+        "61 -> 1900-03-01; never serial 60 unless the instruction rules on it.",
+        [r"xlrd|openpyxl|serial|excel|25569|1899|1900"]),
+    "rfc5322_unknown_offset": _r("representation", "astra", "temporal_semantics",
+        "email.utils.parsedate_to_datetime('... -0000') is NAIVE while GMT/+0000 are aware; sorting the mix raises "
+        "TypeError.",
+        "Publish 'dates written with -0000 are UTC and sort with the others'. Hidden: GMT, +0100 and -0000 "
+        "messages sorted together; baseline sorts parsed datetimes directly.",
+        [r"parsedate|email\.utils|mbox|imap|Date:"]),
+    # ---- numeric and money -------------------------------------------------------------
+    "allocation_sum_invariant": _r("invariant", "fable", "numeric_semantics",
+        "Per-share rounding loses or invents cents; moneyphp allocation gives 5c at 70/30 -> 4/1, $8/3 -> "
+        "2.67/2.67/2.66 (largest remainder, published tie order).",
+        "Publish 'split amounts add back to the original to the cent; leftover cents go to the earliest lines'. "
+        "Hidden: 100c over 3, 5c at 70/30; baseline rounds each share.",
+        [r"split|allocat|prorat|share|per_person|percent"]),
+    "currency_exponent": _r("representation", "astra", "numeric_semantics",
+        "ISO 4217 minor units: JPY exponent 0, KWD/BHD 3; code hardcodes /100 and toFixed(2).",
+        "Publish 'amounts are stored in the currency's minor unit as ISO 4217 defines it'. Hidden: JPY 1500 -> "
+        "1500, KWD 1234 -> 1.234; baseline divides by 100 everywhere.",
+        [r"/ ?100|\* ?100|toFixed\(2\)|cents|minor_unit|currency"]),
+    "tie_rounding_mode": _r("idiom", "astra", "numeric_semantics",
+        "round(2.675,2)=2.67, (1.005).toFixed(2)='1.00', Math.round(-2.5)=-2, SQLite round(-2.5)=-3.0, pandas "
+        ".round() half-even, Decimal('2.675').quantize -> 2.68 (all executed).",
+        "Publish the rounding rule in the domain's words ('half away from zero, like the ledger'), never the cases. "
+        "Hidden amounts on binary half-ties and negatives; baseline uses float round/toFixed.",
+        [r"round\(|toFixed|Math\.round|quantize|ROUND_"]),
+    "floor_vs_truncating_division": _r("idiom", "both", "numeric_semantics",
+        "Python -1//256 = -1 and -7%2 = 1; JS/Go/SQLite truncate (-7/2 -> -3, -7%2 -> -1); int(-1/256) = 0.",
+        "Publish the bucket in domain words ('tile -1 covers -256..-1', 'an event belongs to the hour it happened "
+        "in'). Hidden: negative coordinates or pre-1970 timestamps; baseline truncates.",
+        [r"Math\.floor|Math\.trunc|\| ?0|int\(.*/|//|%|bucket|tile|grid"]),
+    "nan_poisons_order": _r("idiom", "fable", "absence_semantics",
+        "sorted([3,nan,1,2]) returns the input unchanged; max([nan,1,2]) is nan but max([1,nan,2]) is 2.",
+        "Publish 'runs without a score are left out of the ranking'. Hidden: a NaN score mid-list; baseline sorts "
+        "or maxes the raw floats.",
+        [r"nan|NaN|np\.nan|sorted\(|max\(|median|rank"]),
+    "big_integer_ids": _r("representation", "both", "protocol_semantics",
+        "JSON.parse of 1738234566814937089 yields ...088; Go Unmarshal into any -> float64; Python exact.",
+        "Publish 'ids come back exactly as they were sent'. Hidden: 2^53+1 and a snowflake id round-trip "
+        "byte-exact; baseline JSON.parse / map[string]any.",
+        [r"JSON\.parse|map\[string\](interface|any)|snowflake|bigint|_id"]),
+    # ---- text and i18n -------------------------------------------------------------
+    "line_terminator_superset": _r("representation", "astra", "text_semantics",
+        "str.splitlines() also breaks on \\x1c-\\x1e, \\x85, \\v, \\f, U+2028/9; str.split() splits on \\x1c-\\x1f; "
+        "JS split(/\\r?\\n/) does not.",
+        "Publish 'records are separated by \\n; every other character belongs to the record'. Hidden: a record "
+        "holding \\x85 or U+2028; baseline splitlines().",
+        [r"splitlines\(|\.split\(\)|readlines|line_count"]),
+    "crlf_residue": _r("representation", "astra", "text_semantics",
+        "'abc\\r\\n'.rstrip('\\n') leaves 'abc\\r'; Node 'a\\r\\nb'.split('\\n') gives ['a\\r','b'].",
+        "Publish 'lines end in \\n or \\r\\n; neither is part of the value'. Hidden: a CRLF file whose values must "
+        "compare equal; baseline strips \\n only.",
+        [r"rstrip\(['\"]\\\\n|split\(['\"]\\\\n|\.strip\(['\"]\\\\n"]),
+    "strict_digit_class": _r("adversarial", "astra", "text_semantics",
+        "int('١٢٣')=123, int('１２３')=123, int('1_000')=1000, \\d matches Arabic-Indic; '²'.isdigit() True but "
+        "int('²') raises; JS \\d ASCII-only.",
+        "Publish 'quantities are written with the digits 0-9 only' and the refusal. Hidden: '١٢', '1_000', '²' "
+        "refused, '12' accepted; baseline int()/isdigit().",
+        [r"int\(|isdigit|isnumeric|\\\\d|ParseInt"]),
+    "fold_not_lower": _r("representation", "both", "text_semantics",
+        "'Straße'.lower() != 'STRASSE'.lower() but casefold() equal; Kelvin sign lowers to 'k'; re.I matches it.",
+        "Publish the identity rule naming case folding. Hidden: STRASSE vs straße (same), plus a look-alike the "
+        "rule keeps apart; baseline .lower().",
+        [r"\.lower\(\)|\.upper\(\)|toLowerCase|re\.I|ILIKE|COLLATE NOCASE"]),
+    "canonicalization_idempotence": _r("invariant", "fable", "security_semantics",
+        "Spotify account hijack: 'ᴮᴵᴳᴮᴵᴿᴰ'.lower() is unchanged but NFKC+casefold gives 'bigbird'; canonicalising "
+        "on one path only lets one account take another.",
+        "Publish 'usernames that match after NFKC and case folding are the same account, at sign-up, login and "
+        "reset'. Hidden: the reset path with a full-width variant; baseline canonicalises at sign-up only.",
+        [r"normalize\(|NFKC|canonical|username|slug|unique"]),
+    "case_map_offset_drift": _r("representation", "fable", "text_semantics",
+        "len('İstanbul')=8, len('İstanbul'.lower())=9; spans found on s.lower() mis-slice s; 'ß'.toUpperCase() "
+        "is 'SS'.",
+        "Publish 'highlight positions refer to the original text'. Hidden: a match after an İ; baseline finds on "
+        "lower() and slices the original.",
+        [r"\.lower\(\)\.find|indexOf\(.*toLowerCase|highlight|span|offset"]),
+    "grapheme_safe_truncation": _r("representation", "astra", "text_semantics",
+        "'👨‍👩‍👧' is 8 JS units, 5 Python code points, 1 grapheme; '😀abc'.slice(0,1) is a lone surrogate.",
+        "Publish 'previews count characters as a reader sees them and never cut one in half'. Hidden: a ZWJ family "
+        "at the cut; baseline slices code units or code points.",
+        [r"\.slice\(0,|substring\(|\[:\d+\]|truncate|maxLength|ellipsis"]),
+    "byte_vs_char_length": _r("protocol", "astra", "protocol_semantics",
+        "len('café')=4, UTF-8 bytes 5; Content-Length or byte limits from characters truncate, byte slicing can "
+        "split a code point.",
+        "Publish the limit in bytes ('at most 255 bytes of UTF-8'). Hidden: multibyte text at the limit must stay "
+        "valid UTF-8; baseline counts characters.",
+        [r"Content-Length|byteLength|len\(body\)|VARCHAR\(\d+\)|max_bytes|encode\("]),
+    "cutset_vs_affix": _r("idiom", "astra", "text_semantics",
+        "'context.txt'.rstrip('.txt') = 'conte'; 'https://shop.example'.lstrip('https://') = 'op.example'; Go "
+        "TrimRight takes a cutset.",
+        "Publish the affix rule ('drop the .txt extension'). Hidden: names whose stem ends in cutset letters; "
+        "baseline rstrip/lstrip/TrimRight.",
+        [r"rstrip\(['\"]\.|lstrip\(['\"]|TrimRight\(|TrimLeft\(|\.title\(\)"]),
+    # ---- data and serialization ------------------------------------------------------
+    "sentinel_value_collision": _r("representation", "both", "absence_semantics",
+        "pandas read_csv default na_values turns 'NA' (Namibia) into NaN and '02134' into 2134; PyYAML 1.1: NO -> "
+        "False, 01234 -> 668, 1.10 -> 1.1 (YAML-Norway law).",
+        "Publish 'country codes and ZIP codes come through exactly as written'. Hidden rows 'NA,01234'; baseline "
+        "default read_csv / yaml.safe_load.",
+        [r"read_csv|yaml\.(safe_)?load|country|zip|postal"]),
+    "null_group_dropped": _r("scope", "fable", "absence_semantics",
+        "pandas groupby/value_counts default dropna=True silently drop NaN keys; SQL GROUP BY keeps a NULL group.",
+        "Publish 'every order counts toward exactly one region; orders with none are reported as Unassigned'. "
+        "Hidden: rows with no region; totals must sum to the grand total.",
+        [r"groupby\(|value_counts|pivot_table|nunique|GROUP BY"]),
+    "null_in_anti_join": _r("idiom", "astra", "absence_semantics",
+        "x NOT IN (subquery with a NULL) returns 0 rows (NOT EXISTS: 3); COUNT(col) skips NULL; SUM over no rows "
+        "is NULL; 'x'||NULL is NULL (jOOQ).",
+        "Publish the rule in domain words ('customers with no orders; orders without a customer don't affect it'). "
+        "Hidden: one NULL foreign key; baseline NOT IN.",
+        [r"NOT IN \(SELECT|SUM\(|COUNT\(\w+\)|LEFT JOIN|IS NULL"]),
+    "like_wildcard_literal": _r("adversarial", "astra", "protocol_semantics",
+        "User text in LIKE '%'||?||'%': '_' and '%' are wildcards; SQLite LIKE is ASCII-case-insensitive while = is "
+        "case-sensitive.",
+        "Publish 'search finds the typed text literally anywhere in the title'. Hidden: '50%_off' must not match "
+        "'500 off'; baseline LIKE without ESCAPE.",
+        [r"LIKE \?|LIKE '%|ilike|icontains|\.contains\("]),
+    "csv_structural_long_tail": _r("representation", "fable", "protocol_semantics",
+        "Line-splitting breaks quoted newlines; a UTF-8 BOM makes the DictReader key '\\ufeffid'; Java "
+        "'a,b,,'.split(',') has length 2.",
+        "Publish 'imports accept what Excel's CSV UTF-8 export produces'. Hidden: BOM header, a multi-line quoted "
+        "note, trailing empty columns; baseline split(',') per line.",
+        [r"split\(['\"],['\"]\)|splitlines|DictReader|csv\.|encoding="]),
+    "formula_injection_full_set": _r("adversarial", "astra", "security_semantics",
+        "OWASP CSV injection set includes TAB and CR; Symfony CVE-2021-41270 (a tab prefix fix itself bypassed).",
+        "Publish the full prefix set in the user's words (say '-' explicitly). Hidden: '\\t=1+1', '\\r=cmd', "
+        "'@SUM(A1)' prefixed, 'plain' untouched; baseline escapes '=' only.",
+        [r"csv\.writer|to_csv|export|xlsx|\.csv"]),
+    "duplicate_and_case_key_smuggling": _r("adversarial", "both", "security_semantics",
+        "Python json, PyYAML and Go keep the LAST duplicate key; Go encoding/json v1 matches field names "
+        "case-insensitively (Trail of Bits 2025).",
+        "Publish 'field names are case-sensitive and a document that repeats a field is rejected'. Hidden: "
+        "{role:viewer, Role:admin}; {amount:1, amount:1000}; baseline json.loads/Unmarshal.",
+        [r"json\.Unmarshal|json\.loads|yaml\.|Decoder|role|is_admin"]),
+    "json_pointer_unescape_order": _r("protocol", "astra", "protocol_semantics",
+        "RFC 6901: decode ~1 to / FIRST, then ~0 to ~; reversed order turns 'a~01b' into 'a/b'.",
+        "Publish 'paths are JSON Pointers (RFC 6901)'. Hidden: /a~01b addresses key 'a~1b'; baseline replaces ~0 "
+        "first or splits on '/' only.",
+        [r"pointer|replace\(['\"]~|jsonpatch|split\(['\"]/"]),
+    "merge_patch_semantics": _r("state", "fable", "protocol_semantics",
+        "{**a, **b} / a | b are shallow; RFC 7396: null deletes, arrays replace whole, objects recurse.",
+        "Publish 'PATCH bodies are JSON Merge Patch documents (RFC 7396)'. Hidden: nested null deletion and array "
+        "replacement in one patch; baseline dict update.",
+        [r"PATCH|merge|deep_update|\{\*\*|Object\.assign|\.\.\."]),
+    # ---- HTTP and protocols ------------------------------------------------------------
+    "form_vs_percent_plus": _r("representation", "astra", "protocol_semantics",
+        "URLSearchParams and parse_qs decode '+' as a space; decodeURIComponent/unquote do not (MDN).",
+        "Publish 'the token reaches the server exactly as issued'. Hidden: token 'ab+c/d==' through a query "
+        "string; baseline mixes the two decoders.",
+        [r"URLSearchParams|decodeURIComponent|parse_qs|unquote\(|querystring"]),
+    "conditional_request_comparison": _r("protocol", "both", "protocol_semantics",
+        "RFC 9110 13.1: If-None-Match uses WEAK comparison (W/\"v1\" matches \"v1\"), If-Match STRONG; both take "
+        "lists and *; GET match -> 304, other methods -> 412.",
+        "Publish 'conditional requests behave as RFC 9110 specifies'. Hidden: a list with a weak tag on GET, a weak "
+        "If-Match on PUT, If-None-Match: * on an existing resource; baseline string equality.",
+        [r"ETag|If-None-Match|If-Match|304|412"]),
+    "byte_range_long_tail": _r("protocol", "fable", "protocol_semantics",
+        "RFC 9110 14.1.2: suffix ranges (bytes=-N, N > length = whole), open ranges, last-pos clamping, 416 with "
+        "Content-Range: bytes */len.",
+        "Publish 'answer every satisfiable Range request with 206 as RFC 9110 defines ranges'. Hidden: bytes=-500 "
+        "on 300 bytes, 100-999, 400-; baseline parses a-b only.",
+        [r"Range|Content-Range|206|416|seek|stream"]),
+    "qvalue_zero_exclusion": _r("protocol", "astra", "protocol_semantics",
+        "RFC 9110 12.4.2: q=0 means 'not acceptable'; a substring test ignores weights.",
+        "Publish 'respect the client's Accept header as RFC 9110 defines it'. Hidden: 'text/html;q=0, "
+        "application/json' gets JSON; baseline 'text/html' in accept.",
+        [r"Accept|accepts\(|Accept-Encoding|includes\(['\"]text/html"]),
+    "set_cookie_unfoldable": _r("protocol", "fable", "protocol_semantics",
+        "RFC 9110 5.3: Set-Cookie cannot be comma-folded; Expires=Wed, 21 Oct ... contains a comma.",
+        "Publish 'every cookie the backend sets reaches the browser unchanged'. Hidden: two Set-Cookie headers "
+        "with Expires through the proxy; baseline headers dict joined with ', '.",
+        [r"Set-Cookie|headers\[|', '\.join|proxy"]),
+    "forwarded_chain_trust": _r("adversarial", "astra", "security_semantics",
+        "MDN X-Forwarded-For: the leftmost entry is client-controlled; with N trusted proxies take the first "
+        "untrusted address from the right.",
+        "Publish 'we sit behind exactly one load balancer that appends the address it saw; clients cannot pick "
+        "their own address'. Hidden: 'XFF: 6.6.6.6, 203.0.113.7'; baseline takes [0].",
+        [r"X-Forwarded-For|x_forwarded|remote_addr|client_ip|rate.?limit"]),
+    "address_notation_differential": _r("adversarial", "astra", "security_semantics",
+        "inet_aton('0177.0.0.1') and inet_aton('2130706433') are 127.0.0.1 while ipaddress rejects both strings "
+        "(CVE-2021-29921); ::ffff:7f00:1 is loopback too.",
+        "Publish 'never fetch anything on the loopback network, however the address is written'. Hidden: decimal, "
+        "octal and IPv4-mapped forms; baseline dotted-quad regex or fail-open ipaddress.",
+        [r"ipaddress|is_private|is_loopback|ssrf|allowlist|fetch_url|urlopen"]),
+    "scheme_check_normalization": _r("adversarial", "astra", "security_semantics",
+        "WHATWG URL parsing strips TAB/LF/CR and leading C0/space; schemes are case-insensitive (CVE-2026-31809).",
+        "Publish 'drop any link a browser would run as script'. Hidden: 'java\\tscript:', '\\x01 JaVaScRiPt:'; "
+        "baseline startswith('javascript:').",
+        [r"javascript:|sanitize|href|startsWith\(|bleach|markdown"]),
+    "raw_body_signature": _r("protocol", "fable", "security_semantics",
+        "Stripe webhook verification signs '{t}.{raw body}', accepts ANY matching v1, rejects stale timestamps; "
+        "re-serialised JSON changes bytes.",
+        "Publish the provider's verification rule. Hidden: raw body with \\u00e9, 't=..,v1=bad,v1=good', a 301 s old "
+        "t with an injected clock; baseline verifies json.dumps(request.json).",
+        [r"webhook|hmac|Stripe-Signature|X-Hub-Signature|signature"]),
+    "idempotency_key_contract": _r("state", "both", "resource_semantics",
+        "Stripe idempotency: same key + same params replays status and body without a new side effect; same key + "
+        "different params errors; validation failures are not saved.",
+        "Publish the three rules in the user's words. Hidden: a sequence with a replay, a changed-params reuse and "
+        "an invalid-then-valid key; count side effects.",
+        [r"Idempotency-Key|idempoten|request_id|dedupe"]),
+    "keyset_tiebreak": _r("state", "fable", "ordering_semantics",
+        "A cursor on created_at alone skips or repeats rows sharing a timestamp at a page boundary; fix is "
+        "(created_at, id).",
+        "Publish 'paging to the end returns every item exactly once, even when many share a timestamp'. Hidden: "
+        "3 of 5 rows share a timestamp, page size 2; baseline created_at > cursor.",
+        [r"cursor|after=|next_page|created_at >|LIMIT \?|keyset|offset"]),
+    "out_of_order_redelivery": _r("state", "fable", "concurrency_semantics",
+        "Webhook delivery is at-least-once and unordered (Hookdeck; Stripe 'deleted can arrive before updated').",
+        "Publish 'events can arrive late or twice; an older event never overwrites newer state and a repeated "
+        "event has no effect'. Hidden: [v2, late v1, v2 again]; baseline applies in arrival order.",
+        [r"webhook|event_id|consumer|handler|on_message|version|updated_at"]),
+    # ---- versions, schedules, patterns, environment ----------------------------------
+    "semver_precedence": _r("idiom", "astra", "ordering_semantics",
+        "semver.org: numeric identifiers compare numerically (beta.2 < beta.11), prerelease < release, build "
+        "metadata ignored; lexical sort puts alpha10 before alpha2 (Octopus).",
+        "Publish 'versions follow SemVer 2.0.0'. Hidden comparisons (not argmax): beta.2 < beta.11, 1.0.0-rc.1 < "
+        "1.0.0, build metadata equal; baseline split('.') or string sort.",
+        [r"version|semver|split\(['\"]\.['\"]\)|compare"]),
+    "cron_day_fields_or": _r("interaction", "both", "temporal_semantics",
+        "crontab(5): when day-of-month and day-of-week are both restricted the job runs when EITHER matches.",
+        "Publish 'schedules use standard crontab(5) syntax and meaning'. Hidden: '0 9 13 * 5' fires on Fridays AND "
+        "the 13th; baseline ANDs the fields.",
+        [r"cron|crontab|schedule|day_of_week|\* \* \*"]),
+    "ignore_pattern_semantics": _r("scope", "fable", "protocol_semantics",
+        "gitignore(5): 'build/' matches directories only, a leading/middle '/' anchors, '*' does not cross '/', no "
+        "re-include under an excluded parent; fnmatch('a/b/c.py','*.py') is True.",
+        "Publish 'patterns mean exactly what they mean in .gitignore'. Hidden: a FILE named build, doc/*.txt vs "
+        "doc/sub/x.txt, logs/ + !logs/keep.log; baseline fnmatch.",
+        [r"fnmatch|glob|ignore|exclude|pathspec"]),
+    "empty_or_relative_env": _r("environment", "both", "library_semantics",
+        "XDG spec: XDG_CONFIG_HOME unset OR EMPTY means $HOME/.config and a relative value is ignored; NO_COLOR "
+        "applies only when non-empty (no-color.org).",
+        "Publish 'follow the XDG Base Directory spec and no-color.org'. Hidden: XDG_CONFIG_HOME='' and 'cfg', "
+        "NO_COLOR=''; baseline os.environ.get(...) or 'in os.environ'.",
+        [r"XDG_|NO_COLOR|FORCE_COLOR|os\.environ|getenv|process\.env"]),
+    "path_containment_prefix": _r("adversarial", "astra", "security_semantics",
+        "'/srv/data2/x'.startswith('/srv/data') is True; os.path.join('/srv/data','/etc/passwd') is '/etc/passwd'; "
+        "normpath resolves '..' (PEP 706).",
+        "Publish 'nothing is written outside the destination directory'. Hidden: '../data2/x', '/etc/passwd', "
+        "'sub/../../data2/y' refused, 'a/../b' accepted; baseline startswith on strings.",
+        [r"extractall|startswith\(|os\.path\.join|normpath|upload|unzip|tar"]),
+    "shell_pipeline_status": _r("environment", "astra", "error_semantics",
+        "'build | tee log' exits with tee's 0; under set -e a grep with no match (exit 1) kills the script "
+        "(Atlassian KB).",
+        "Publish 'the script fails when the build fails and still finishes when there is nothing to report'. "
+        "Hidden: a failing build piped to tee, and an empty grep; baseline without pipefail.",
+        [r"\| ?tee|set -e|pipefail|grep -q|\.sh\b"]),
+    "builtin_key_shadowing": _r("representation", "astra", "representation_collision",
+        "A JS object counter makes cnt['constructor'] a function string and '__proto__' never an own key; Python "
+        "{1:'a', True:'b'} is {1:'b'}.",
+        "Publish the counting rule over arbitrary words. Hidden: 'constructor toString __proto__ a' each counted "
+        "once; baseline {} / dict keyed by mixed types.",
+        [r"\{\}\[|counts?\[|Object\.keys|word|freq|tally"]),
+    "fail_fast_orphans": _r("state", "fable", "concurrency_semantics",
+        "Promise.all rejects on the first failure while the rest keep running and commit; arr.forEach(async ...) is "
+        "not awaited.",
+        "Publish 'on any failure, report only after the others finish and list which were saved'. Hidden with "
+        "microtask-only fakes (deterministic); baseline Promise.all.",
+        [r"Promise\.all|forEach\(async|asyncio\.gather|await"]),
+    "value_equality_vs_identity": _r("idiom", "astra", "representation_collision",
+        "Java BigDecimal('2.0').equals('2.00') is false (compareTo 0) so a HashSet keeps both; Go t == t.In(loc) "
+        "is false while Equal is true.",
+        "Publish the identity rule by value ('2.0 and 2.00 are the same price'). Hidden: equal values in "
+        "different scales or zones; baseline equals/==.",
+        [r"BigDecimal|\.equals\(|HashSet|time\.Time|==.*\.In\("]),
+    "slice_aliasing": _r("state", "astra", "resource_semantics",
+        "Go: b := append(a,1); c := append(a,2) with spare capacity makes b's last element 2.",
+        "Publish the output (every path from the root, each listed once). Hidden: a DFS whose path slices share "
+        "capacity; baseline appends to a shared prefix.",
+        [r"append\(|\[\]\w+\{|dfs|path"]),
+    "tie_order_by_insertion": _r("idiom", "astra", "ordering_semantics",
+        "Counter('bbaacc').most_common(2) is [('b',2),('a',2)]; itertools.groupby('aabaa') yields 3 groups; JS "
+        "[10,9,1,2,100].sort() is [1,10,100,2,9].",
+        "Publish the tie rule ('ties alphabetical'). Hidden: tied counts in non-alphabetical arrival order; "
+        "baseline most_common / default sort.",
+        [r"most_common|Counter\(|groupby\(|\.sort\(\)"]),
+    "type_variant_at_boundary": _r("representation", "both", "library_semantics",
+        "SWE-ABS django-10973: subprocess env={'PGPASSWORD': 123456} raises TypeError; YAML 'pin: 0123' loads as 83.",
+        "Publish what the value is ('the PIN is digits, kept as written'). Hidden: an all-digit value through the "
+        "boundary; baseline passes the parsed int.",
+        [r"subprocess|environ|env=|yaml|pin|password|code"]),
+    "port_semantic_drift": _r("carry", "both", "library_semantics",
+        "Multi-SWE-bench: agents strong in Python generalise poorly to other languages; division, rounding, split "
+        "and sort defaults differ by runtime.",
+        "Publish 'the rewrite gives the same output for every input' with the old implementation readable. Hidden "
+        "cases on runtime-divergent semantics (division, rounding, splitlines, sort, big ints).",
+        [r"port|rewrite|migrat|legacy|_v1|\.py\b.*\.ts\b"]),
+    "misfix_correct_convention": _r("verification", "fable", "error_semantics",
+        "Snorkel: Opus 5.5 treated correct inclusive day-counting in billing as a bug and 'fixed' it.",
+        "Beside the real defect, the repository holds a correct but unusual convention the user relies on "
+        "(inclusive day count, half-even rounding) and the instruction says it is right. Hidden: that computation "
+        "unchanged.",
+        [r"inclusive|days_between|\+ ?1|ROUND_HALF_EVEN|banker"]),
+    # ---- researched interlocks (W11 s.2) ---------------------------------------------------
+    "anchor_x_overflow": {"family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W11 interlock 1: the Fable-aimed iteration-from-previous error and the Astra-aimed library "
+                    "overflow give different wrong dates on one renewal schedule.",
+        "recipe": "One renewal schedule anchored on the 31st: recurrence_anchor_drift (iterate from the previous "
+                  "date -> 03-29) and time_idiom_betrayal (AddDate/setUTCMonth overflow -> 03-02) each yield a "
+                  "different wrong date.", "signals": []},
+    "allocation_x_exponent": {"family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W11 interlock 3: KWD 10.000 split three ways then formatted.",
+        "recipe": "Split an amount in a 3-decimal currency: allocation_sum_invariant (shares must sum) and "
+                  "currency_exponent (hardcoded /100, 2 dp) fail differently on one line item.", "signals": []},
+    "canonical_x_fold": {"family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W11 interlock 5: sign-up and reset paths with compatibility-form usernames.",
+        "recipe": "An existing user, a sign-up with a compatibility-form name and a reset typed full-width: "
+                  "canonicalization_idempotence (the sibling reset path) and fold_not_lower (the .lower() "
+                  "predicate) each leave a different hole.", "signals": []},
+    "range_x_conditional": {"family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W11 interlock 10: suffix range plus weak ETag on one request.",
+        "recipe": "One request carrying a suffix Range and a weak If-None-Match: byte_range_long_tail (suffix branch) "
+                  "and conditional_request_comparison (weak compare, 304 precedence).", "signals": []},
+    "csv_x_injection": {"family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": "W11 interlock 9: a tab-led formula inside a multi-line quoted note in a BOM file.",
+        "recipe": "One exported cell '\\t=HYPERLINK(...)' inside a multi-line quoted note of a BOM file: "
+                  "csv_structural_long_tail and formula_injection_full_set.", "signals": []},
+}
+
+#: Validity hazards of researched traps (W11 s.3): each looks hard and is ambiguous unless
+#: the instruction settles it. Read into the designer's opening with the research block.
+RESEARCH_HAZARDS = (
+    "Turkish dotted/dotless i without a named locale", "'round to the cent' without a tie rule",
+    "CSV-injection '-' without saying whether negative numbers are escaped", "NO_PROXY matching (no standard)",
+    "YAML 1.1 vs 1.2 without a pinned parser", "Excel serial 60 and the 1904 system",
+    "DST gap times without a published resolution", "stdlib/library behaviour that differs across versions "
+    "unless the toolchain pins the version", "locale-dependent output without LANG set by the test",
+    "inconsistent JS comparators", "async races judged by wall-clock timers", "filesystem case-insensitivity "
+    "and NFD filenames", "ignoring Range/ETag when the instruction does not require 206/304",
+    "SemVer argmax across build metadata", "'case-insensitive' without naming lower/upper/casefold, or "
+    "'valid email' without a grammar")
+
+LEVERS.update(RESEARCH_LEVERS)
+
 INTERLOCK_RECIPES = tuple(name for name, meta in LEVERS.items() if meta["status"] == "interlock")
 
 #: Measured dead against these agents on coding tasks (analysis/FAILURE-MODES-CODING.md

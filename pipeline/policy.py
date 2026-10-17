@@ -826,8 +826,8 @@ MIN_RESEARCHED_TRAPS = 6
 #: research_traps calls per design session, and the server-side web searches and
 #: fetches one call may spend.
 TRAP_RESEARCH_MAX_CALLS = 14
-TRAP_RESEARCH_MAX_SEARCHES = 8
-TRAP_RESEARCH_MAX_FETCHES = 4
+TRAP_RESEARCH_MAX_SEARCHES = 6
+TRAP_RESEARCH_MAX_FETCHES = 3
 #: Consecutive failed research calls, with none succeeding, after which research
 #: counts as unavailable for the session and the floor above is waived.
 TRAP_RESEARCH_UNAVAILABLE_AFTER = 3

@@ -28,7 +28,9 @@ from __future__ import annotations
 import collections
 import json
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import policy
@@ -43,6 +45,7 @@ WEB_FETCH = "web_fetch_20260209"
 QUESTION_MAX_CHARS = 2400
 FINDINGS_MAX_CHARS = 9000
 MAX_CONTINUATIONS = 4
+MAX_PARALLEL = 4
 
 #: Types worth steering an under-used batch toward: the semantic failure modes a
 #: researched trap turns on, then the mechanisms that measured. Symptom-vs-cause,
@@ -68,11 +71,14 @@ TOOL = {
         "A finding is a HYPOTHESIS until sandbox_run reproduces it in the pinned toolchain."),
     "input_schema": {"type": "object", "properties": {
         "question": {"type": "string", "description": "one focused research question"},
+        "questions": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                      "description": "up to 4 focused questions, researched IN PARALLEL (each takes minutes); "
+                                     "each gets its own research_id"},
         "stack": {"type": "string", "description": "language, framework and library versions as the fixture pins them"},
         "domain": {"type": "string", "description": "what the program does and the rules the user stated, generically"},
         "aim": {"type": "string", "enum": ["fable", "astra", "both"],
                 "description": "which calibration family's habits the trap should defeat"}},
-        "required": ["question", "stack"]},
+        "required": ["stack"]},
 }
 
 SYSTEM = """\
@@ -118,6 +124,11 @@ protocol|numeric|text|temporal|absence|resource|concurrency|security|error|libra
    "fits_when": the code or data in a repository that makes this trap natural,
    "validity_risks": what could make it ambiguous, version-dependent or unfair,
    "sources": [{"url": "...", "title": "...", "finding": "one line"}]}
+The author already has a library of common modes (float rounding ties, DST arithmetic, splitlines, \
+NOT IN with NULL, RFC 9110 conditionals and ranges, CSV/BOM, SemVer, gitignore, XDG): go deeper than \
+it -- the pinned versions' own behaviour, the formats this domain's real producers emit, the \
+domain's conventions. Flag a mode as hazardous when it depends on locale, unpinned versions, wall \
+clock timing or an unstated tie rule.
 Use only URLs you actually saw. After the block, at most five lines of caveats."""
 
 
@@ -211,61 +222,102 @@ def _call_with_search(question: str, call) -> tuple[str, list[dict], dict]:
 
 
 def make_tool(bundle: Path, *, call=None, privacy=None):
-    """The `research_traps` handler bound to one bundle's record."""
+    """The `research_traps` handler bound to one bundle's record.
+
+    One call may carry up to MAX_PARALLEL questions; they are researched
+    concurrently (a single researched question took 9 minutes live, 2026-10-17),
+    and each is recorded as its own research id.
+    """
     if call is None:
         from .agent_designer import _designer_call as call  # noqa: PLC0415  retried like every designer call
     if privacy is None:
         from ..privacy import scan_text as privacy  # noqa: PLC0415
+    lock = threading.Lock()
 
-    def research_traps(question: str, stack: str = "", domain: str = "", aim: str = "both", **_):
-        doc = load(bundle) or begin(bundle, 0)
-        calls = doc.setdefault("calls", [])
+    def _record(mutate):
+        with lock:
+            doc = load(bundle) or begin(bundle, 0)
+            doc.setdefault("calls", [])
+            result = mutate(doc)
+            atomic_json(record_path(bundle), doc)
+            return result
+
+    def _reserve(doc):
+        calls = doc["calls"]
         if len(calls) >= policy.TRAP_RESEARCH_MAX_CALLS:
-            return {"error": f"research budget spent ({policy.TRAP_RESEARCH_MAX_CALLS} calls); plant from the "
-                             "findings already returned (read_draft never shows them -- they are in your "
-                             "conversation and in verification/trap-research.json)"}
+            return None
+        rid = f"r_{len(calls) + 1:02d}"
+        calls.append({"id": rid, "at": time.time(), "ok": False, "pending": True})
+        return rid
+
+    def _one(question: str, stack: str, domain: str, aim: str) -> dict:
         prompt = (f"STACK (as the repository pins it): {stack.strip() or 'unspecified'}\n"
                   f"DOMAIN AND THE USER'S RULES (generic): {domain.strip() or 'unspecified'}\n"
                   f"AIM: traps that defeat {aim} agents\nQUESTION: {question.strip()}")[:QUESTION_MAX_CHARS]
         if findings := privacy("research-question", prompt):
             return {"error": "the question carries private data and was not sent: "
                              f"{[f.get('kind') for f in findings][:5]}; ask in generic technical terms"}
-        rid = f"r_{len(calls) + 1:02d}"
+        rid = _record(_reserve)
+        if rid is None:
+            return {"error": f"research budget spent ({policy.TRAP_RESEARCH_MAX_CALLS} calls); plant from the "
+                             "findings already returned (they are in your conversation and in "
+                             f"{RECORD})"}
         entry = {"id": rid, "at": time.time(), "question": question[:800], "stack": stack[:400],
                  "domain": domain[:600], "aim": aim, "ok": False}
         try:
             text, sources, usage = _call_with_search(prompt, call)
         except Exception as exc:  # noqa: BLE001  research is advisory; record and hand back
             entry["error"] = f"{type(exc).__name__}: {exc}"[:400]
-            calls.append(entry)
-            failures = 0
-            for row in reversed(calls):
-                if row.get("ok"):
-                    break
-                failures += 1
-            if failures >= policy.TRAP_RESEARCH_UNAVAILABLE_AFTER and not any(c.get("ok") for c in calls):
-                doc["unavailable"] = True
-            atomic_json(record_path(bundle), doc)
-            return {"error": entry["error"], "research_id": rid,
-                    "unavailable": bool(doc.get("unavailable")),
+
+            def fail(doc):
+                calls = doc["calls"]
+                calls[:] = [entry if c.get("id") == rid else c for c in calls]
+                failures = 0
+                for row in reversed([c for c in calls if not c.get("pending")]):
+                    if row.get("ok"):
+                        break
+                    failures += 1
+                if failures >= policy.TRAP_RESEARCH_UNAVAILABLE_AFTER and not any(c.get("ok") for c in calls):
+                    doc["unavailable"] = True
+                return bool(doc.get("unavailable"))
+            unavailable = _record(fail)
+            return {"error": entry["error"], "research_id": rid, "unavailable": unavailable,
                     "note": "research is unavailable for this session; the researched-trap floor is waived"
-                            if doc.get("unavailable") else "retry with a narrower question"}
+                            if unavailable else "retry with a narrower question"}
         if privacy("research-findings", text):
             from ..privacy import redact_excerpt  # noqa: PLC0415
             text = redact_excerpt(text)
         parsed = _parse(text)
         entry.update(ok=True, sources=sources[:40], usage=usage, findings=parsed if parsed is not None else None,
                      text=text[:FINDINGS_MAX_CHARS])
-        calls.append(entry)
-        atomic_json(record_path(bundle), doc)
-        return {"research_id": rid, "findings": parsed if parsed is not None else text[:FINDINGS_MAX_CHARS],
-                "sources": [s["url"] for s in sources[:25]],
-                "remaining_calls": policy.TRAP_RESEARCH_MAX_CALLS - len(calls),
-                "next": "A finding is a hypothesis: reproduce its executable_fact with sandbox_run in the pinned "
-                        "toolchain, then plant the ones that pass the admission test as traps carrying "
-                        f"research={{research_id: '{rid}', sources: [...], finding, executed}} -- interlocked "
-                        "with a library lever on ONE hidden item, settled by an instruction sentence, proved by "
-                        "an m_baseline_ mutant writing the idiom and a partial mutant per lever."}
+        _record(lambda doc: doc["calls"].__setitem__(
+            next(i for i, c in enumerate(doc["calls"]) if c.get("id") == rid), entry))
+        return {"research_id": rid, "question": question[:200],
+                "findings": parsed if parsed is not None else text[:FINDINGS_MAX_CHARS],
+                "sources": [s["url"] for s in sources[:25]]}
+
+    def research_traps(question: str = "", stack: str = "", domain: str = "", aim: str = "both",
+                       questions: list | None = None, **_):
+        asked = [q for q in ([question] if question else []) + list(questions or [])
+                 if isinstance(q, str) and q.strip()][:MAX_PARALLEL]
+        if not asked:
+            return {"error": "give `question` or `questions` (up to %d, researched in parallel)" % MAX_PARALLEL}
+        with ThreadPoolExecutor(max_workers=len(asked)) as pool:
+            results = list(pool.map(lambda q: _one(q, stack, domain, aim), asked))
+        ok = [r["research_id"] for r in results if "error" not in r]
+        out = {"results": results,
+               "remaining_calls": policy.TRAP_RESEARCH_MAX_CALLS - len((load(bundle) or {}).get("calls") or []),
+               "next": "A finding is a hypothesis: reproduce its executable_fact with sandbox_run in the pinned "
+                       "toolchain, then plant the ones that pass the admission test as traps carrying "
+                       "research={research_id, sources: [urls that call returned], finding, executed} -- "
+                       "interlocked with a library lever on ONE hidden item, settled by an instruction sentence, "
+                       "proved by an m_baseline_ mutant writing the idiom and a partial mutant per lever."}
+        if len(results) == 1:
+            out = {**results[0], **{k: v for k, v in out.items() if k != "results"}}
+        if not ok and all(r.get("unavailable") for r in results if "research_id" in r) and \
+                any("research_id" in r for r in results):
+            out["unavailable"] = True
+        return out
 
     return research_traps
 
@@ -369,6 +421,7 @@ def batch_diversity(bundle: Path, ledger: Path | None = None) -> dict:
 
 
 def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
+    from . import levers
     from . import traps as traps_mod
     lines = [
         "TRAP RESEARCH AND FAILURE-MODE DIVERSITY (user, 2026-10-17). The lever library is shared by every task, "
@@ -387,7 +440,12 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
         "  - Research questions that pay off: the pinned versions' documented semantics that differ from what "
         "an engineer writes from memory; format/protocol corner cases the data's real producers emit; the "
         "domain's own conventions (rounding stage, time zone, identity, ordering, absence); known issues and "
-        "migration notes of the exact versions; published agent failure analyses for this kind of code.",
+        "migration notes of the exact versions; published agent failure analyses for this kind of code. The "
+        "library already holds the common modes (its research levers carry executed semantics and a trap_type); "
+        "research what is SPECIFIC to this stack and domain, and use a library lever as the other half of each "
+        "interlock.",
+        "  - VALIDITY HAZARDS -- these look hard and are ambiguous unless a sentence of the instruction settles them "
+        "(W11): " + "; ".join(levers.RESEARCH_HAZARDS) + ". Never plant one unsettled.",
     ]
     if required == 0:
         lines[1] = ("  - This is a revision session: research_traps is available, and any trap you ADD should be "
