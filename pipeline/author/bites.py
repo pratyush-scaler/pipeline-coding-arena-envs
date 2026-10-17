@@ -51,8 +51,15 @@ def objective_traps(spec: dict) -> list[str]:
 
 
 def graded(record: dict) -> bool:
-    """A solve that never finished grading is no evidence: every check reads as failed."""
-    return record.get("reward") is not None and record.get("complete") is not False and bool(record.get("checks"))
+    """A solve that never finished, or whose grade the grader refused, is no evidence: every check reads as
+    failed. Measured 2026-10-17: two blind "0.0" scores were scanner refusals of the solver's code
+    (`getattr(sys,`, `import_module(`) and one a provider stop with no tool calls."""
+    if record.get("reward") is None or record.get("complete") is False or not record.get("checks"):
+        return False
+    if record.get("grading_valid") is False:
+        return False
+    return not any(str((row or {}).get("reason") or "").startswith("grader:")
+                   for row in (record.get("failing") or {}).values())
 
 
 def from_blind(spec: dict, record: dict) -> dict[str, bool]:
@@ -129,3 +136,26 @@ def summary_line(spec: dict, record: dict) -> dict:
     bit = {t: v for t, v in from_blind(spec, record).items() if t in objective}
     return {"biting": sorted(t for t, v in bit.items() if v), "not_biting": sorted(t for t, v in bit.items() if not v),
             "share": round(sum(bit.values()) / len(bit), 2) if bit else None}
+
+
+def announcement_advisories(spec: dict) -> list[str]:
+    """A researched fact restated in the instruction is announced (measured: 0 of 37 such traps bit).
+
+    Literal tokens of the trap's research finding -- numbers of 3+ digits, identifiers with `_`,
+    `.` or `(`, acronyms -- that also appear in the step instructions."""
+    import re
+    text = " ".join(str(s.get("instruction") or "") for s in spec.get("steps") or [] if isinstance(s, dict))
+    out = []
+    for trap in spec.get("traps") or []:
+        research = trap.get("research") if isinstance(trap, dict) else None
+        if not isinstance(research, dict):
+            continue
+        finding = str(research.get("finding") or "")
+        tokens = {t for t in re.findall(r"[A-Za-z_][\w.]*[_.(][\w.()]*|\b\d[\d,._]{2,}\b|\b[A-Z][A-Z0-9_]{2,}\b", finding)
+                  if len(t) >= 3}
+        shared = sorted(t for t in tokens if t in text)
+        if shared and len(shared) >= max(1, len(tokens) // 3):
+            out.append(f"ADVISORY announced trap {trap.get('id')!r}: the instruction repeats its researched fact "
+                       f"({shared[:5]}). Researched facts build hidden inputs and mutants, never sentences; state "
+                       "the open-ended rule over the input family instead.")
+    return out

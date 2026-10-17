@@ -1738,6 +1738,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             advisories += computed_load_advisories(spec)
             advisories += trap_research.advisories(spec, bundle)
             advisories += bites_mod.advisories(spec, bundle)
+            advisories += bites_mod.announcement_advisories(spec)
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories.append(f"ADVISORY suite load scan unavailable: {type(exc).__name__}: {exc}")
         try:

@@ -90,3 +90,21 @@ class UngradedSolves(unittest.TestCase):
             bundle = Path(tmp); (bundle / "verification").mkdir()
             (bundle / "verification/blind-solve-fable.json").write_text(json.dumps(record))
             self.assertEqual(bites.audit(_spec(), bundle)["solved_by"], [])
+
+
+class VoidsAndAnnouncements(unittest.TestCase):
+    def test_a_refused_grade_is_not_bite_evidence(self):
+        record = {"reward": 0.0, "complete": True, "checks": {"o_a": False},
+                  "failing": {"o_a": {"reason": "grader: code the hidden tests would import reaches into the test process"}}}
+        self.assertFalse(bites.graded(record))
+        self.assertFalse(bites.graded({"reward": 0.5, "complete": True, "checks": {"o_a": False}, "grading_valid": False}))
+        self.assertTrue(bites.graded({"reward": 0.5, "complete": True, "checks": {"o_a": False},
+                                      "failing": {"o_a": {"reason": "exit 1"}}}))
+
+    def test_an_instruction_that_restates_the_researched_fact_is_flagged(self):
+        spec = {"steps": [{"instruction": "TEXT columns in MySQL cap at 65,535 BYTES, VARCHAR counts characters"}],
+                "traps": [{"id": "t_cap", "research": {"finding": "MySQL TEXT holds 65,535 BYTES; VARCHAR(n) counts characters"}},
+                          {"id": "t_quiet", "research": {"finding": "str.splitlines() also splits on \\x85 and U+2028"}}]}
+        notes = bites.announcement_advisories(spec)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("t_cap", notes[0])
