@@ -391,6 +391,8 @@ def cmd_harden(args) -> int:
         extra.append("--repair-root")
     for fix in getattr(args, "fix", None) or []:
         extra += ["--fix", fix]
+    if getattr(args, "critic_gaps", False):
+        extra.append("--critic-gaps")
     if getattr(args, "reopen_stopped", False):
         extra.append("--reopen-stopped")
     if getattr(args, "out", None):
@@ -812,6 +814,8 @@ def build_parser():
                    help="operator decision: reopen a lineage stopped by repeated findings (recorded)")
     h.add_argument("--fix", action="append", metavar="DEFECT",
                    help="a defect of the task the round must fix (repeatable); nothing else changes")
+    h.add_argument("--critic-gaps", action="store_true",
+                   help="fix the named version's open ship-critic gaps (each becomes a --fix)")
     h.add_argument("--review-repair", action="store_true",
                    help="repair the semantic review's validity findings on the lineage's latest measured "
                         "revision, reopening a target-met lineage; the repair is screened against the same bar")

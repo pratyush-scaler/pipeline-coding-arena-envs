@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pipeline import harden, shipcheck
+from pipeline import cli, harden, shipcheck
 
 
 class CriticGapFixes(unittest.TestCase):
@@ -23,6 +23,19 @@ class CriticGapFixes(unittest.TestCase):
                                      route="regenerate", measure="none")]
         with mock.patch.object(shipcheck, "coverage", return_value=missing):
             self.assertEqual(harden.critic_gap_fixes(Path("/nowhere")), [])
+
+
+class CriticGapsReachHarden(unittest.TestCase):
+    def test_the_arena_cli_forwards_critic_gaps_to_harden(self):
+        # 2026-10-18: `--critic-gaps` existed in pipeline.harden only, and every driver launch through
+        # `./arena harden` died with "unrecognized arguments: --critic-gaps".
+        args = cli.build_parser().parse_args(["harden", "/x/v2", "--apply", "--fast", "--critic-gaps"])
+        with mock.patch.object(cli, "_run", return_value=0) as run:
+            args.fn(args)
+        forwarded = run.call_args.args
+        self.assertEqual(forwarded[0], "pipeline.harden")
+        self.assertIn("--critic-gaps", forwarded)
+        self.assertIn("--fast", forwarded)
 
 
 if __name__ == "__main__":
