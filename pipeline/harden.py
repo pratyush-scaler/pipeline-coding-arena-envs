@@ -1260,6 +1260,29 @@ def acceptance(before: dict, after: dict, gates_green: bool,
             "release_ready": False}
 
 
+def critic_gap_fixes(bundle: Path) -> list[str]:
+    """The named version's open ship-critic gaps as operator fixes.
+
+    Release stops before calibrating a version whose critic receipt holds a blocking gap and
+    names this round as the route (2026-10-18: c-015 v2 at 0.0 / 0.0 held by 6 gaps, c-024 v2 by
+    5). Release then re-executes the same proposals on the new version (closed-and-verified), so
+    each fix names the edits that must stop scoring 1.0.
+    """
+    from . import shipcheck
+    out = []
+    for gap in shipcheck.coverage(Path(bundle)):
+        if gap.get("check") != "coverage.gap":
+            continue
+        edits = " ".join(str(e) for e in gap.get("evidence") or [])[:1200]
+        out.append(f"close ship-critic gap {gap.get('subject')}: the hidden suite {gap.get('detail')} "
+                   f"[the wrong implementation's edits: {edits}]. Add a hidden case the quoted published sentence "
+                   "settles (prove it with determinacy_probe) on which these edits fail while the reference and the "
+                   "alternative still pass; release re-executes these exact edits on your version and each must "
+                   "score below 1.0. If the sentence does not settle it, record it under quality.untested_surfaces "
+                   "with the reason instead of testing it.")
+    return out
+
+
 def requested_traps(ideas: list[str], path: str | None) -> list[str]:
     """Operator trap ideas from --trap and --traps, as brief lines."""
     out = [i.strip() for i in ideas if i and i.strip()]
@@ -1305,6 +1328,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="operator decision: reopen a lineage stopped by repeated findings (recorded)")
     ap.add_argument("--fix", action="append", metavar="DEFECT",
                     help="a defect of the task the round must fix (repeatable); nothing else changes")
+    ap.add_argument("--critic-gaps", action="store_true",
+                    help="fix the open ship-critic gaps of the named version (each becomes a --fix): what "
+                         "release's critic_gate asks for before calibrating that version")
     ap.add_argument("--review-repair", action="store_true",
                     help="repair the semantic review's validity findings on the latest measured revision")
     ap.add_argument("--repair-root", action="store_true",
@@ -1391,6 +1417,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     requested = requested_traps(ns.trap, ns.traps) + [FIX_PREFIX + fix for fix in (ns.fix or [])]
+    if ns.critic_gaps:
+        gaps = critic_gap_fixes(bundle)
+        if not gaps:
+            print("  REFUSED: --critic-gaps: the named version has no open ship-critic gap on record")
+            return 1
+        requested += [FIX_PREFIX + fix for fix in gaps]
     try:
         return run_lineage(bundle, report, requested, screen=not ns.no_screen, attempt_budget=ns.attempt_budget,
                            fast=ns.fast, review_repair=ns.review_repair, reopen_stopped=ns.reopen_stopped,
