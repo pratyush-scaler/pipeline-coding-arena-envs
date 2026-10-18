@@ -1268,13 +1268,23 @@ def critic_gap_fixes(bundle: Path) -> list[str]:
     5). Release then re-executes the same proposals on the new version (closed-and-verified), so
     each fix names the edits that must stop scoring 1.0.
     """
-    from . import shipcheck
+    from . import coverage_critic, shipcheck
+    try:
+        receipt = json.loads((Path(bundle) / coverage_critic.RECEIPT).read_text())
+    except (OSError, ValueError):
+        receipt = {}
+    # A verify-mode receipt re-executed an earlier version's proposals: its open gaps already survived a
+    # closing round (2026-10-18 c-024: preflight#4 open on v3 and again on v4, the round's notes never naming it).
+    survived = receipt.get("mode") == "verify"
     out = []
     for gap in shipcheck.coverage(Path(bundle)):
         if gap.get("check") != "coverage.gap":
             continue
         edits = " ".join(str(e) for e in gap.get("evidence") or [])[:1200]
-        out.append(f"close ship-critic gap {gap.get('subject')}: the hidden suite {gap.get('detail')} "
+        out.append(("THIS GAP SURVIVED AN EARLIER CLOSING ROUND and is what holds release: handle it first, apply the "
+                    "edits below to your draft as a mutant and confirm it now fails before you submit, and name the "
+                    "gap in solution_notes. " if survived else "")
+                   + f"close ship-critic gap {gap.get('subject')}: the hidden suite {gap.get('detail')} "
                    f"[the wrong implementation's edits: {edits}]. Add a hidden case the quoted published sentence "
                    "settles (prove it with determinacy_probe) on which these edits fail while the reference and the "
                    "alternative still pass; release re-executes these exact edits on your version and each must "

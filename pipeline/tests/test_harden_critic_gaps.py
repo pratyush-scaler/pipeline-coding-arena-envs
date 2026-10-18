@@ -18,6 +18,17 @@ class CriticGapFixes(unittest.TestCase):
         self.assertIn("a.py", fixes[0])
         self.assertIn("untested_surfaces", fixes[1])
 
+    def test_a_gap_that_survived_a_closing_round_says_so(self):
+        import json, tempfile
+        found = [shipcheck.finding("coverage.gap", "01-step#4", "scores 1.0 while violating: Z -- not Z",
+                                   route="hidden", measure="regrade")]
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "verification").mkdir()
+            (Path(tmp) / "verification/coverage-critic.json").write_text(json.dumps({"mode": "verify"}))
+            with mock.patch.object(shipcheck, "coverage", return_value=found):
+                fixes = harden.critic_gap_fixes(Path(tmp))
+        self.assertTrue(fixes[0].startswith("THIS GAP SURVIVED"))
+
     def test_a_missing_receipt_is_not_a_gap(self):
         missing = [shipcheck.finding("coverage.critic", "verification/coverage-critic.json", "has not run",
                                      route="regenerate", measure="none")]
