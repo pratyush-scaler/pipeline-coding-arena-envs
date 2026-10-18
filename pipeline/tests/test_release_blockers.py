@@ -57,6 +57,22 @@ class Collect(unittest.TestCase):
         self.assertTrue(got[0]["agent_surface"])
 
 
+class FailedAttempts(unittest.TestCase):
+    def test_the_last_invalid_attempts_from_a_version_are_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            v = _version(tmp, "v7")
+            (v.parent / "hardening.json").write_text(json.dumps({"attempts": [
+                {"attempt": 6, "from": "hardened/v6", "revision": "hardened/v7", "outcome": "valid", "findings": []},
+                {"attempt": 7, "from": "hardened/v7", "revision": "hardened/v8", "outcome": "invalid",
+                 "findings": ["hidden-only revision changed `deliverables`, which the agent sees"]}]}))
+            with mock.patch.object(shipcheck, "coverage", return_value=[]), \
+                    mock.patch("pipeline.review.review_findings", return_value=[]):
+                got = release_blockers.collect(v)
+        self.assertEqual([b["id"] for b in got], ["ATTEMPT 1"])
+        self.assertIn("deliverables", got[0]["finding"])
+        self.assertTrue(release_blockers.needs_full_round(got))
+
+
 class Requirement(unittest.TestCase):
     SPEC = {"steps": [{"name": "01-a", "instruction": "do it"}], "checks": [], "suites": {}}
 

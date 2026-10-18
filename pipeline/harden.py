@@ -1165,7 +1165,12 @@ def attempt(original: Path, target: Path, targets: list[dict], findings: list[st
         return ["controls: " + e for e in controls["errors"]]
     gates, grader = run_bundle(target, Path.cwd()), verify_shipped(target)
     print(f"  gates: {gates['verdict']}   shipped grader: {'ok' if grader['ok'] else 'FAILED'}")
-    problems = ([] if gates["verdict"] == "green" else [f"gate chain is {gates['verdict']}"]) \
+    # Each failing gate's own blockers, not just the verdict: "gate chain is blocked" alone told the next attempt
+    # nothing, it repeated the failure and the governor stopped the lineage (2026-10-18: c-011-ocr, c-030 v3).
+    failing = [f"gate {g.get('gate')}: {b.get('code')}: {str(b.get('message', ''))[:400]}"
+               + (f" [{b['where']}]" if b.get("where") else "")
+               for g in gates.get("results") or [] for b in g.get("blockers") or []]
+    problems = ([] if gates["verdict"] == "green" else (failing or [f"gate chain is {gates['verdict']}"])) \
         + ([] if grader["ok"] else ["the reference no longer scores 1.0; that is a defect, not difficulty"])
     if not problems and os.environ.get("ARENA_HARDEN_REVIEW") == "1":
         # The independent semantic review a build runs, opt-in (user, 2026-10-04: readiness

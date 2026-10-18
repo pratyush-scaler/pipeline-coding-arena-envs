@@ -151,6 +151,32 @@ def _build(version: Path) -> list[dict]:
     return out
 
 
+def _attempts(version: Path) -> list[dict]:
+    """The last failed attempt(s) that started from this version: a new round never saw why the previous one's
+    revision was invalid and could repeat it (2026-10-18: c-025 v7 changed an untargeted check, c-033 v7 changed the
+    deliverables in a hidden-only round, both with their last attempt)."""
+    version = Path(version)
+    root = version.parents[1] if version.parent.name == "hardened" else version
+    rel = "." if root == version else f"hardened/{version.name}"
+    ledger = _load(root / "hardened/hardening.json")
+    tried = [a for a in ledger.get("attempts") or [] if a.get("from") == rel]
+    failed = []
+    for a in reversed(tried):
+        if a.get("outcome") == "valid":
+            break
+        if a.get("outcome") == "invalid":
+            failed.append(a)
+    out = []
+    for n, a in enumerate(reversed(failed[:2]), 1):
+        findings = a.get("findings")
+        text = "; ".join(map(str, findings)) if isinstance(findings, list) else str(findings or "")
+        out.append({"id": f"ATTEMPT {n}", "source": f"attempt {a.get('attempt')} from this version produced an invalid revision",
+                    "finding": f"{text[:1500]} -- do not repeat it",
+                    "release_checks": "hardening validates every revision before it is screened; an invalid one is discarded",
+                    "agent_surface": "hidden-only revision changed" in text})
+    return out
+
+
 def _hacks(version: Path) -> list[dict]:
     """Reward-hacking flags pipeline/hack_triage.py judged GENUINE: holes in the grader or environment."""
     from . import hack_triage
@@ -169,7 +195,7 @@ def _hacks(version: Path) -> list[dict]:
 def collect(version: Path) -> list[dict]:
     version = Path(version)
     return (_critic(version) + _review(version) + _signal(version) + _release(version) + _build(version)
-            + _hacks(version))
+            + _hacks(version) + _attempts(version))
 
 
 def needs_full_round(blockers: list[dict]) -> bool:
