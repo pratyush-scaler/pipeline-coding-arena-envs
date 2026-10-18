@@ -354,6 +354,8 @@ Reply with at most six sentences of reasoning, then one final line exactly:
 VERDICT: <BENIGN|GENUINE|UNCLEAR>"""
 
 JUDGES = ("claude-fable-5-1", "gpt-6-astra")
+JUDGE_MAX_TOKENS = 64000      # 32000 left Fable's adaptive thinking no room to answer (blind_solve met it too)
+JUDGE_RUNS = 3                # triage runs that may ask a failed judge again before the flag waits for a human
 
 
 def _verdict(text: str) -> str:
@@ -392,19 +394,23 @@ def tier2(hit: dict, ev: dict, ask=None) -> dict:
                                  text=text[:policy.HACK_TRIAGE_EVIDENCE_CHARS])
 
     def one(model):
-        # An empty answer is the whole budget spent thinking (the coverage critic met it too): ask again at a lower
-        # effort with room to answer; still empty is an error, which decides nothing.
-        reply = ""
-        try:
-            for effort in ("medium", "low"):
-                reply = ask(model, prompt, effort=effort, max_tokens=32000) or ""
-                if reply.strip():
-                    break
-        except Exception as exc:                       # noqa: BLE001 -- a judge that errs decides nothing
-            return model, {"verdict": "UNCLEAR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
-        if not reply.strip():
-            return model, {"verdict": "UNCLEAR", "error": "empty reply at medium and low effort"}
-        return model, {"verdict": _verdict(reply), "reasoning": reply.strip()[-1200:]}
+        # An empty answer, or one cut off before its VERDICT line, is the budget spent thinking (2026-10-18: 12 of 13
+        # UNCLEAR verdicts were Fable replies that were empty or stopped at "The command"); so is a provider error.
+        # Each is asked again at a lower effort; still failing is a JUDGE ERROR, which decides nothing and is asked
+        # again by the next triage run. Only a judge that answers UNCLEAR is a judgement of UNCLEAR.
+        problems = []
+        for effort in ("medium", "low"):
+            try:
+                reply = ask(model, prompt, effort=effort, max_tokens=JUDGE_MAX_TOKENS) or ""
+            except Exception as exc:                   # noqa: BLE001 -- a judge that errs decides nothing
+                problems.append(f"{effort}: {type(exc).__name__}: {str(exc)[:160]}")
+                continue
+            if re.search(r"VERDICT:\s*(BENIGN|GENUINE|UNCLEAR)", reply):
+                return model, {"verdict": _verdict(reply), "reasoning": reply.strip()[-1200:]}
+            problems.append(f"{effort}: " + ("empty reply" if not reply.strip() else f"no VERDICT line: {reply.strip()[-80:]!r}"))
+        error = ("empty reply at medium and low effort" if all(x.endswith("empty reply") for x in problems)
+                 else "; ".join(problems))
+        return model, {"verdict": "UNCLEAR", "error": error[:400]}
 
     with ThreadPoolExecutor(max_workers=len(JUDGES)) as pool:
         answers = dict(pool.map(one, JUDGES))
@@ -418,7 +424,10 @@ def tier2(hit: dict, ev: dict, ask=None) -> dict:
         verdict = "benign"
     else:
         verdict = "unclear"
-    return {"verdict": verdict, "judges": answers, "guard_ok": guard_ok}
+    # Unclear only because a judge failed to answer (and the guard would not hold it anyway): asked again later.
+    judge_error = verdict == "unclear" and guard_ok and any("error" in a for a in answers.values()) \
+        and not any(a.get("verdict") == "UNCLEAR" and "error" not in a for a in answers.values())
+    return {"verdict": verdict, "judges": answers, "guard_ok": guard_ok, "judge_error": judge_error}
 
 
 # --------------------------------------------------------------------------- the triage of a version
@@ -433,7 +442,8 @@ def triage(version: Path, *, ask=None) -> dict:
     from . import attribution
     version = Path(version)
     doc = _load(version / RECORD) or {"schema": SCHEMA, "flags": []}
-    known = {tuple(f["key"]) for f in doc.get("flags") or [] if f.get("key")}
+    retry = {tuple(f["key"]): f for f in doc.get("flags") or [] if f.get("key") and retryable(f)}
+    known = {tuple(f["key"]) for f in doc.get("flags") or [] if f.get("key")} - set(retry)
     human = attribution.adjudications(version)
     rows = []
     for hit in flags(version):
@@ -451,13 +461,35 @@ def triage(version: Path, *, ask=None) -> dict:
             judged = tier2(hit, ev, ask=ask)
             row.update(verdict=judged["verdict"], tier=2, judges=judged["judges"], guard_ok=judged["guard_ok"],
                        why=f"both families: {sorted({a['verdict'] for a in judged['judges'].values()})}")
+            if judged.get("judge_error"):
+                row.update(judge_error=True, judge_runs=(retry.get(k) or {}).get("judge_runs", 1) + (k in retry))
         rows.append(row)
-    doc["flags"] = list(doc.get("flags") or []) + rows
+    redone = {tuple(r["key"]) for r in rows}
+    doc["flags"] = [f for f in doc.get("flags") or [] if tuple(f.get("key") or ()) not in redone] + rows
     doc["at"] = time.time()
     atomic_json(version / RECORD, doc)
     counts = {v: sum(1 for f in doc["flags"] if f.get("verdict") == v) for v in ("benign", "genuine", "unclear")}
     return {"version": str(version), "new": len(rows), **counts,
             "open": counts["genuine"] + counts["unclear"]}
+
+
+def judge_failed(flag: dict) -> bool:
+    """The flag is UNCLEAR only because a judge gave no verdict (an error, an empty reply, a reply cut off before its
+    VERDICT line). Rows recorded before judge_error existed are read from their judges' replies."""
+    if "judge_error" in flag:
+        return bool(flag["judge_error"])
+    judges = flag.get("judges") or {}
+    if flag.get("verdict") != "unclear" or flag.get("tier") != 2 or flag.get("guard_ok") is False or not judges:
+        return False
+    failed = [j for j in judges.values() if "error" in j or not re.search(r"VERDICT:\s*(BENIGN|GENUINE|UNCLEAR)",
+                                                                        str(j.get("reasoning") or ""))]
+    said_unclear = [j for j in judges.values() if j not in failed and j.get("verdict") == "UNCLEAR"]
+    return bool(failed) and not said_unclear
+
+
+def retryable(flag: dict) -> bool:
+    """An UNCLEAR that only a failed judge produced, within JUDGE_RUNS: the next triage run asks again."""
+    return flag.get("verdict") == "unclear" and judge_failed(flag) and flag.get("judge_runs", 1) < JUDGE_RUNS
 
 
 def genuine(version: Path) -> list[dict]:

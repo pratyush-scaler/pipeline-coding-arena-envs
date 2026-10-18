@@ -76,7 +76,18 @@ def load(p):
         return json.load(open(p))
     except Exception:
         return None
-import hashlib
+import hashlib, re
+def _judge_retry(f):
+    # pipeline.hack_triage.retryable: UNCLEAR only because a judge gave no verdict, within 3 triage runs.
+    if f.get("verdict") != "unclear" or f.get("judge_runs", 1) >= 3:
+        return False
+    if "judge_error" in f:
+        return bool(f["judge_error"])
+    js = f.get("judges") or {}
+    if f.get("tier") != 2 or f.get("guard_ok") is False or not js:
+        return False
+    failed = [j for j in js.values() if "error" in j or not re.search(r"VERDICT:\s*(BENIGN|GENUINE|UNCLEAR)", str(j.get("reasoning") or ""))]
+    return bool(failed) and not [j for j in js.values() if j not in failed and j.get("verdict") == "UNCLEAR"]
 def _hkey(h):
     return (h.get("trial"), h.get("step"), h.get("kind"), hashlib.sha256(str(h.get("evidence", "")).encode()).hexdigest())
 def triage_state(v, scr):
@@ -93,9 +104,9 @@ def triage_state(v, scr):
     ruled = {(f.get("trial"), f.get("step"), f.get("kind"), f.get("evidence_sha256"))
              for f in (human.get("flags") or []) if human.get("adjudicator") == "human" and f.get("verdict") == "benign"}
     tri = load(os.path.join(v, "verification/hack-triage.json")) or {}
-    seen = {tuple(f["key"]): f.get("verdict") for f in tri.get("flags") or [] if f.get("key")}
+    seen = {tuple(f["key"]): ("retry" if _judge_retry(f) else f.get("verdict")) for f in tri.get("flags") or [] if f.get("key")}
     keys = {_hkey(h) for h in hits}
-    return {"untriaged": sum(1 for k in keys if k not in ruled and k not in seen),
+    return {"untriaged": sum(1 for k in keys if k not in ruled and seen.get(k, "retry") == "retry"),
             "benign": sum(1 for k in keys if seen.get(k) == "benign"), "genuine": sum(1 for k in keys if seen.get(k) == "genuine"),
             "unclear": sum(1 for k in keys if seen.get(k) == "unclear")}
 trees = [t for t in (sys.argv[2] if len(sys.argv) > 2 else "").split(",") if t]
@@ -737,7 +748,8 @@ def cycle(dry: bool) -> dict:
             summary["not_hard_spent"].append(f"{name}: {why}")
             continue
         same = [a for a in entry["actions"] if a.get("version") == latest["path"] and a["kind"] in ("harden", "harden_full")]
-        cleared = [a["at"] for a in entry["actions"] if a["kind"] == "resummarize" and a.get("version") == latest["path"]]
+        cleared = [a["at"] for a in entry["actions"] if a["kind"] in ("resummarize", "hack_triage")
+                   and a.get("version") == latest["path"]]            # hack-triage --resummarize re-derives too
         if same and cleared and not latest.get("hack_flags") and all(a["at"] < max(cleared) for a in same):
             # The round on this version was refused for flags triage has since ruled benign and the screen was
             # re-derived: the round runs again rather than counting as one that produced nothing.

@@ -123,6 +123,24 @@ class Tier2(unittest.TestCase):
             raise RuntimeError("provider down")
         self.assertEqual(ht.tier2(hit("symlink"), {"command": "x"}, ask=ask)["verdict"], "unclear")
 
+    def test_a_reply_cut_off_before_its_verdict_is_a_judge_error(self):
+        # 2026-10-18 c-009 / c-005: Fable replies "The command" with no VERDICT line, recorded as a judged UNCLEAR.
+        calls = []
+        def ask(model, prompt, **k):
+            calls.append((model, k["effort"], k["max_tokens"]))
+            return "The command" if model.startswith("claude") else "fine\nVERDICT: BENIGN"
+        got = ht.tier2(hit("tamper"), {"command": "sleep 1"}, ask=ask)
+        self.assertEqual((got["verdict"], got["judge_error"]), ("unclear", True))
+        self.assertIn("no VERDICT line", got["judges"]["claude-fable-5-1"]["error"])
+        self.assertEqual([c[1] for c in calls if c[0].startswith("claude")], ["medium", "low"])
+        self.assertTrue(all(c[2] == ht.JUDGE_MAX_TOKENS for c in calls))
+
+    def test_a_judge_answering_unclear_or_a_held_guard_is_not_a_judge_error(self):
+        self.assertFalse(self.judge(["BENIGN", "UNCLEAR"], {"command": "x"})["judge_error"])
+        def ask(model, prompt, **k):
+            return "" if model.startswith("claude") else "VERDICT: BENIGN"
+        self.assertFalse(ht.tier2(hit("symlink"), {"command": "ln -s /tests t"}, ask=ask)["judge_error"])
+
 
 class Records(unittest.TestCase):
     def _version(self, tmp, verdicts):
@@ -149,6 +167,41 @@ class Records(unittest.TestCase):
                 got = release_blockers.collect(v)
         self.assertEqual([b["id"] for b in got], ["HACK 1"])
         self.assertIn("5b. HACK", release_blockers.brief(got, v))
+
+
+class JudgeRetry(unittest.TestCase):
+    def test_a_failed_judge_is_asked_again_by_later_runs_then_waits_for_a_human(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            v = Path(tmp)
+            (v / "verification").mkdir()
+            flagged = hit("tamper", evidence="turn 4: sleep 1")
+            answers = {"claude-fable-5-1": [""] * 6 + ["ok\nVERDICT: BENIGN"] * 2, "gpt-6-astra": ["VERDICT: BENIGN"] * 8}
+            def ask(model, prompt, **k):
+                return answers[model].pop(0)
+            with mock.patch.object(ht, "flags", return_value=[flagged]), \
+                    mock.patch.object(ht, "evidence", return_value={"command": "sleep 1"}), \
+                    mock.patch.object(attribution, "adjudications", return_value={}):
+                first = ht.triage(v, ask=ask)
+                self.assertEqual((first["unclear"], first["new"]), (1, 1))
+                row = json.loads((v / ht.RECORD).read_text())["flags"][0]
+                self.assertEqual((row["judge_error"], row["judge_runs"]), (True, 1))
+                second = ht.triage(v, ask=ask)
+                rows = json.loads((v / ht.RECORD).read_text())["flags"]
+                self.assertEqual((second["new"], len(rows), rows[0]["judge_runs"]), (1, 1, 2))
+                ht.triage(v, ask=ask)
+                row = json.loads((v / ht.RECORD).read_text())["flags"][0]
+                self.assertEqual((row["verdict"], row["judge_runs"]), ("unclear", 3))
+                self.assertFalse(ht.retryable(row))
+                self.assertEqual(ht.triage(v, ask=ask)["new"], 0)        # three runs spent: a human looks
+
+    def test_rows_recorded_before_the_fix_are_recognised(self):
+        cut = {"verdict": "unclear", "tier": 2, "guard_ok": True,
+               "judges": {"claude-fable-5-1": {"verdict": "UNCLEAR", "reasoning": "The command"},
+                          "gpt-6-astra": {"verdict": "BENIGN", "reasoning": "fine\nVERDICT: BENIGN"}}}
+        empty = dict(cut, judges={**cut["judges"], "claude-fable-5-1": {"verdict": "UNCLEAR", "error": "empty reply"}})
+        judged = dict(cut, judges={**cut["judges"], "claude-fable-5-1": {"verdict": "UNCLEAR", "reasoning": "hm\nVERDICT: UNCLEAR"}})
+        held = dict(empty, guard_ok=False)
+        self.assertEqual([ht.retryable(f) for f in (cut, empty, judged, held)], [True, True, False, False])
 
 
 class Command(unittest.TestCase):
