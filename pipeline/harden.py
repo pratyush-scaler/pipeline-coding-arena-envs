@@ -786,13 +786,16 @@ def _infra_stopped(ledger: dict) -> bool:
 
 #: An operator-required fix (`arena harden --fix`), kept apart from requested traps.
 FIX_PREFIX = "FIX: "
+#: `arena harden --release-repair`: every recorded release blocker of the named version, as one JSON list
+#: (pipeline/release_blockers.py). Reopens a target-met lineage like a fix and is briefed on its own.
+RELEASE_PREFIX = "RELEASE: "
 
 
 def _requested_text(requested: list[str]) -> str:
     if not requested:
         return ""
     fixes = [r[len(FIX_PREFIX):] for r in requested if r.startswith(FIX_PREFIX)]
-    traps = [r for r in requested if not r.startswith(FIX_PREFIX)]
+    traps = [r for r in requested if not r.startswith((FIX_PREFIX, RELEASE_PREFIX))]
     out = ""
     if fixes:
         # 2026-10-05, c-002-express-glb: the pinned dependency set lacked packages the
@@ -914,8 +917,16 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
     # The independent review's VALIDITY findings on the version being revised are
     # repaired in the same round, never traded for difficulty (user, 2026-10-04).
     repairs = review_repairs(measured or bundle)
-    if repairs:
-        brief += REVIEW_REPAIR.format(items="\n".join(f"  - {text[:2400]}" for text in repairs[:12]),
+    release = next((json.loads(r[len(RELEASE_PREFIX):]) for r in requested or [] if str(r).startswith(RELEASE_PREFIX)),
+                   None)
+    from . import release_blockers
+    release_blockers.clear(bundle)
+    if release:
+        release_blockers.write_context(bundle, measured or bundle, release)
+        brief += release_blockers.brief(release, measured or bundle)
+    if repairs or release:
+        brief += REVIEW_REPAIR.format(items="\n".join(f"  - {text[:2400]}" for text in repairs[:12])
+                                      or "  (none from the reviewer -- the protocol applies to every blocker above)",
                                       bar=policy.STEP_PASS_RATE_MAX)
     if kind != "repair":
         brief += _step_target_text(measured or bundle)
@@ -1338,6 +1349,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="operator decision: reopen a lineage stopped by repeated findings (recorded)")
     ap.add_argument("--fix", action="append", metavar="DEFECT",
                     help="a defect of the task the round must fix (repeatable); nothing else changes")
+    ap.add_argument("--release-repair", action="store_true",
+                    help="fix EVERY recorded release blocker of the named version in one round (ship critic, "
+                         "review, learning signal, per-step bar, shipcheck, qualify, build readiness); hidden-only "
+                         "unless a blocker needs the agent's surface")
     ap.add_argument("--critic-gaps", action="store_true",
                     help="fix the open ship-critic gaps of the named version (each becomes a --fix): what "
                          "release's critic_gate asks for before calibrating that version")
@@ -1427,6 +1442,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     requested = requested_traps(ns.trap, ns.traps) + [FIX_PREFIX + fix for fix in (ns.fix or [])]
+    if ns.release_repair:
+        from . import fastharden, release_blockers
+        blockers = release_blockers.collect(Path(bundle))
+        if not blockers:
+            print("  REFUSED: --release-repair: no release blocker is on record for the named version")
+            return 1
+        ns.fast = not release_blockers.needs_full_round(blockers) and bool(fastharden.captured(Path(bundle)))
+        print(f"  release repair: {len(blockers)} blocker(s) {[b['id'] for b in blockers]}; "
+              f"{'hidden-only' if ns.fast else 'full'} round")
+        requested.append(RELEASE_PREFIX + json.dumps(blockers, ensure_ascii=False))
     if ns.critic_gaps:
         gaps = critic_gap_fixes(bundle)
         if not gaps:
@@ -1699,7 +1724,7 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
             ledger["status"] = "exhausted" if not attempts_left(ledger) else "open"
             _save(root, ledger)
         review_resume = None
-        fixing = any(str(r).startswith(FIX_PREFIX) for r in requested or [])
+        fixing = any(str(r).startswith((FIX_PREFIX, RELEASE_PREFIX)) for r in requested or [])
         infra_stop = (ledger.get("status") == "stopped" and _infra_stopped(ledger))
         if fixing and not review_repair and (ledger.get("status") in ("target-met", "exhausted", "open") or infra_stop):
             # An operator-required fix of a defect found in evidence (2026-10-05: incomplete
@@ -1712,7 +1737,9 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
                 ledger.setdefault("reopened", []).append(
                     {"at": time.time(), "from": ledger.get("status"), "revision": _rel(root, review_resume),
                      "why": "operator-required fix: " + "; ".join(
-                         str(r)[len(FIX_PREFIX):][:200] for r in requested if str(r).startswith(FIX_PREFIX))})
+                         str(r)[len(FIX_PREFIX):][:200] if str(r).startswith(FIX_PREFIX)
+                         else "release repair of every recorded blocker" for r in requested
+                         if str(r).startswith((FIX_PREFIX, RELEASE_PREFIX)))})
                 ledger["status"] = "open"
                 _save(root, ledger)
         if review_repair and ledger.get("status") in ("target-met", "exhausted", "open"):

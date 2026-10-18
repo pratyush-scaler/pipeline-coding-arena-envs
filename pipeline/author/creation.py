@@ -132,6 +132,11 @@ def inventory(spec: dict, bundle: Path) -> dict:
     from . import difficulty_gate
     for gap in difficulty_gate.requirement(spec, bundle):
         need(gap, False)
+    # A release repair (pipeline/release_blockers.py): the release's own critic re-execution and reviewer,
+    # run on the draft, until clean or the round's budget waives them.
+    from .. import release_blockers
+    for gap in release_blockers.requirement(spec, bundle):
+        need(gap, False)
     for i, raw in enumerate(mutants):
         mutant = _object(raw)
         label = mutant.get("id") if _text(mutant.get("id")) else str(i)

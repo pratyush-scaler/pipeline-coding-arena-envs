@@ -886,6 +886,12 @@ def _tools(n_msgs: int) -> list[dict]:
                                                                "required": ["file", "quote"], "additionalProperties": False}}},
                           "required": ["reason", "source_evidence"], "additionalProperties": False}},
         trap_research.TOOL,
+        {"name": "release_check", "description": "RELEASE REPAIR rounds only: re-execute, on your staged draft, every "
+         "wrong implementation the release's ship critic recorded for the version you are repairing -- the exact "
+         "closed-and-verified re-execution release runs. Returns each proposal with still_scores_1 (an open CRIT "
+         "blocker while true), its reward and failed checks. Needs a draft that passes check_draft; takes minutes; "
+         "at most policy.RELEASE_CHECK_RUNS per session. Submit only when it lists no open blocking row.",
+         "input_schema": {"type": "object", "properties": {}, "required": []}},
         SPEC_TOOL,
     ]
 
@@ -1685,6 +1691,9 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             for index, item in enumerate(doc.get(key) or [], 1):
                 findings.append({"id": f"{key}/{index}", "verdict": key,
                                  "reason": item if isinstance(item, str) else json.dumps(item, ensure_ascii=False)})
+        from .. import release_blockers
+        if (bundle / release_blockers.CONTEXT).is_file():
+            release_blockers.record_prereview(bundle, difficulty_gate.grading_sha(draft_spec()), findings)
         harness = [e for e in report.get("errors") or []
                    if not (e.startswith(("semantic reviewer requested revision", "unresolved review findings:"))
                            or ": check not independently justified" in e)]
@@ -1892,8 +1901,62 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "gaps": [{k: g.get(k) for k in ("step", "clause", "violation", "why_uncaught", "edits")}
                          for g in result.get("gaps") or []]}
 
+    release_n = {"n": 0}
+
+    def release_check(**_):
+        # User 2026-10-18: a release repair fixes every recorded blocker at once. The release's own critic
+        # re-execution, run on the draft, is the only way the round can see a CRIT blocker close.
+        from .. import coverage_critic as critic_mod
+        from .. import release_blockers
+        context = release_blockers._load(bundle / release_blockers.CONTEXT)
+        if not context:
+            return {"error": "release_check applies to a release repair round only"}
+        if not context.get("critic_source"):
+            return {"error": "no searching critic run is on record for the version under repair; nothing to re-execute"}
+        if release_n["n"] >= policy.RELEASE_CHECK_RUNS:
+            release_blockers.waive(bundle, "release_check budget spent")
+            return {"error": f"release_check budget spent ({policy.RELEASE_CHECK_RUNS} per session)"}
+        ok, why = sandbox.available()
+        if not ok:
+            release_blockers.waive(bundle, f"sandbox unavailable: {why}"[:200])
+            return {"error": why}
+        verdict = check_spec(draft_spec())
+        if not verdict["clean"]:
+            return {"error": "the draft does not pass check_draft yet", "problems": verdict["problems"][:12]}
+        try:
+            src_dir = Path(context["critic_source"])
+            source = json.loads((src_dir / critic_mod.RECEIPT).read_text())
+            dest = _scratch(complete=True)
+            release_n["n"] += 1
+            result = critic_mod.verify(dest, src_dir, source)
+        except (ContractError, ValueError, OSError, sandbox.SandboxError) as exc:
+            return {"error": str(exc)[-3000:]}
+        version = Path(context["version"])
+        judged = {}
+        try:
+            own = json.loads((version / critic_mod.RECEIPT).read_text()).get("gaps") or []
+        except (OSError, ValueError):
+            own = []
+        for g in critic_mod._judged_before(version) + list(own) + list(source.get("gaps") or []):
+            if isinstance(g, dict) and g.get("judgement"):
+                judged.setdefault((g.get("step"), g.get("clause"), g.get("violation")), g["judgement"])
+        rows = []
+        for step, entry in (result.get("steps") or {}).items():
+            for r in entry.get("proposals") or []:
+                j = judged.get((step, r.get("clause"), r.get("violation")))
+                rows.append({"step": step, "index": r.get("index"), "clause": r.get("clause"),
+                             "violation": r.get("violation"), "still_scores_1": bool(r.get("gap")),
+                             "reward": r.get("reward"), "failed_checks": r.get("failed_checks"),
+                             "error": r.get("error"), "regression": r.get("regression"),
+                             "blocking": j.get("blocking", True) if isinstance(j, dict) else True})
+        doc = release_blockers.record_check(bundle, difficulty_gate.grading_sha(draft_spec()), rows)
+        return {"open": doc["open"], "closed": sum(1 for r in rows if not r["still_scores_1"]),
+                "advisory_open": [r for r in rows if r["still_scores_1"] and not r["blocking"]],
+                "remaining": policy.RELEASE_CHECK_RUNS - release_n["n"]}
+
     fast_handlers = ({"regrade_episodes": regrade_episodes, "read_episode": read_episode,
                       "coverage_critic": coverage_critic} if captured_episodes else {})
+    fast_handlers["release_check"] = release_check
     fast_handlers["determinacy_probe"] = determinacy_probe
 
     return {**fast_handlers, "list_evidence": lambda **kw: evidence().list(**kw),
@@ -2374,6 +2437,8 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                 accepted_submissions += 1
                 if max_steps - (step + 1) <= policy.DIFFICULTY_GATE_RESERVE_STEPS:
                     difficulty_gate.waive(bundle, f"turn budget: {max_steps - (step + 1)} turns left")
+                    from .. import release_blockers
+                    release_blockers.waive(bundle, f"turn budget: {max_steps - (step + 1)} turns left")
                 status = creation.inventory(spec, bundle)
                 atomic_json(log / "submissions" / f"{step + 1:03d}.json", spec)
                 atomic_json(log / "submissions" / f"{step + 1:03d}-creation.json", status)

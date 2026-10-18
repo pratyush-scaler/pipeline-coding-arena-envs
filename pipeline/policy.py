@@ -926,6 +926,9 @@ STEP_VERIFIER_MARGIN_S = 600
 #: 2026-10-09 (Arena feedback), so a round closes them before it submits instead of meeting a new batch at every final.
 #: Raised 3 -> 5 the same day: the white-box critic still met ~5 new gaps at every final after three in-round runs.
 DESIGNER_CRITIC_RUNS = 5
+#: release_check runs per release-repair session (pipeline/release_blockers.py): each re-executes the
+#: release's recorded critic proposals on the draft (minutes each).
+RELEASE_CHECK_RUNS = 4
 
 #: How the coverage critic gates a final pass (user, 2026-10-09 ~18:30 IST, "Closed-and-verified"). The critic
 #: is white-box and found ~5 new gaps on nearly every fresh run (c-031, c-041, c-068, c-072), so "a fresh run
