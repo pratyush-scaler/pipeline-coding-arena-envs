@@ -40,6 +40,7 @@ MAX_FAST = 2                 # hidden-only harden rounds per lineage before a hu
 #: spreading difficulty over independent decisions may need new published rules.
 EXTENDED_BUDGET = 5
 MAX_RELEASES_PER_WS = 3      # 20 episodes each; ARENA_TRIAL_SLOTS caps trials per workspace anyway
+MAX_TRIAGES_PER_CYCLE = 10   # each launch is a ~1 min coder ssh; one backlog (2026-10-18) was 39
 BAR = 0.5                    # policy.STEP_PASS_RATE_MAX
 SATURATED = 0.8              # both models at or above this pass@1: go to a full redesign after one hidden-only round
 
@@ -395,6 +396,7 @@ def cycle(dry: bool) -> dict:
         for got in pool.map(probe, WORKSPACES):
             rows += got
     releases_running = {}
+    triages = [0]
     for row in rows:
         for v in row["versions"]:
             if v.get("release") is not None and v["release"].get("ready") is None and row["busy"]:
@@ -479,15 +481,26 @@ def cycle(dry: bool) -> dict:
 
         # User 2026-10-18 ~18:40: reward-hacking flags on a hard version are triaged automatically
         # (pipeline/hack_triage.py): only proven false positives go, genuine ones are repaired, unclear ones wait
-        # for a human. The newest hard version holding flags (screen or qualification) is handled first.
-        if _in_batch(row["lineage"]):
+        # for a human. The newest hard version holding flags (screen or qualification) is handled first, then a
+        # flagged latest version a hardening round refused (2026-10-18: 13 lineages sat "await human adjudication"),
+        # so hardening continues past a false positive and a genuine flag is repaired instead of waiting.
+        if True:
             flagged = next((v for v in reversed(versions) if _pass_hard(v) and (v.get("hack_flags") or _qualify_flags(v))
                             and not (v.get("release") or {}).get("ready")), None)
+            spent = row.get("harden_attempts", 0) >= EXTENDED_BUDGET or sum(
+                1 for a in entry["actions"] if a["kind"] in ("harden", "harden_full")) >= EXTENDED_BUDGET
+            if flagged is None and latest.get("hack_flags") and not spent and any(
+                    a["kind"] in ("harden", "harden_full") and a.get("version") == latest["path"] for a in entry["actions"]):
+                flagged = latest
             if flagged is not None:
                 tri = flagged.get("triage") or {}
                 runs = [a for a in entry["actions"] if a["kind"] == "hack_triage" and a.get("version") == flagged["path"]]
+                if tri.get("untriaged") and len(runs) < 3 and triages[0] >= MAX_TRIAGES_PER_CYCLE:
+                    summary["hardening"].append(f"{name}: hack triage on {Path(flagged['path']).name} queued (next cycle)")
+                    continue
                 if tri.get("untriaged"):
                     if len(runs) < 3:
+                        triages[0] += 1
                         run = launch(row["ws"], ["hack-triage", flagged["path"], "--resummarize"], dry)
                         entry["actions"].append({"kind": "hack_triage", "version": flagged["path"], "run": run, "at": time.time()})
                         summary["hardening"].append(f"{name}: triaging {tri.get('untriaged')} hack flag(s) on "
@@ -499,6 +512,12 @@ def cycle(dry: bool) -> dict:
                 if tri.get("unclear"):
                     summary["blocked"].append(f"{name}: {tri['unclear']} hack flag(s) on {Path(flagged['path']).name} "
                                               "judged UNCLEAR -- a human ruling is needed")
+                    continue
+                if tri.get("genuine") and not _pass_hard(flagged):
+                    # A genuine exploit on a version both models still solve: its grader is fixed by hand (the
+                    # release repair that carries HACK blockers is for hard versions).
+                    summary["blocked"].append(f"{name}: {tri['genuine']} GENUINE hack flag(s) on {Path(flagged['path']).name} "
+                                              "(not hard) -- the grader needs a repair")
                     continue
                 if not tri.get("genuine"):
                     # Every flag is decided benign: the stored screen still lists them until re-derived, and a
@@ -530,7 +549,8 @@ def cycle(dry: bool) -> dict:
                 continue
         repaired = {a.get("version") for a in entry["actions"] if a["kind"] == "release_repair"}
         candidate = None
-        for v in (reversed(versions) if _in_batch(row["lineage"]) else []):
+        in_batch = _in_batch(row["lineage"])                  # elsewhere only a genuine hack is release-repaired
+        for v in reversed(versions):
             tri_v = v.get("triage") or {}
             hacked = bool(v.get("hack_flags") or _qualify_flags(v))
             if not _pass_hard(v) or (v.get("release") or {}).get("ready") or (
@@ -538,7 +558,8 @@ def cycle(dry: bool) -> dict:
                 continue
             rel_v = v.get("release") or {}
             blocked_root = v is versions[0] and status in ("blocked", "unverified")
-            if rel_v.get("ready") is False or verdict(v)[0] == "not_hard" or blocked_root or (hacked and tri_v.get("genuine")):
+            if (in_batch and (rel_v.get("ready") is False or verdict(v)[0] == "not_hard" or blocked_root)) \
+                    or (hacked and tri_v.get("genuine")):
                 candidate = v
             break
         n_repairs = sum(1 for a in entry["actions"] if a["kind"] == "release_repair" and a.get("run"))
@@ -716,6 +737,11 @@ def cycle(dry: bool) -> dict:
             summary["not_hard_spent"].append(f"{name}: {why}")
             continue
         same = [a for a in entry["actions"] if a.get("version") == latest["path"] and a["kind"] in ("harden", "harden_full")]
+        cleared = [a["at"] for a in entry["actions"] if a["kind"] == "resummarize" and a.get("version") == latest["path"]]
+        if same and cleared and not latest.get("hack_flags") and all(a["at"] < max(cleared) for a in same):
+            # The round on this version was refused for flags triage has since ruled benign and the screen was
+            # re-derived: the round runs again rather than counting as one that produced nothing.
+            same = []
         if same and latest.get("hack_flags"):
             # Results are not re-run to escape a reward-hacking flag: only a human adjudicates it.
             summary["blocked"].append(f"{name}: {latest.get('hack_flags')} hack flag(s) on {Path(latest['path']).name} "
