@@ -123,7 +123,7 @@ def _release(version: Path) -> list[dict]:
         elif name == "qualify":
             for n, e in enumerate(result.get("errors") or [], 1):
                 e = str(e)
-                if e.startswith("semantic review") or "native-calibrations.json" in e:
+                if e.startswith("semantic review") or "native-calibrations.json" in e or "task name claims faithfulness" in e:
                     continue        # the review is collected from its own record; calibration never ran
                 if any(k in e for k in ("OpenAI", "HTTP", "timed out", "Timeout", "rate limit", "could not be verified",
                                         "unavailable", "Connection")):

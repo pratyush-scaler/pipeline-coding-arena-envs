@@ -546,7 +546,12 @@ def _evaluate(bundle: Path, replay: bool = True) -> dict:
         evidence["faithfulness"] = {"level": level,
                                     "source": levels.SOURCE_NAME.get(level),
                                     "ledger_level": stored.get("faithfulness_level")}
-        return levels.problems(record) + naming.problems(bundle, level)
+        # The working tree's name carries the level its ledger was built with; delivery re-assigns the level the
+        # same way (deliver.plan -> levels.assign_measured) and renames the delivered copy to it. Holding the
+        # working name to the RE-ASSIGNED level refused every task calibration lifted from F0 to F1 (2026-10-18:
+        # c-015 v5/v6, c-023 v5/v6, c-038 v4/v5, all hard on both models: "task name claims faithfulness F0 but
+        # the ledger measures F1"), and renaming here would change the identity the calibration is bound to.
+        return faithfulness_problems(bundle, stored, record)
     check("faithfulness", faithfulness_level)
 
     # Spec: "a scripted solution included in the package that scores full marks."
@@ -805,6 +810,14 @@ def _awaiting_screen(bundle: Path, revisions: list) -> dict:
     atomic_json(Path(bundle) / "verification/qualification.json", result)
     update(Path(bundle), stage="awaiting-screen")
     return result
+
+
+def faithfulness_problems(bundle: Path, stored: dict, record: dict) -> list[str]:
+    """The level's own blockers, and the working name checked against the level its ledger was built with
+    (delivery renames to the re-assigned level; see qualify's faithfulness step)."""
+    from . import naming
+    from .ledger import levels
+    return levels.problems(record) + naming.problems(bundle, stored.get("faithfulness_level") or record["level"])
 
 
 def qualify(bundle: Path, models: list[str], review_model: str, blind_model: str,
