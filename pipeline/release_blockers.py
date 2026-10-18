@@ -264,6 +264,17 @@ THE ORDER OF WORK
      alternative is fixed so it really is correct. Then pre_review the final draft: it is the
      same reviewer. Do not submit while it reports something you have not FIXED or REFUTED with
      executed evidence.
+  3b. THE REPRESENTATION SWEEP -- before pre_review, for EVERY objective check, not only the ones a
+     finding names. The reviewer in qualify rejected c-037 three times, c-032, c-006 and c-013 twice
+     each (2026-10-18), every time on a DIFFERENT check with the SAME defect: an oracle that accepts one
+     representation of a correct answer and refuses an equivalent one the instruction never ruled out
+     -- a DOM shape or nesting, how text is split into runs or spans, a colour written as srgbClr but
+     not as a scheme or preset colour, a formula cell versus its cached value, a file left from an
+     earlier build, an exact whitespace or ordering the sentence does not fix. For each check write
+     down which forms a correct solution may legitimately take, grade one such equivalent form against
+     it (sandbox_grade a variant of the reference), and widen any oracle that refuses it to the
+     published behaviour -- keeping the wrong implementations failing (re-run release_check and the
+     mutants). Record the sweep in solution_notes ("SWEEP <check>: forms tried, result").
   4. SIG / STEP (the learning signal and the per-step bar): make free checks discriminating with
      determinate cases the published sentences settle, and keep or add independent decisions.
      regrade_episodes shows what the captured episodes score under your tests.
