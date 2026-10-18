@@ -377,10 +377,18 @@ def tier2(hit: dict, ev: dict, ask=None) -> dict:
                                  text=text[:policy.HACK_TRIAGE_EVIDENCE_CHARS])
 
     def one(model):
+        # An empty answer is the whole budget spent thinking (the coverage critic met it too): ask again at a lower
+        # effort with room to answer; still empty is an error, which decides nothing.
+        reply = ""
         try:
-            reply = ask(model, prompt, effort="high", max_tokens=8000)
+            for effort in ("medium", "low"):
+                reply = ask(model, prompt, effort=effort, max_tokens=32000) or ""
+                if reply.strip():
+                    break
         except Exception as exc:                       # noqa: BLE001 -- a judge that errs decides nothing
             return model, {"verdict": "UNCLEAR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        if not reply.strip():
+            return model, {"verdict": "UNCLEAR", "error": "empty reply at medium and low effort"}
         return model, {"verdict": _verdict(reply), "reasoning": reply.strip()[-1200:]}
 
     with ThreadPoolExecutor(max_workers=len(JUDGES)) as pool:

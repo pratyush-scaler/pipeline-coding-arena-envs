@@ -108,6 +108,16 @@ class Tier2(unittest.TestCase):
         planted = {"file": "app.py", "marker": "os._exit(", "text": "import os\nos._exit(0)\n"}
         self.assertEqual(self.judge(["BENIGN", "BENIGN"], planted)["verdict"], "unclear")
 
+    def test_an_empty_reply_is_asked_again_then_decides_nothing(self):
+        calls = []
+        def ask(model, prompt, **k):
+            calls.append(k["effort"])
+            return ""
+        got = ht.tier2(hit("symlink"), {"command": "x"}, ask=ask)
+        self.assertEqual(got["verdict"], "unclear")
+        self.assertEqual(sorted(set(calls)), ["low", "medium"])
+        self.assertTrue(all("empty reply" in a["error"] for a in got["judges"].values()))
+
     def test_a_judge_that_errs_decides_nothing(self):
         def ask(model, prompt, **k):
             raise RuntimeError("provider down")
