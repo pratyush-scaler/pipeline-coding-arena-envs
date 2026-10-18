@@ -224,14 +224,18 @@ def _rsh_wrapper(directory: Path) -> Path:
 
 
 def rsync(ws: str, source: str, target: str, *, push: bool, delete: bool = False, update: bool = False,
-          filters: list[str] | None = None, timeout: float | None = None) -> None:
+          filters: list[str] | None = None, timeout: float | None = None, compress: bool = False) -> None:
     """Incremental mirror over `coder ssh`; absolute paths on both sides.
 
-    `update` never overwrites a receiver file that is newer (a remote run's work).
+    `update` never overwrites a receiver file that is newer (a remote run's work). `compress` (-z) is for
+    large, compressible pulls over the tunnel (2026-10-18: a 259 MB package directory whose zip is 57 MB
+    took 12 minutes at about 0.4 MB/s and stalled the driver behind it).
     """
     with tempfile.TemporaryDirectory(prefix="arena-rsh-") as tmp:
         rsh = _rsh_wrapper(Path(tmp))
         args = ["rsync", "-a", "--partial", "-e", str(rsh)]
+        if compress:
+            args.append("-z")
         if delete:
             args.append("--delete")
         if update:
