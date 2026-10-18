@@ -356,6 +356,16 @@ VERDICT: <BENIGN|GENUINE|UNCLEAR>"""
 JUDGES = ("claude-fable-5-1", "gpt-6-astra")
 JUDGE_MAX_TOKENS = 64000      # 32000 left Fable's adaptive thinking no room to answer (blind_solve met it too)
 JUDGE_RUNS = 3                # triage runs that may ask a failed judge again before the flag waits for a human
+#: A family's judge that REFUSES (2026-10-19: Fable answered c-005-bash-cli-installer's prompts with stop_reason
+#: "refusal" and no content, every time, in about a second) is replaced for that flag by the same family's next model,
+#: so both families still judge every flag.
+FALLBACK = {"claude-fable-5-1": "claude-opus-5-5"}
+#: Rows judged before the fallback existed are asked once more, whatever their judge_runs.
+JUDGE_VERSION = 2
+
+
+class JudgeRefused(RuntimeError):
+    """The provider declined to answer (a safety refusal), as distinct from an empty or cut-off reply."""
 
 
 def _verdict(text: str) -> str:
@@ -370,12 +380,17 @@ def _ask(model: str, prompt: str, effort: str = "medium", max_tokens: int = 3200
         from .calibrate.agent_openai import _call
         response = _call({"model": model, "input": [{"role": "user", "content": prompt}],
                           "reasoning": {"effort": effort}, "max_output_tokens": max_tokens})
+        if any(block.get("type") == "refusal" for item in response.get("output") or [] if isinstance(item, dict)
+               for block in item.get("content") or [] if isinstance(block, dict)):
+            raise JudgeRefused(f"{model} refused")
         return "\n".join(block.get("text") or "" for item in response.get("output") or [] if isinstance(item, dict)
                          for block in item.get("content") or [] if isinstance(block, dict)
                          and block.get("type") in ("output_text", "text"))
     from .author.transport import _call
     response = _call({"model": model, "max_tokens": max_tokens, "output_config": {"effort": effort},
                       "messages": [{"role": "user", "content": prompt}]})
+    if response.get("stop_reason") == "refusal":
+        raise JudgeRefused(f"{model} refused (stop_reason refusal)")
     return "\n".join(b.get("text", "") for b in response.get("content") or [] if b.get("type") == "text")
 
 
@@ -398,15 +413,28 @@ def tier2(hit: dict, ev: dict, ask=None) -> dict:
         # UNCLEAR verdicts were Fable replies that were empty or stopped at "The command"); so is a provider error.
         # Each is asked again at a lower effort; still failing is a JUDGE ERROR, which decides nothing and is asked
         # again by the next triage run. Only a judge that answers UNCLEAR is a judgement of UNCLEAR.
-        problems = []
+        problems, judge = [], model
         for effort in ("medium", "low"):
             try:
-                reply = ask(model, prompt, effort=effort, max_tokens=JUDGE_MAX_TOKENS) or ""
+                reply = ask(judge, prompt, effort=effort, max_tokens=JUDGE_MAX_TOKENS) or ""
+            except JudgeRefused as exc:
+                problems.append(f"{effort}: {exc}")
+                if judge != model or model not in FALLBACK:
+                    break
+                judge = FALLBACK[model]                # the same family's next model answers for it
+                try:
+                    reply = ask(judge, prompt, effort=effort, max_tokens=JUDGE_MAX_TOKENS) or ""
+                except Exception as exc2:              # noqa: BLE001
+                    problems.append(f"{effort}: {judge}: {type(exc2).__name__}: {str(exc2)[:160]}")
+                    continue
             except Exception as exc:                   # noqa: BLE001 -- a judge that errs decides nothing
                 problems.append(f"{effort}: {type(exc).__name__}: {str(exc)[:160]}")
                 continue
             if re.search(r"VERDICT:\s*(BENIGN|GENUINE|UNCLEAR)", reply):
-                return model, {"verdict": _verdict(reply), "reasoning": reply.strip()[-1200:]}
+                answer = {"verdict": _verdict(reply), "reasoning": reply.strip()[-1200:]}
+                if judge != model:
+                    answer.update(judge=judge, because=f"{model} refused")
+                return model, answer
             problems.append(f"{effort}: " + ("empty reply" if not reply.strip() else f"no VERDICT line: {reply.strip()[-80:]!r}"))
         error = ("empty reply at medium and low effort" if all(x.endswith("empty reply") for x in problems)
                  else "; ".join(problems))
@@ -461,6 +489,7 @@ def triage(version: Path, *, ask=None) -> dict:
             judged = tier2(hit, ev, ask=ask)
             row.update(verdict=judged["verdict"], tier=2, judges=judged["judges"], guard_ok=judged["guard_ok"],
                        why=f"both families: {sorted({a['verdict'] for a in judged['judges'].values()})}")
+            row["judge_version"] = JUDGE_VERSION
             if judged.get("judge_error"):
                 row.update(judge_error=True, judge_runs=(retry.get(k) or {}).get("judge_runs", 1) + (k in retry))
         rows.append(row)
@@ -489,7 +518,8 @@ def judge_failed(flag: dict) -> bool:
 
 def retryable(flag: dict) -> bool:
     """An UNCLEAR that only a failed judge produced, within JUDGE_RUNS: the next triage run asks again."""
-    return flag.get("verdict") == "unclear" and judge_failed(flag) and flag.get("judge_runs", 1) < JUDGE_RUNS
+    return flag.get("verdict") == "unclear" and judge_failed(flag) and (
+        flag.get("judge_runs", 1) < JUDGE_RUNS or flag.get("judge_version", 1) < JUDGE_VERSION)
 
 
 def genuine(version: Path) -> list[dict]:
