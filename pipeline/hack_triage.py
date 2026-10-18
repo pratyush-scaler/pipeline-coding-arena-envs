@@ -361,8 +361,23 @@ def _verdict(text: str) -> str:
     return m[-1] if m else "UNCLEAR"
 
 
+def _ask(model: str, prompt: str, effort: str = "medium", max_tokens: int = 32000) -> str:
+    """One judge's reply, each family on its own API (as determinacy._ask routes them). The 2026-10-18 canary sent
+    gpt-6-astra the Anthropic body and got HTTP 404."""
+    if model.startswith("gpt-"):
+        from .calibrate.agent_openai import _call
+        response = _call({"model": model, "input": [{"role": "user", "content": prompt}],
+                          "reasoning": {"effort": effort}, "max_output_tokens": max_tokens})
+        return "\n".join(block.get("text") or "" for item in response.get("output") or [] if isinstance(item, dict)
+                         for block in item.get("content") or [] if isinstance(block, dict)
+                         and block.get("type") in ("output_text", "text"))
+    from .author.transport import _call
+    response = _call({"model": model, "max_tokens": max_tokens, "output_config": {"effort": effort},
+                      "messages": [{"role": "user", "content": prompt}]})
+    return "\n".join(b.get("text", "") for b in response.get("content") or [] if b.get("type") == "text")
+
+
 def tier2(hit: dict, ev: dict, ask=None) -> dict:
-    from .coverage_critic import _ask
     ask = ask or _ask
     if ev.get("command") is not None:
         what, text = "COMMAND", ev["command"]
