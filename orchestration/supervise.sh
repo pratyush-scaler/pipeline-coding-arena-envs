@@ -12,7 +12,7 @@ start_driver() {
   echo "$(date '+%F %T') started driver $!"
 }
 while true; do
-  P=$(pgrep -f "orchestration/drive[r].py --loop")
+  P=$(pgrep -f "[Pp]ython[0-9.]* -u orchestration/drive[r].py --loop")   # the interpreter, not a shell naming it
   if [ -z "$P" ]; then
     start_driver
   else

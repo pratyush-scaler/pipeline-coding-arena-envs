@@ -32,6 +32,12 @@ sys.path.insert(0, str(ROOT))
 from orchestration import config  # noqa: E402
 
 PY = str(ROOT / ".venv/bin/python")
+#: Process patterns anchored on the interpreter, so a shell that merely MENTIONS a script (a `tail -f`, a waiting
+#: `until pgrep ...` loop) is never taken for it; 2026-10-18 a waiting shell kept the supervisor from restarting the
+#: driver for 23 minutes.
+DRIVER = "[Pp]ython[0-9.]* -u orchestration/drive[r].py --loop"
+SUPERVISOR = "bash orchestration/supervis[e].sh"
+KEEPALIVE = "bash orchestration/keepaliv[e].sh"
 ARTIFACTS = ROOT / "pipeline-artifacts"
 
 
@@ -159,13 +165,13 @@ def _running(pattern: str) -> list[str]:
 
 def loop(cfg: dict) -> bool:
     (ROOT / "logs").mkdir(exist_ok=True)
-    for name, pattern in (("supervise.sh", "orchestration/supervis[e].sh"), ("keepalive.sh", "orchestration/keepaliv[e].sh")):
+    for name, pattern in (("supervise.sh", SUPERVISOR), ("keepalive.sh", KEEPALIVE)):
         if not _running(pattern):
             subprocess.Popen(["nohup", "bash", f"orchestration/{name}"], cwd=ROOT, env=env_for(cfg),
                              stdout=open(ROOT / f"logs/{name.split('.')[0]}.log", "a"), stderr=subprocess.STDOUT,
                              start_new_session=True)
             time.sleep(2)
-    ok = bool(_running("orchestration/supervis[e].sh"))
+    ok = bool(_running(SUPERVISOR))
     return say(ok, "the loop is running (supervisor -> driver, keepalive)", "see logs/supervise.log")
 
 
@@ -178,13 +184,13 @@ def status(cfg: dict) -> None:
         if lines:
             summary = json.loads(lines[-1].split(" SUMMARY ", 1)[1])
             print("last cycle:", lines[-1][:19], {k: v[0] for k, v in summary.items()})
-    print("loop:", "running" if _running("orchestration/supervis[e].sh") else "stopped",
-          "| driver:", "running" if _running("orchestration/drive[r].py --loop") else "stopped")
+    print("loop:", "running" if _running(SUPERVISOR) else "stopped",
+          "| driver:", "running" if _running(DRIVER) else "stopped")
     print("follow it: tail -f logs/driver.log   |   remote runs: ./arena coder runs")
 
 
 def stop() -> None:
-    for pattern in ("orchestration/supervis[e].sh", "orchestration/keepaliv[e].sh", "orchestration/drive[r].py --loop"):
+    for pattern in (SUPERVISOR, KEEPALIVE, DRIVER):
         for pid in _running(pattern):
             subprocess.run(["kill", pid])
     print("stopped the local loop; runs already on Coder finish on their own (./start resumes)")
