@@ -1,0 +1,11 @@
+{
+ "workspaces": ["arena-ws-1", "arena-ws-2"],
+ "dump": "/absolute/path/to/trace-dump",
+ "repro_workspace": "",
+ "task_workers": 7,
+ "max_tier": 4,
+ "interval": 600,
+ "batches": {
+  "envs-batch-1": {"wave": "envs-batch-1.json", "ranks": "1-40", "trap_ideas": ""}
+ }
+}

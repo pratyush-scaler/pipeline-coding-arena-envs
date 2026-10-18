@@ -58,7 +58,7 @@ ROOT = coder_mod.ROOT
 RUNS = "pipeline-artifacts/coder-runs"
 #: What a remote orchestrator needs of this checkout beyond the campaign runtime.
 CODE_PATHS = tuple(dict.fromkeys((*coder_mod.SYNC_PATHS, "category_batch.py", "workspace.example.toml",
-                                  "DESIGN.md", "CATEGORY_BATCH.md")))
+                                  "DESIGN.md", "CATEGORY_BATCH.md", "orchestration")))
 #: Peer task trees (novelty review, lineage, resumed bundles) and the selection
 #: inputs a batch reads. `pipeline-artifacts/native` and other campaign trees stay
 #: home: a remote run writes its own and `pull` brings them back.

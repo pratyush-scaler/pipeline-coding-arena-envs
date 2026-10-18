@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# One command from a fresh clone to a running batch of hard coding tasks. See SETUP.md.
+#   ./start --dump /path/to/dump --workspaces ws1,ws2 [--batch NAME] [--seeds 40]    first run
+#   ./start                                                                          resume
+#   ./start --check | --status | --stop
+set -euo pipefail
+cd "$(dirname "$0")"
+command -v uv >/dev/null || { echo "install uv first: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 2; }
+stamp=.venv/.arena-deps
+if [ ! -x .venv/bin/python ] || [ ! -f "$stamp" ] || [ uv.lock -nt "$stamp" ] || [ requirements-native.lock -nt "$stamp" ]; then
+  echo "installing the pipeline's Python environment (.venv) ..."
+  uv sync -q
+  uv pip install -q --python .venv/bin/python -r requirements-native.lock
+  touch "$stamp"
+fi
+exec .venv/bin/python -m orchestration.start "$@"

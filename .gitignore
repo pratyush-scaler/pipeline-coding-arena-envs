@@ -1,0 +1,95 @@
+# Credentials and machine-specific configuration
+keys.env
+keys.env.*
+secrets.env
+secrets.env.*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/workspace.toml
+/takeover.md
+
+# Managed output root: campaigns, source verification, author workspaces,
+# task packages, QA runs, benchmark episodes, reports, scratch and telemetry.
+# An ARENA_PIPELINE_ARTIFACTS override stays beneath this ignored root or uses
+# an absolute external directory; source-code directories are not destinations.
+/pipeline-artifacts/
+
+# Historical confidential source data and generated task/run locations.
+# Retain these exclusions while earlier campaigns remain available for audit.
+/data/
+/datasets/
+/sessions/
+/kaizen_dump/
+/context/
+/envs/
+/envs-*/
+/archive/
+/reference/
+/ref_files/
+/.prev-batches/
+/runs/
+/builds/
+/jobs/
+/batch-demo/
+/pipeline-overrides/
+/REBUILD_PLAN.json
+# Reports and write-ups about a batch are deliverables, not pipeline source.
+/*-REPORT.md
+/*-Report.docx
+/final_report.py
+*.zip
+# Explicit synthetic test fixtures remain reviewable source, including ZIPs.
+!/pipeline/tests/fixtures/**/*.zip
+**/verification/probe-work/
+**/verification/calibration-work/
+**/authoring/solution-check/
+
+# Local Python/tool state
+.venv/
+.venv-harbor/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+.DS_Store
+__MACOSX/
+.idea/
+.vscode/
+
+# Word lock files
+~$*
+
+# Working files of batch-repair sessions: backups, harnesses, one-off sweeps and
+# their reports. Not pipeline source; never pushed.
+/backups-*/
+/harness/
+/.*.txt
+/.check-difficulty-dataset.json
+/.gate-repair-brief.md
+/rulequote_sweep.py
+
+# Delivery staging copies of bundles (5 GB, ~67k files): generated output, like
+# /envs-*/, never pipeline source.
+/.delivery-src/
+# Root-level logs and working notes of batch-repair sessions.
+/.*.log
+/.*-brief.md
+/.pipeline-fix-queue.md
+/.unnecessary-dead-checks.json
+.claude/settings.local.json
+
+orchestration/config.json
+logs/
+ship-zips/
+.staged/
+pipeline-artifacts-oct13/
