@@ -184,8 +184,21 @@ def record_check(bundle: Path, grading_sha: str, rows: list[dict]) -> dict:
 
 
 def record_prereview(bundle: Path, grading_sha: str, findings: list[dict]) -> None:
+    """The latest pre-review, and every finding any pre-review of this round raised (the reviewer is sampled: a
+    finding one sample raises and a later one omits is not fixed -- 2026-10-18, c-007 v4)."""
+    previous = _load(Path(bundle) / PREREVIEW)
+    raised = {f["id"]: f for f in previous.get("raised") or [] if isinstance(f, dict) and f.get("id")}
+    for f in findings:
+        if isinstance(f, dict) and f.get("id"):
+            raised.setdefault(str(f["id"]), {"id": str(f["id"]), "reason": str(f.get("reason"))[:400]})
     atomic_json(Path(bundle) / PREREVIEW, {"grading_sha256": grading_sha, "at": time.time(),
-                                           "findings": findings})
+                                           "findings": findings, "raised": list(raised.values())})
+
+
+def unresolved(raised: list[dict], notes: str) -> list[dict]:
+    """Raised findings with no ledger line naming them FIXED or REFUTED in solution_notes."""
+    lines = [l for l in str(notes or "").splitlines() if "FIXED" in l or "REFUTED" in l]
+    return [f for f in raised if not any(str(f["id"]) in l for l in lines)]
 
 
 def requirement(spec: dict, bundle: Path) -> list[str]:
@@ -207,12 +220,18 @@ def requirement(spec: dict, bundle: Path) -> list[str]:
                                f"'{str(row.get('clause'))[:160]}' -- add the hidden case that makes it fail, or show "
                                "with determinacy_probe that the sentence does not settle it and record it under "
                                "quality.untested_surfaces")
-    if any(b["id"].startswith("REV") for b in context.get("blockers") or []) \
-            and _load(Path(bundle) / PREREVIEW).get("grading_sha256") != current:
-        # A pre-review of the CURRENT draft, not a finding-free one: the reviewer over-flags, and each finding is
-        # FIXED or REFUTED in the ledger (THE REPAIR PROTOCOL), which no file here can judge.
-        missing.append("RELEASE CHECK: pre_review the current draft (qualify runs the same reviewer) and resolve "
-                       "what it reports with THE REPAIR PROTOCOL")
+    if any(b["id"].startswith("REV") for b in context.get("blockers") or []):
+        review = _load(Path(bundle) / PREREVIEW)
+        if review.get("grading_sha256") != current:
+            missing.append("RELEASE CHECK: pre_review the current draft (qualify runs the same reviewer) and resolve "
+                           "what it reports with THE REPAIR PROTOCOL")
+        # Every finding ANY pre-review of this round raised ends FIXED or REFUTED in the ledger (2026-10-18:
+        # c-029-static v8 submitted with exactly the findings its pre-review reported and qualify rejected them;
+        # c-007 v4 took a clean 4th sample as a fix and qualify raised the 1st sample's o_twelve_weeks again).
+        for f in unresolved(review.get("raised") or [], spec.get("solution_notes")):
+            missing.append(f"RELEASE CHECK: pre_review raised {f['id']} ({f['reason'][:160]}) -- write a solution_notes "
+                           f"ledger line '{f['id']}: FIXED -- <case>: before/after' or '{f['id']}: REFUTED -- <executed "
+                           "evidence>'; a later review not repeating it is not a fix")
     return missing
 
 
@@ -263,7 +282,9 @@ THE ORDER OF WORK
      reviewer calls over-strict is loosened only as far as the published sentence allows; a weak
      alternative is fixed so it really is correct. Then pre_review the final draft: it is the
      same reviewer. Do not submit while it reports something you have not FIXED or REFUTED with
-     executed evidence.
+     executed evidence. The reviewer is sampled: EVERY finding any pre_review of this round raises
+     needs its own ledger line, even when a later pre_review does not repeat it (2026-10-18: c-007 v4
+     passed its 4th pre_review and qualify rejected it on the check its 1st and 2nd had flagged).
   3b. THE REPRESENTATION SWEEP -- before pre_review, for EVERY objective check, not only the ones a
      finding names. The reviewer in qualify rejected c-037 three times, c-032, c-006 and c-013 twice
      each (2026-10-18), every time on a DIFFERENT check with the SAME defect: an oracle that accepts one

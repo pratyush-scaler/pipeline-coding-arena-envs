@@ -79,12 +79,28 @@ class Requirement(unittest.TestCase):
                 {"step": "01-a", "index": 6, "clause": "V", "still_scores_1": False, "blocking": True}])
             release_blockers.record_prereview(b, sha, [{"id": "o_x", "reason": "over-strict"}])
             owed = release_blockers.requirement(self.SPEC, b)
-            self.assertEqual(len(owed), 1)
+            self.assertEqual(len(owed), 2)                                  # the open CRIT row and o_x's ledger line
             self.assertIn("01-a#4", owed[0])
-            stale = dict(self.SPEC, checks=[{"id": "o_new"}])
+            self.assertIn("o_x", owed[1])
+            stale = dict(self.SPEC, checks=[{"id": "o_new"}], solution_notes="o_x: REFUTED -- passes on the reference")
             self.assertEqual(len(release_blockers.requirement(stale, b)), 2)   # tests changed: both re-run
             release_blockers.waive(b, "turn budget: 20 turns left")
             self.assertEqual(release_blockers.requirement(self.SPEC, b), [])
+
+    def test_every_raised_finding_needs_a_ledger_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = Path(tmp)
+            (b / "verification").mkdir()
+            (b / release_blockers.CONTEXT).write_text(json.dumps({"critic_source": None, "blockers": [{"id": "REV 1"}],
+                                                                  "waived": None}))
+            sha = difficulty_gate.grading_sha(self.SPEC)
+            release_blockers.record_prereview(b, sha, [{"id": "o_twelve_weeks", "reason": "raw title"}])
+            release_blockers.record_prereview(b, sha, [])                   # a later, clean sample
+            owed = release_blockers.requirement(self.SPEC, b)
+            self.assertEqual(len(owed), 1)
+            self.assertIn("o_twelve_weeks", owed[0])
+            done = dict(self.SPEC, solution_notes="o_twelve_weeks: FIXED -- case raw_title: before 0.0, after 1.0")
+            self.assertEqual(release_blockers.requirement(done, b), [])
 
     def test_clear_removes_a_parents_context(self):
         with tempfile.TemporaryDirectory() as tmp:
