@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pipeline import attribution, hack_triage as ht, policy, release_blockers
+from pipeline import attribution, cli, hack_triage as ht, policy, release_blockers
 
 
 def hit(kind, evidence="turn 3: x", trial="package__T", step="01-a"):
@@ -149,6 +149,17 @@ class Records(unittest.TestCase):
                 got = release_blockers.collect(v)
         self.assertEqual([b["id"] for b in got], ["HACK 1"])
         self.assertIn("5b. HACK", release_blockers.brief(got, v))
+
+
+class Command(unittest.TestCase):
+    def test_the_arena_command_loads_the_keys_before_judging(self):
+        # 2026-10-18 canary: without keys.env every tier-2 judge failed "no Anthropic credential".
+        args = cli.build_parser().parse_args(["hack-triage", "/x/v2", "--resummarize"])
+        with mock.patch.object(cli, "load_keys") as keys, mock.patch.object(cli, "_run", return_value=0) as run:
+            args.fn(args)
+        keys.assert_called_once()
+        self.assertEqual(run.call_args.args[0], "pipeline.hack_triage")
+        self.assertIn("--resummarize", run.call_args.args)
 
 
 if __name__ == "__main__":

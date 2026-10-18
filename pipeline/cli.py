@@ -361,6 +361,13 @@ def cmd_categories(args) -> int:
     return _run("pipeline.select.categories", *extra)
 
 
+def cmd_hack_triage(args) -> int:
+    """Decide a version's reward-hacking flags; tier 2 asks both calibration families, so the keys load."""
+    load_keys(prompt_if_missing=False)
+    return _run("pipeline.hack_triage", str(Path(args.version).resolve()),
+                *(["--resummarize"] if args.resummarize else []))
+
+
 def cmd_harden(args) -> int:
     """Stage H -- raise a chosen task's difficulty. Never runs by itself."""
     load_keys(prompt_if_missing=bool(args.apply or getattr(args, "extend_steps", False)))
@@ -834,8 +841,7 @@ def build_parser():
     t.add_argument("version")
     t.add_argument("--resummarize", action="store_true",
                    help="re-derive the stored screen once every screen flag is decided benign")
-    t.set_defaults(fn=lambda a: _run("pipeline.hack_triage", str(Path(a.version).resolve()),
-                                     *(["--resummarize"] if a.resummarize else [])))
+    t.set_defaults(fn=cmd_hack_triage)
 
     v = sub.add_parser("verify", help="run each bundle's grader exactly as it ships")
     v.add_argument("root", nargs="?", help="directory of bundles (default: envs/)")
