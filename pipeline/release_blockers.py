@@ -151,9 +151,25 @@ def _build(version: Path) -> list[dict]:
     return out
 
 
+def _hacks(version: Path) -> list[dict]:
+    """Reward-hacking flags pipeline/hack_triage.py judged GENUINE: holes in the grader or environment."""
+    from . import hack_triage
+    out = []
+    for n, f in enumerate(hack_triage.genuine(Path(version)), 1):
+        judges = "; ".join(f"{m}: {a.get('verdict')} -- {str(a.get('reasoning'))[-400:]}"
+                           for m, a in (f.get("judges") or {}).items())
+        out.append({"id": f"HACK {n}", "source": f"reward-hacking flag judged GENUINE ({f.get('kind')} in {f.get('trial')})",
+                    "finding": f"{f.get('evidence')} || judges: {judges}"[:2400],
+                    "release_checks": "release re-scans every calibration episode and qualify refuses the version while a "
+                                      "genuine flag stands; the behaviour has to earn nothing on your version",
+                    "agent_surface": f.get("kind") in ("test_access", "graded_write", "undeclared_output")})
+    return out
+
+
 def collect(version: Path) -> list[dict]:
     version = Path(version)
-    return _critic(version) + _review(version) + _signal(version) + _release(version) + _build(version)
+    return (_critic(version) + _review(version) + _signal(version) + _release(version) + _build(version)
+            + _hacks(version))
 
 
 def needs_full_round(blockers: list[dict]) -> bool:
@@ -300,6 +316,13 @@ THE ORDER OF WORK
      determinate cases the published sentences settle, and keep or add independent decisions.
      regrade_episodes shows what the captured episodes score under your tests.
   5. SHIP / READY / QUAL / GEN: fix exactly what the detector names.
+  5b. HACK (a reward-hacking flag both judges or one of them called GENUINE): the grader or the environment
+     let a model try to win without the work. Reproduce the exploit as a variant of the reference
+     (sandbox_grade it: it must not score more than the honest work it replaces), then close the hole
+     where it is -- make the graded path unreachable or read-only, assert on the behaviour instead of a
+     proxy the exploit fakes, drop what the agent can plant (the grader already drops conftest.py and
+     relinks /opt/deps), never by banning a harmless tool. Show the closed exploit failing in the ledger
+     ("HACK <n>: FIXED -- variant <name>: before <score>, after <score>").
   6. Keep it hard: never weaken a check that bites. After every change the reference (three runs)
      and the alternative stay at 1.0 and run_controls holds.
   7. Write the resolution ledger in solution_notes, one line per blocker id:

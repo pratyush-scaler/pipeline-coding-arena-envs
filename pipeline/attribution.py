@@ -1137,13 +1137,19 @@ def adjudications(bundle) -> dict[tuple, dict]:
     try:
         doc = json.loads(path.read_text())
     except (OSError, ValueError):
-        return {}
-    if doc.get("adjudicator") != "human":
-        return {}
+        doc = {}
     out = {}
-    for flag in doc.get("flags") or []:
-        if flag.get("verdict") == "benign":
-            out[(flag.get("trial"), flag.get("step"), flag.get("kind"), flag.get("evidence_sha256"))] = flag
+    if doc.get("adjudicator") == "human":
+        for flag in doc.get("flags") or []:
+            if flag.get("verdict") == "benign":
+                out[(flag.get("trial"), flag.get("step"), flag.get("kind"), flag.get("evidence_sha256"))] = flag
+    # Automatic triage (pipeline/hack_triage.py): a flag proven a false positive by an exact rule, or judged
+    # benign by both calibration families with no graded path in its full text (user, 2026-10-18).
+    from . import policy
+    if policy.HACK_TRIAGE_AUTO:
+        from . import hack_triage
+        for k, flag in hack_triage.decided(Path(bundle)).items():
+            out.setdefault(k, flag)
     return out
 
 

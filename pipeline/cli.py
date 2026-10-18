@@ -829,6 +829,14 @@ def build_parser():
     h.add_argument("--out", help="fresh destination for --extend-steps")
     h.set_defaults(fn=cmd_harden)
 
+    t = sub.add_parser("hack-triage", help="decide a version's reward-hacking flags: exact false-positive rules, "
+                                           "then both calibration families; genuine ones become repair blockers")
+    t.add_argument("version")
+    t.add_argument("--resummarize", action="store_true",
+                   help="re-derive the stored screen once every screen flag is decided benign")
+    t.set_defaults(fn=lambda a: _run("pipeline.hack_triage", str(Path(a.version).resolve()),
+                                     *(["--resummarize"] if a.resummarize else [])))
+
     v = sub.add_parser("verify", help="run each bundle's grader exactly as it ships")
     v.add_argument("root", nargs="?", help="directory of bundles (default: envs/)")
     v.add_argument("-o", "--out", help="where to write the JSON report")

@@ -929,6 +929,11 @@ DESIGNER_CRITIC_RUNS = 5
 #: release_check runs per release-repair session (pipeline/release_blockers.py): each re-executes the
 #: release's recorded critic proposals on the draft (minutes each).
 RELEASE_CHECK_RUNS = 4
+#: Reward-hacking flags decided by pipeline/hack_triage.py are honoured as adjudications (user, 2026-10-18
+#: ~18:40 IST: let only false positives go, repair what is genuine). Off: only human rulings count.
+HACK_TRIAGE_AUTO = True
+#: Characters of a flag's full command or file excerpt the tier-2 judges read.
+HACK_TRIAGE_EVIDENCE_CHARS = 12000
 
 #: How the coverage critic gates a final pass (user, 2026-10-09 ~18:30 IST, "Closed-and-verified"). The critic
 #: is white-box and found ~5 new gaps on nearly every fresh run (c-031, c-041, c-068, c-072), so "a fresh run
