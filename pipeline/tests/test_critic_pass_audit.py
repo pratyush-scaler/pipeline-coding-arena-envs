@@ -188,16 +188,17 @@ class FreshSearchWhereTheTaskChanged(unittest.TestCase):
         (self.lineage / "v7").mkdir()
         self.assertEqual(cc.source_record(self.lineage / "v7")[0].name, "v6")
 
-    def test_changed_suites_and_a_receipt_from_before_the_surface(self):
+    def test_suites_alone_do_not_search_again_an_instruction_does(self):
+        # 2026-10-21: every repair adds hidden cases; re-searching each gap-closing round's result never converged.
         (self.lineage / "v6/tests/suites/test_b.py").write_text("def test_b():\n    pass\n")
         source = json.loads((self.lineage / "v4" / cc.RECEIPT).read_text())
-        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "v4", source),
-                         {"01-a": ["hidden suites"]})
+        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "v4", source), {})
         legacy = {k: v for k, v in source.items() if k != "surface"}
-        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "v4", legacy),
-                         {"01-a": ["hidden suites"]})                # read from the source version itself
-        moved = dict(legacy, artifact_sha256="sha-of-something-else")
-        self.assertEqual(cc.changed_since(self.lineage / "v4", self.lineage / "v4", moved),
+        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "v4", legacy), {})  # read from v4 itself
+        inst = self.lineage / "v6/steps/01-a/instruction.md"
+        inst.write_text(inst.read_text() + "\nand one more rule.\n")
+        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "v4", source), {"01-a": ["instruction"]})
+        self.assertEqual(cc.changed_since(self.lineage / "v6", self.lineage / "gone", legacy),
                          {"01-a": ["what the source run examined is not known"]})
 
     def test_the_search_is_bounded_and_kept_to_the_changed_steps(self):

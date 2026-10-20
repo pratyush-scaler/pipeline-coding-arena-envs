@@ -454,17 +454,17 @@ def surface(bundle: Path) -> dict:
 
 
 def changed_since(bundle: Path, source_dir: Path, source: dict) -> dict[str, list[str]]:
-    """Steps whose instruction or hidden suites differ from what the source searching run examined.
+    """Steps whose INSTRUCTION differs from what the source searching run examined.
 
-    A receipt written before 2026-10-21 records no surface: the source version itself is read instead, but only
-    while its identity is still the one the run recorded. Otherwise what the run saw is unknown, and every step
-    counts as changed."""
+    Hidden-suite changes alone do not trigger a fresh search (2026-10-21, same day): every repair adds hidden cases, so
+    a suites trigger re-searched every gap-closing round's result, found a few more gaps and asked for another round --
+    three repaired tasks in a row stopped at the critic gate. What changes the task is its instruction; a hidden-only
+    round is answered by re-executing the source run's proposals (closed-and-verified). A receipt written before
+    2026-10-21 records no surface: the source version's own instruction files are read instead."""
     then = source.get("surface") if isinstance(source.get("surface"), dict) else None
-    if then is None:
-        from .artifacts import identity
+    if then is None and Path(source_dir).is_dir():
         try:
-            if identity(Path(source_dir)) == source.get("artifact_sha256"):
-                then = surface(Path(source_dir))
+            then = surface(Path(source_dir))
         except (OSError, ValueError, KeyError):
             then = None
     now = surface(bundle)
@@ -472,11 +472,8 @@ def changed_since(bundle: Path, source_dir: Path, source: dict) -> dict[str, lis
     for step, digest in now["instructions"].items():
         if then is None:
             out[step] = ["what the source run examined is not known"]
-            continue
-        why = (["instruction"] if (then.get("instructions") or {}).get(step) != digest else []) \
-            + (["hidden suites"] if then.get("suites_sha256") != now["suites_sha256"] else [])
-        if why:
-            out[step] = why
+        elif (then.get("instructions") or {}).get(step) != digest:
+            out[step] = ["instruction"]
     return out
 
 
