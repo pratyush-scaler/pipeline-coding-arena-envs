@@ -152,10 +152,11 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   (`reading_settled`, verification/reading-settled.json); every failing run
   that asked about or chose on the decision it lost is judged settled, else
   `ambiguity_suspect` withholds the genuine certificate
-  (verification/genuine-ambiguity.json); every promise in the instruction, in
-  its own language, is enforced by a check that can detect a violation of the
-  whole clause, or untested with a determinacy reason (`pipeline/clause_map.py`,
-  verification/clause-map.json); every calibration run a guardrail zeroed is
+  (verification/genuine-ambiguity.json); every promise the clause map flags
+  (`pipeline/clause_map.py`: both families quote the instruction's promises in
+  its own language, verification/clause-map.json -- an ADVISORY text judgement)
+  is a first target of the coverage critic, whose executed 1.0 counter-
+  implementation blocks; every calibration run a guardrail zeroed is
   adjudicated inside that guardrail's sentence (verification/guardrail-zeroed.json);
   the pass audit finds no passing calibration solution that demonstrably breaks a
   published clause (release step `pass-audit`); checks failing in lockstep count
