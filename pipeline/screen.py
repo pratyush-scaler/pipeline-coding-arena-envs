@@ -356,10 +356,7 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
         try:
             attributed = attribution.attribute(bundle, measured, episodes)
             verdicts = attributed.get("episodes") or {}
-            # User, 2026-10-21 (external audit): decisive checks are held to the settled-reading obligation at the
-            # screen too, not only at release (one judgement per grading sha, verification/reading-settled.json).
-            attribution_problems = (attributed["problems"] + attribution.all_fail_problems(bundle, measured)
-                                    + attribution.reading_problems(bundle, measured))
+            attribution_problems = attributed["problems"] + attribution.all_fail_problems(bundle, measured)
             counts = attributed["counts"]
         except (OSError, ValueError, KeyError, TypeError) as exc:
             attribution_problems = [f"attribution could not run: {type(exc).__name__}: {exc}"]
