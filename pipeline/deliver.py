@@ -349,6 +349,25 @@ def deliver(root: Path, out: Path, *, accepted_only: bool = False) -> dict:
     return record
 
 
+def bump_version(destination: Path) -> dict:
+    """A delivered package that replaces an earlier delivery of the same task: `[task].version` takes its next minor
+    and the receipt records both numbers, which `deliverable.acceptance_problems` then allows (CONTRIBUTING step 2
+    of the task bank; 2026-10-21, the audit repairs re-delivered under their original 1.0.0)."""
+    from .artifacts import atomic_json
+    toml_path, receipt_path = destination / "task.toml", destination / RECEIPT
+    receipt = json.loads(receipt_path.read_text())
+    if isinstance(receipt.get("version"), dict):
+        return receipt["version"]
+    text = toml_path.read_text(encoding="utf-8")
+    previous = tomllib.loads(receipt["source_task_toml"])["task"].get("version")
+    if tomllib.loads(text)["task"].get("version") != previous:
+        raise ValueError("the delivered task.toml already carries another version than the accepted one")
+    version = {"previous": previous, "assigned": naming.next_version(previous)}
+    toml_path.write_text(naming.set_version(text, version["assigned"]), encoding="utf-8")
+    atomic_json(receipt_path, {**receipt, "version": version})
+    return version
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 

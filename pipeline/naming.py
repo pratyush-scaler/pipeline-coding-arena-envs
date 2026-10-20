@@ -106,6 +106,30 @@ def rename_text(text: str, name: str) -> str:
     return updated
 
 
+def set_version(text: str, version: str) -> str:
+    """`[task].version` set to `version` (X.Y.Z), nothing else changed.
+
+    The task bank's contract (CONTRIBUTING step 2): a replaced task bumps its version, so a repaired task is never
+    delivered under the number of the package it replaces (2026-10-21, the audit repairs)."""
+    import tomllib
+    if not re.fullmatch(r"\d+\.\d+\.\d+", str(version)):
+        raise ValueError(f"not an X.Y.Z version: {version!r}")
+    before = tomllib.loads(text)
+    pattern = re.compile(r"(\[task\][^\[]*?\bversion\s*=\s*)(\"[^\"]*\")", re.S)
+    updated, count = pattern.subn(lambda m: m.group(1) + json_quote(version), text, count=1)
+    if count != 1:
+        raise ValueError("could not locate the [task] version in task.toml")
+    if tomllib.loads(updated) != dict(before, task={**before["task"], "version": version}):
+        raise ValueError("setting [task].version would change more than that key")
+    return updated
+
+
+def next_version(version: str) -> str:
+    """The minor bump a replacement package carries: 1.0.0 -> 1.1.0."""
+    major, minor, _ = (int(x) for x in str(version).split("."))
+    return f"{major}.{minor + 1}.0"
+
+
 def json_quote(value: str) -> str:
     import json
     return json.dumps(value, ensure_ascii=False)

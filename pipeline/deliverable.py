@@ -479,6 +479,15 @@ def acceptance_problems(bundle: Path) -> list[str]:
                 problems.append("the delivery receipt stamps metadata other than the assigned level")
             expected_toml = naming.set_metadata(expected_toml, naming.LEVEL_KEY,
                                                 str(stamp.get(naming.LEVEL_KEY)))
+        # A replacement package bumps `[task].version` (the task bank's contract); the receipt records the number
+        # it replaced and the one it carries, and that is the only further difference allowed.
+        version = receipt.get("version")
+        if isinstance(version, dict):
+            import tomllib
+            previous = tomllib.loads(toml_text)["task"].get("version")
+            if version.get("previous") != previous or version.get("assigned") != naming.next_version(previous):
+                problems.append("the delivery receipt's version is not the accepted version's next minor")
+            expected_toml = naming.set_version(expected_toml, str(version.get("assigned")))
     except ValueError as exc:
         expected_toml = None
         problems.append(f"accepted task.toml cannot be renamed: {exc}")
@@ -486,7 +495,7 @@ def acceptance_problems(bundle: Path) -> list[str]:
     if expected_toml is not None and delivered_toml != expected_toml \
             and delivered_toml != toml_text:
         problems.append("task.toml differs from the accepted version by more than "
-                        "the rename and the level stamp")
+                        "the rename, the level stamp and a recorded version bump")
     try:
         delivered_ledger = json.loads((bundle / "provenance/ledger.json").read_text())
         if _without_level(delivered_ledger) != _without_level(json.loads(ledger_text)):
