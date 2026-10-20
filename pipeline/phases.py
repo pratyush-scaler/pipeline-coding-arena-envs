@@ -297,7 +297,8 @@ def analyse(bundle: Path) -> dict:
         record = attribution.attribute(bundle, measured)
         per_model[model] = {"evidence_problems": issues, "bands": bands,
                             "attribution": record["counts"],
-                            "all_fail": attribution.all_fail_problems(bundle, measured)}
+                            "all_fail": attribution.all_fail_problems(bundle, measured),
+                            "reading": attribution.reading_problems(bundle, measured)}
         for step, data in (measured.get("by_step") or {}).items():
             for cid, rec in (data.get("checks") or {}).items():
                 key = f"{step}/{cid}"

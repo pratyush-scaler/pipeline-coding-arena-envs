@@ -480,7 +480,15 @@ _DETERMINACY_REASON = re.compile(
     r"determinacy|undetermin|not settled|unsettled|does not settle|doesn't settle|no rule|either reading|"
     r"both readings|ambigu|cannot be observed|can(?:not|'t) observe|no hidden case can|unobservable|"
     r"not observable|non-?determinis|not determin|undefined by the instruction|instruction (?:never|does not) "
-    r"(?:say|state|fix|define)", re.I)
+    r"(?:say|state|fix|define)|"
+    # User, 2026-10-21 (external audit): untested surfaces are often written in the instruction's own language, and an
+    # English-only pattern counted a reason such as "指令没有规定" as no reason at all. The languages our tasks ship in.
+    r"не определ|не задан|не сказан|не уточн|не оговор|неоднознач|двусмысл|"            # Russian
+    r"没有规定|未规定|没说|没有说明|未说明|不确定|两种理解|歧义|无法观察|指令没有|"         # Chinese
+    r"指示されていない|規定されていない|決まっていない|定めていない|曖昧|どちらの解釈|"     # Japanese
+    r"مشخص نشده|تعیین نشده|نگفته|مبهم|"                                                  # Persian
+    r"não (?:define|especifica|diz)|no (?:define|especifica)|ne précise pas|"             # Portuguese, Spanish, French
+    r"tidak (?:ditentukan|disebutkan|dijelaskan)", re.I)                                  # Indonesian
 
 
 def _published(text: str, instructions: str) -> bool:

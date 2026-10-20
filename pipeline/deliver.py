@@ -67,6 +67,12 @@ RECEIPTS = (
     # counted failure is the model's, and that Arena's review classes were
     # checked (user, 2026-10-07).
     "verification/genuine.json",
+    # 2026-10-21 (external audit): what settles each decisive reading and each ambiguity-suspect failure, every
+    # promise mapped to the check enforcing it, and each guardrail-zeroed run adjudicated.
+    "verification/genuine-ambiguity.json",
+    "verification/reading-settled.json",
+    "verification/clause-map.json",
+    "verification/guardrail-zeroed.json",
     "verification/shipcheck.json",
     "verification/shipcheck-waivers.json",
     "verification/coverage-critic.json",

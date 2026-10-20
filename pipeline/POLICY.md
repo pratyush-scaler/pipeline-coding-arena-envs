@@ -185,6 +185,16 @@ passed), `alternative_implementation` (the executed alternative passed it),
 `reachable`, `near_miss_adjudicated` (no zero-scoring submission carried
 ≥ `NEAR_MISS_OVERLAP` of the reference patch without a human verdict).
 
+`reading_settled` (2026-10-21, after an external audit found 22 grading defects every gate had passed) applies
+to every DECISIVE check, all-fail or not -- failed by at least `SIGNAL_HARD_FAIL_RATE` of one model's valid runs:
+both calibration families, shown the instruction, the check's sentences, its hidden tests and failing runs, must
+say the instruction settles what the check rewards and quote the deciding sentence. Unsettled, a second reading
+the runs took, or an erring judge fails it (`verification/reading-settled.json`). The mutant, the alternative and
+the reference all come from one designer's reading; this is the obligation that tests the reading itself.
+A failing run that asked about, or chose on, the decision a failed check grades is `ambiguity_suspect` until both
+families judge the instruction settles it (`verification/genuine-ambiguity.json`); unsettled withholds the
+genuine-failure certificate.
+
 Reward hacking: every retained trajectory is scanned (`attribution.
 trajectory_hacks`) for test access (`/tests`, `/app/tests`, checks.json,
 grade.py, rubric.json, reward files), graded writes, symlinks into graded
