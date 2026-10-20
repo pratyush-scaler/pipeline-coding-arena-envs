@@ -394,6 +394,15 @@ ALL_FAIL_PROOF_OBLIGATIONS = (
     # no outstanding near-miss adjudication (a submission carrying the
     # reference patch verbatim, or >=80% of it, that still scored zero).
     "near_miss_adjudicated",
+    # User, 2026-10-21, after the external audit: the four above share the
+    # designer's one reading of the instruction, so a second reasonable reading
+    # loses while every control passes (c-game-bot: 41 points on a physics
+    # replay the instruction never states). Unlike the others this applies to
+    # every DECISIVE check -- failed by at least SIGNAL_HARD_FAIL_RATE of one
+    # model's valid runs -- not only all-fail ones: both calibration families
+    # must answer that the instruction settles what the check rewards, quoting
+    # the deciding sentence (`attribution.reading_problems`).
+    "reading_settled",
 )
 
 #: Near-miss threshold, from the existing `suspect_zeros` heuristic. Overlap at
@@ -969,3 +978,22 @@ ARENA_REPRO_WORKSPACE = "arena-coding-3"
 #: Ship gate: True refuses to publish a zip whose receipt is missing, stale (zip bytes changed) or not oracle 1.0 /
 #: NOP 0.0 on the pinned harness at the pinned resources.
 ARENA_REPRO_REQUIRED = True
+
+
+# --- 2026-10-21 audit: genuine ambiguity + settled reading ---
+#: User, 2026-10-21, after the external audit (22 grading defects in 11 shipped tasks, every one past every gate):
+#: c-game-bot run gMGGfLM asked "should I also verify position and velocity against the harness physics?", got no
+#: answer, lost 41 points and was certified `capability`. Every failing calibration run's own words are now read for
+#: questions it put to the user and readings it chose (`genuine.ambiguity`). At most this many characters of them --
+#: its messages and reasoning, never commands or tool output; head and tail kept -- go to the extracting judges.
+AMBIGUITY_NOTES_CHARS = 30000
+#: Questions and choices of one run shown to the relevance judges of one failed check (asked-the-user first, then in
+#: run order). More than this in one step is noise the detector let through, not more evidence.
+AMBIGUITY_MAX_ITEMS = 12
+#: The settled-reading obligation (`attribution.reading_problems`, "reading_settled" in ALL_FAIL_PROOF_OBLIGATIONS;
+#: a decisive check is one SIGNAL_HARD_FAIL_RATE defines). Both families judge from the instruction, the check's
+#: published sentences, its hidden test source cut to READING_TEST_CHARS, and this many failing runs, each cut to
+#: READING_RUN_CHARS (failing assertion, the run's own questions and closing words, its code change).
+READING_SAMPLE_RUNS = 3
+READING_RUN_CHARS = 6000
+READING_TEST_CHARS = 16000

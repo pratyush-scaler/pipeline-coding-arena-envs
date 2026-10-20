@@ -1266,9 +1266,539 @@ def hack_problems(hits: list[dict]) -> list[str]:
             for h in hits]
 
 
+# ---------------------------------------------------------------------------
+# Settled readings
+# ---------------------------------------------------------------------------
+# User, 2026-10-21, after the external audit (22 grading defects in 11 shipped tasks, each past every gate): the
+# reference, the "independent" alternative and every mutant are written by one designer from ONE reading of the
+# instruction, so every executed control passes while a second reasonable reading loses. c-game-bot put 41 points on
+# a physics replay the instruction never states (7/10 Astra runs asked about it and got no answer); pdf-tooling 45 on
+# a sentence that reads as a recognition rule or a renumbering order. The all-fail obligations cannot see this: they
+# apply only to checks no run passed, and all four share the designer's reading.
+#
+# `reading_problems` holds every DECISIVE check -- failed by at least policy.SIGNAL_HARD_FAIL_RATE of one model's
+# valid runs, the learning signal's "hard decision" -- to the obligation `reading_settled`: both calibration families,
+# shown the full instruction, the check's published sentences, its hidden test source and a sample of the failing
+# runs, must answer that the instruction settles what the check rewards and quote the deciding sentence. A judge that
+# errs, declines, or answers YES without a sentence found verbatim in the instruction settles nothing. The judgement
+# is recorded per check in READINGS, bound to the grading sha, so it is asked once per version (a model judge is not
+# repeatable; the first answer holds, as coverage_critic.ship_critic keeps a gap's first judgement).
+
+READINGS = "verification/reading-settled.json"
+READINGS_SCHEMA = "arena-pipeline/reading-settled/1"
+
+#: Tool names a harness gives the agent for asking its user: Codex `request_user_input[_async]`, Claude Code
+#: `AskUserQuestion`, and the `ask_followup_question` / `ask_human` shapes other harnesses use.
+_ASK_TOOL_RE = _re.compile(r"request_?user_?input|ask_?user|ask_?followup|ask_?human|user_?question", _re.I)
+
+
+def grading_sha(bundle) -> str:
+    """What a run is graded against (`author.difficulty_gate.grading_sha`: instructions, checks, suites, toolchain,
+    deps); the artifact identity for a bundle without a readable spec."""
+    import json
+    from pathlib import Path
+    from .artifacts import identity
+    from .author.difficulty_gate import grading_sha as surface_sha
+    try:
+        spec = json.loads((Path(bundle) / "authoring/spec.json").read_text())
+    except (OSError, ValueError):
+        spec = None
+    return surface_sha(spec) if isinstance(spec, dict) and spec.get("steps") else identity(Path(bundle))
+
+
+def instruction_text(bundle, step: str) -> str:
+    """What the agent was told up to and including `step`: every earlier turn's instruction, then this one's."""
+    import json
+    import tomllib
+    from pathlib import Path
+    bundle = Path(bundle)
+    try:
+        names = [s["name"] for s in tomllib.loads((bundle / "task.toml").read_text()).get("steps") or []]
+    except (OSError, ValueError, KeyError, TypeError):
+        names = []
+    try:
+        spec_steps = {s.get("name"): s.get("instruction") or "" for s in
+                      json.loads((bundle / "authoring/spec.json").read_text()).get("steps") or [] if isinstance(s, dict)}
+    except (OSError, ValueError, AttributeError):
+        spec_steps = {}
+    names = names or sorted(spec_steps) or [step]
+    turns = names[:names.index(step) + 1] if step in names else [step]
+    texts = []
+    for name in turns:
+        path = bundle / "steps" / str(name) / "instruction.md"
+        text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else spec_steps.get(name, "")
+        if text.strip():
+            texts.append(text.strip())
+    if len(texts) <= 1:
+        return texts[0] if texts else ""
+    return "\n\n".join(f"TURN {n} ({name})\n{text}" for n, (name, text) in enumerate(zip(turns, texts), 1))
+
+
+def _plain(text: str) -> str:
+    text = str(text or "").translate(str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "«": '"', "»": '"'}))
+    return _re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def quote_found(quote: str, text: str) -> bool:
+    """Every quoted piece of `quote` (split on ellipses; pieces in quotation marks taken one by one) is in `text`."""
+    if not quote or _plain(quote) in ("", "none", "n/a"):
+        return False
+    marked = _re.findall(r'"([^"]{8,})"|“([^”]{8,})”|«([^»]{8,})»|「([^」]{8,})」', quote)
+    pieces = [next(s for s in groups if s) for groups in marked] or [quote]
+    parts = [_plain(p).strip(" '\"`.,;:") for piece in pieces for p in _re.split(r"\.\.\.|…", piece)]
+    parts = [p for p in parts if len(p) >= 8]
+    haystack = _plain(text)
+    return bool(parts) and all(p in haystack for p in parts)
+
+
+def final_line(text: str, key: str) -> str | None:
+    """The value of the last `KEY: value` line of a judge's reply (markdown emphasis tolerated)."""
+    found = _re.findall(rf"^\s*\**{key}\**\s*:\s*\**\s*(.*?)\s*$", text or "", _re.M)
+    return found[-1].strip().strip("*").strip() if found else None
+
+
+def verdict_word(value: str | None) -> str:
+    found = _re.match(r"[\"'`<]*([A-Za-z_]+)", str(value or ""))
+    return found.group(1).upper() if found else ""
+
+
+def ask_families(prompt: str, answered, *, ask=None) -> dict[str, dict]:
+    """Every calibration family's reply to one prompt: {model: {"text": reply} | {"error": why}}.
+
+    The machinery of `hack_triage.tier2`: both families in parallel, each asked again at a lower effort when its
+    reply is empty or carries no final lines (`answered(reply)` is False), a family that refuses replaced by its
+    next model (`hack_triage.FALLBACK`). A family still without an answer returns an error -- it decides nothing,
+    and no caller reads it as a pass.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from . import hack_triage
+    ask = ask or hack_triage._ask
+
+    def one(model):
+        problems, judge = [], model
+        for effort in ("high", "medium"):
+            try:
+                reply = ask(judge, prompt, effort=effort, max_tokens=hack_triage.JUDGE_MAX_TOKENS) or ""
+            except hack_triage.JudgeRefused as exc:
+                problems.append(f"{effort}: {exc}")
+                if judge != model or model not in hack_triage.FALLBACK:
+                    break
+                judge = hack_triage.FALLBACK[model]
+                try:
+                    reply = ask(judge, prompt, effort=effort, max_tokens=hack_triage.JUDGE_MAX_TOKENS) or ""
+                except Exception as exc2:                  # noqa: BLE001 -- a judge that errs decides nothing
+                    problems.append(f"{effort}: {judge}: {type(exc2).__name__}: {str(exc2)[:160]}")
+                    continue
+            except Exception as exc:                       # noqa: BLE001 -- a judge that errs decides nothing
+                problems.append(f"{effort}: {type(exc).__name__}: {str(exc)[:160]}")
+                continue
+            if answered(reply):
+                return model, {"text": reply, **({"judge": judge} if judge != model else {})}
+            problems.append(f"{effort}: " + ("empty reply" if not reply.strip()
+                                             else f"no final lines: {reply.strip()[-80:]!r}"))
+        return model, {"error": "; ".join(problems)[:400] or "no reply"}
+
+    with ThreadPoolExecutor(max_workers=len(hack_triage.JUDGES)) as pool:
+        return dict(pool.map(one, hack_triage.JUDGES))
+
+
+def _questions(args) -> list[str]:
+    """The questions one ask-the-user tool call put, each with its offered options."""
+    import json
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except ValueError:
+            try:
+                import ast
+                args = ast.literal_eval(args)
+            except (ValueError, SyntaxError):
+                return [args] if args.strip() else []
+    if not isinstance(args, dict):
+        return []
+    rows = args.get("questions") if isinstance(args.get("questions"), list) else [args]
+    out = []
+    for row in rows:
+        if isinstance(row, str):
+            out.append(row)
+            continue
+        if not isinstance(row, dict):
+            continue
+        text = next((row[k] for k in ("question", "title", "prompt", "text", "message", "header")
+                     if isinstance(row.get(k), str) and row[k].strip()), "")
+        options = [o if isinstance(o, str) else str(o.get("label") or o.get("title") or "")
+                   for o in row.get("options") or [] if isinstance(o, (str, dict))]
+        options = [o for o in options if o]
+        if text:
+            out.append(text + (f" (options: {' / '.join(options)})" if options else ""))
+    return out
+
+
+def run_notes(evidence_dir) -> list[dict] | None:
+    """The agent's own words in one step, in order: [{"turn", "kind": message|reasoning|asked, "text"}].
+
+    Read from the step's ATIF trajectory (`agent/trajectory.json`, every solver), else from the harness's own JSONL
+    transcript (`agent/codex.txt`: `agent_message` / `reasoning` items; `agent/claude-code.txt`: assistant text,
+    thinking and tool_use blocks). Commands and tool output are not the agent's words and are left out; a question
+    put through an ask-the-user tool is kept as `asked`. None when no transcript can be read -- could-not-check.
+    """
+    import json
+    from pathlib import Path
+    if not evidence_dir:
+        return None
+    folder = Path(evidence_dir) / "agent"
+
+    def text_of(value) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return "\n".join(text_of(v.get("text") if isinstance(v, dict) else v) for v in value)
+        return ""
+
+    path = folder / "trajectory.json"
+    if path.is_file() and not path.is_symlink():
+        try:
+            data = json.loads(path.read_text())
+            notes = []
+            for turn in data.get("steps") or []:
+                if not isinstance(turn, dict) or turn.get("source") != "agent":
+                    continue
+                for kind, value in (("reasoning", turn.get("reasoning_content")), ("message", turn.get("message"))):
+                    if text_of(value).strip():
+                        notes.append({"turn": turn.get("step_id"), "kind": kind, "text": text_of(value).strip()})
+                for call in turn.get("tool_calls") or []:
+                    if isinstance(call, dict) and _ASK_TOOL_RE.search(str(call.get("function_name") or call.get("name") or "")):
+                        notes += [{"turn": turn.get("step_id"), "kind": "asked", "text": q}
+                                  for q in _questions(call.get("arguments"))]
+            return notes
+        except (OSError, ValueError, AttributeError, TypeError):
+            pass
+    for name in ("codex.txt", "claude-code.txt"):
+        path = folder / name
+        if not path.is_file() or path.is_symlink():
+            continue
+        notes, n = [], 0
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            item = event.get("item") if isinstance(event.get("item"), dict) else None
+            if event.get("type") == "item.completed" and item and item.get("type") in ("agent_message", "reasoning"):
+                n += 1
+                if text_of(item.get("text")).strip():
+                    notes.append({"turn": n, "kind": "message" if item["type"] == "agent_message" else "reasoning",
+                                  "text": text_of(item.get("text")).strip()})
+            elif event.get("type") == "assistant" and isinstance(event.get("message"), dict):
+                n += 1
+                for block in event["message"].get("content") or []:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text" and str(block.get("text") or "").strip():
+                        notes.append({"turn": n, "kind": "message", "text": block["text"].strip()})
+                    elif block.get("type") == "thinking" and str(block.get("thinking") or "").strip():
+                        notes.append({"turn": n, "kind": "reasoning", "text": block["thinking"].strip()})
+                    elif block.get("type") == "tool_use" and _ASK_TOOL_RE.search(str(block.get("name") or "")):
+                        notes += [{"turn": n, "kind": "asked", "text": q} for q in _questions(block.get("input"))]
+        return notes
+    return None
+
+
+def decisive_checks(bundle, report: dict) -> dict[tuple[str, str], float]:
+    """(step, check) -> the share of this model's valid runs that failed it, for every objective or guardrail
+    failed by at least policy.SIGNAL_HARD_FAIL_RATE of them (`gated_out` is not `failed`, but it is a valid run)."""
+    from pathlib import Path
+    from .author.contracts import strict_json
+    kinds = {c["id"]: c.get("kind") for c in
+             strict_json((Path(bundle) / "tests/checks.json").read_text())["checks"]}
+    out = {}
+    for step, data in (report.get("by_step") or {}).items():
+        for cid, rec in (data.get("checks") or {}).items():
+            if kinds.get(cid) not in ("objective", "guardrail") or not isinstance(rec, dict):
+                continue
+            failed = int(rec.get("failed") or 0)
+            runs = failed + int(rec.get("passed") or 0) + int(rec.get("gated_out") or 0)
+            if failed and failed / runs >= policy.SIGNAL_HARD_FAIL_RATE:
+                out[(step, cid)] = round(failed / runs, 3)
+    return out
+
+
+def _cut(text: str, limit: int) -> str:
+    text = str(text or "")
+    if len(text) <= limit:
+        return text
+    half = max(0, limit // 2 - 20)
+    return f"{text[:half]}\n...[{len(text) - 2 * half} characters cut]...\n{text[-half:]}"
+
+
+def _test_source(bundle, check: dict) -> str:
+    """The hidden tests a check runs: each selected test's source and the module helpers it names."""
+    import ast
+    import json
+    from pathlib import Path
+    suites = Path(bundle) / "tests/suites"
+    runner = check.get("runner") or {}
+    parts, whole = [], set()
+    for selector in runner.get("select") or []:
+        file, _, name = str(selector).partition("::")
+        path = suites / file
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        leaf = name.split("::")[-1].split("[")[0]
+        tree = None
+        if leaf and path.suffix == ".py":
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                tree = None
+        node = next((n for n in (tree.body if tree else []) if isinstance(
+            n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == leaf), None)
+        if node is None:
+            if file not in whole:
+                whole.add(file)
+                parts.append(f"# {file}\n{text}")
+            continue
+        segment = ast.get_source_segment(text, node) or ""
+        named = {}
+        for n in tree.body:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n is not node:
+                named[n.name] = n
+            elif isinstance(n, ast.Assign):
+                named.update({t.id: n for t in n.targets if isinstance(t, ast.Name)})
+        # The module helpers the test reaches, transitively (c-game-bot's `_case` calls the physics `_replay`).
+        used, frontier = [], segment
+        while True:
+            fresh = [n for name, n in named.items() if n not in used
+                     and _re.search(rf"\b{_re.escape(name)}\b", frontier)]
+            if not fresh:
+                break
+            used += [n for n in dict.fromkeys(fresh)]
+            frontier = "\n".join(ast.get_source_segment(text, n) or "" for n in fresh)
+        helpers = [ast.get_source_segment(text, n) or "" for n in sorted(used, key=lambda n: n.lineno)]
+        parts.append(f"# {selector}\n{segment}" + ("\n\n# helpers it uses\n" + "\n\n".join(helpers) if helpers else ""))
+    if not parts:
+        parts.append(f"(runner {runner.get('type')!r} selects no test source this reader can show: "
+                     f"{json.dumps(runner, ensure_ascii=False, default=str)[:400]})")
+    return _cut("\n\n".join(parts), policy.READING_TEST_CHARS)
+
+
+#: Directories a captured repository carries that are not the agent's code.
+_VENDORED = ("node_modules", ".venv", "venv", "vendor", "__pycache__", ".git", ".pytest_cache", "dist", "build")
+
+
+def _changed_code(bundle, evidence_dir, limit: int) -> str:
+    """A unified diff of the source files a run changed or added, against the fixture."""
+    import difflib
+    from pathlib import Path
+    captured = Path(evidence_dir) / "artifacts/app/repo" if evidence_dir else None
+    fixture = Path(bundle) / "environment/repo"
+    if captured is None or not captured.is_dir():
+        return "(no captured repository)"
+    chunks = []
+    for path in sorted(captured.rglob("*")):
+        if (not path.is_file() or path.is_symlink() or any(p in _VENDORED for p in path.parts)
+                or path.stat().st_size > 400_000):
+            continue
+        rel = path.relative_to(captured).as_posix()
+        try:
+            after = path.read_text(encoding="utf-8")
+            original = fixture / rel
+            before = original.read_text(encoding="utf-8") if original.is_file() else ""
+        except (OSError, UnicodeDecodeError):
+            continue
+        if after != before:
+            chunks.append("".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
+                                                       f"a/{rel}", f"b/{rel}", n=2)))
+    return _cut("\n".join(chunks), limit) if chunks else "(no source change)"
+
+
+def _failing_runs(bundle, report: dict, step: str, cid: str) -> str:
+    """Excerpts of up to policy.READING_SAMPLE_RUNS runs that failed the check: the failing assertion, the run's own
+    questions and closing words, and its code change."""
+    trials = {t.get("id"): t for t in report.get("trials") or [] if isinstance(t, dict)}
+    out = []
+    for row in report.get("rollouts") or []:
+        if row.get("step") != step or (row.get("checks") or {}).get(cid) != "failed":
+            continue
+        trial_id = str(row.get("id", "")).rsplit("/", 1)[0]
+        folder = next((s.get("evidence_dir") for s in (trials.get(trial_id) or {}).get("steps") or []
+                       if s.get("name") == step), None)
+        notes = run_notes(folder) or []
+        said = [f"[asked] {n['text']}" for n in notes if n["kind"] == "asked"]
+        said += [f"[closing message] {n['text']}" for n in [n for n in notes if n["kind"] == "message"][-1:]]
+        budget = policy.READING_RUN_CHARS
+        assertion = _cut((row.get("failed_output") or {}).get(cid) or "(not retained)", budget // 4)
+        words = _cut("\n".join(said) or "(no retained notes)", budget // 4)
+        code = _changed_code(bundle, folder, budget // 2)
+        out.append(f"--- run {trial_id}\nFAILING ASSERTION:\n{assertion}\nTHE RUN'S OWN WORDS:\n{words}\n"
+                   f"ITS CODE CHANGE:\n{code}")
+        if len(out) >= policy.READING_SAMPLE_RUNS:
+            break
+    return "\n\n".join(out) or "(no retained failing run)"
+
+
+READING_PROMPT = """\
+A user gave a developer the instruction below. A hidden test grades the developer's work, and many careful runs \
+lost the check shown. Decide whether the instruction itself settles the behaviour this check rewards, as a careful \
+developer who reads only the instruction (and the repository it points at) would.
+
+INSTRUCTION
+-----------
+{instruction}
+
+THE SENTENCES THE CHECK SAYS IT ENFORCES (quoted from the instruction)
+---------------------------------------------------------------------
+{sentences}
+
+WHAT THE CHECK REWARDS (its author's description)
+-------------------------------------------------
+{basis}
+
+THE HIDDEN TEST SOURCE
+----------------------
+{tests}
+
+RUNS THAT FAILED IT (excerpts)
+------------------------------
+{runs}
+
+Answer three questions.
+1. SETTLED: Does the instruction settle the behaviour this test rewards, so that every careful developer reading it \
+would make the code pass? YES, NO, or UNDETERMINED (reasonable readings differ).
+2. QUOTE: the sentence(s) of the instruction that decide it, copied verbatim, or NONE.
+3. SECOND_READING: a second reasonable reading of the instruction under which this test fails, in one line, or NONE; \
+and RUNS_TOOK_IT: did the failing runs above act on that second reading? YES or NO.
+
+Reply with your reasoning in at most six sentences, then exactly these final lines:
+SETTLED: <YES|NO|UNDETERMINED>
+QUOTE: <the deciding sentence(s), verbatim, or NONE>
+SECOND_READING: <one line, or NONE>
+RUNS_TOOK_IT: <YES|NO>"""
+
+
+def _reading_answered(text: str) -> bool:
+    return verdict_word(final_line(text, "SETTLED")) in ("YES", "NO", "UNDETERMINED")
+
+
+def judge_reading(instruction: str, answers: dict[str, dict]) -> tuple[str, dict[str, dict]]:
+    """("settled" | "unsettled" | "error", per family). Settled only when EVERY family answers YES with a deciding
+    sentence found verbatim in the instruction and names no second reading the failing runs took."""
+    per = {}
+    for model, answer in answers.items():
+        if "error" in answer:
+            per[model] = {"outcome": "error", "error": answer["error"]}
+            continue
+        text = answer["text"]
+        settled, quote = verdict_word(final_line(text, "SETTLED")), final_line(text, "QUOTE") or ""
+        second, took = final_line(text, "SECOND_READING") or "", verdict_word(final_line(text, "RUNS_TOOK_IT"))
+        row = {"settled": settled, "quote": quote[:800], "second_reading": second[:400], "runs_took_it": took,
+               "reasoning": text.strip()[-900:], **({"judge": answer["judge"]} if answer.get("judge") else {})}
+        named = verdict_word(second) not in ("", "NONE")
+        if settled in ("NO", "UNDETERMINED"):
+            row["outcome"] = "unsettled"
+        elif named and took == "YES":
+            row["outcome"] = "unsettled"
+        elif named and took != "NO":
+            row.update(outcome="error", error="names a second reading without saying whether the runs took it")
+        elif not quote_found(quote, instruction):
+            row.update(outcome="error", error="answers YES without a deciding sentence found verbatim in the instruction")
+        else:
+            row["outcome"] = "settled"
+        per[model] = row
+    outcomes = {r["outcome"] for r in per.values()}
+    verdict = "unsettled" if "unsettled" in outcomes else "settled" if outcomes == {"settled"} else "error"
+    return verdict, per
+
+
+_READING_LOCKS: dict[str, object] = {}
+
+
+def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
+    """The obligation `reading_settled` for every decisive check of one model's campaign (see the section note).
+
+    Judgements missing from READINGS for this grading sha are asked now and recorded; a settled or unsettled answer
+    holds for the version, an erring one is asked again by the next read and blocks until then.
+    """
+    import threading
+    import time
+    from pathlib import Path
+    from .artifacts import atomic_json
+    from .author.contracts import strict_json
+    from .genuine import _published
+    if "reading_settled" not in policy.ALL_FAIL_PROOF_OBLIGATIONS:
+        return []
+    bundle = Path(bundle)
+    decisive = decisive_checks(bundle, report)
+    if not decisive:
+        return []
+    model = str(report.get("model") or "?")
+    checks = {c["id"]: c for c in strict_json((bundle / "tests/checks.json").read_text())["checks"]}
+    published = _published(bundle)
+    lock = _READING_LOCKS.setdefault(str(bundle.resolve()), threading.Lock())
+    with lock:
+        sha = grading_sha(bundle)
+        try:
+            doc = strict_json((bundle / READINGS).read_text())
+        except (OSError, ValueError):
+            doc = {}
+        if doc.get("schema") != READINGS_SCHEMA or doc.get("grading_sha256") != sha:
+            doc = {"schema": READINGS_SCHEMA, "bundle": bundle.name, "grading_sha256": sha, "checks": {}}
+        entries = doc["checks"]
+
+        def judge(key):
+            step, cid = key
+            instruction = instruction_text(bundle, step)
+            if not instruction.strip():
+                return key, {"verdict": "error", "why": "no instruction to judge against", "judges": {}}
+            prompt = READING_PROMPT.format(
+                instruction=instruction, basis=str(checks.get(cid, {}).get("basis") or "(none given)"),
+                sentences="\n".join(f"- {q}" for q in published.get(cid) or []) or "(none published)",
+                tests=_test_source(bundle, checks.get(cid, {})), runs=_failing_runs(bundle, report, step, cid))
+            verdict, per = judge_reading(instruction, ask_families(prompt, _reading_answered, ask=ask))
+            return key, {"verdict": verdict, "judges": per}
+
+        wanted = [key for key in decisive if (entries.get(f"{key[0]}/{key[1]}") or {}).get("verdict")
+                  not in ("settled", "unsettled")]
+        if wanted:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for (step, cid), judged in pool.map(judge, wanted):
+                    before = entries.get(f"{step}/{cid}") or {}
+                    entries[f"{step}/{cid}"] = {**before, **judged, "step": step, "check": cid, "at": time.time(),
+                                                "asked": int(before.get("asked") or 0) + 1}
+        for (step, cid), rate in decisive.items():
+            entry = entries.setdefault(f"{step}/{cid}", {"step": step, "check": cid})
+            entry.setdefault("fail_rate", {})[model] = rate
+        doc["at"] = time.time()
+        atomic_json(bundle / READINGS, doc)
+    out = []
+    for (step, cid), rate in sorted(decisive.items()):
+        entry = entries[f"{step}/{cid}"]
+        tests = ", ".join((checks.get(cid, {}).get("runner") or {}).get("select") or []) or cid
+        lead = f"{step}/{cid}: failed by {rate:.0%} of {model.split('/')[-1]}'s valid runs, and"
+        if entry.get("verdict") == "settled":
+            continue
+        if entry.get("verdict") == "unsettled":
+            why = "; ".join(f"{m.split('/')[-1]} answers {r.get('settled')}" + (
+                f", second reading -- {r['second_reading']}" if verdict_word(r.get("second_reading")) not in ("", "NONE")
+                else "") for m, r in (entry.get("judges") or {}).items() if r.get("outcome") == "unsettled")
+            out.append(f"{lead} the instruction does not settle what it rewards (reading_settled; {why}). Route to "
+                       f"the instruction: state the rule in the user's voice, or remove the assertion ({tests})")
+        else:
+            why = entry.get("why") or "; ".join(f"{m.split('/')[-1]}: {r.get('error')}"
+                                                for m, r in (entry.get("judges") or {}).items() if r.get("error"))
+            out.append(f"{lead} its reading is not established (reading_settled: {why}) -- an unanswered judgement "
+                       "never passes; it is asked again on the next read")
+    return out
+
+
 def problems(bundle, report: dict, minimum: int | None = None) -> list[str]:
     """Every attribution blocker for one model's campaign."""
-    return attribute(bundle, report, minimum)["problems"] + all_fail_problems(bundle, report)
+    return (attribute(bundle, report, minimum)["problems"] + all_fail_problems(bundle, report)
+            + reading_problems(bundle, report))
 
 
 def summary(bundle, reports: list[dict]) -> dict:
@@ -1278,10 +1808,11 @@ def summary(bundle, reports: list[dict]) -> dict:
     for report in reports:
         record = attribute(bundle, report)
         record["all_fail_problems"] = all_fail_problems(bundle, report)
+        record["reading_problems"] = reading_problems(bundle, report)
         record["trajectory_hacks"] = trajectory_hacks(bundle, report)
         per_model[report.get("model")] = record
     blocking = sorted({p for r in per_model.values()
-                       for p in r["problems"] + r["all_fail_problems"]
+                       for p in r["problems"] + r["all_fail_problems"] + r["reading_problems"]
                        + hack_problems(r["trajectory_hacks"])})
     return {"schema": "arena-pipeline/attribution-summary/1",
             "models": per_model,

@@ -35,6 +35,15 @@ assertion/repo_crash/output, reproduces, the reference and the independently
 written alternative pass every check (executed controls), and the check
 enforces published sentences (`rule_quote`). Anything else is listed with its
 evidence; nothing uncertified may be reported as difficulty.
+
+User, 2026-10-21, after the external audit: an assertion on a published
+sentence is not yet the model's. c-game-bot run gMGGfLM asked "should I also
+verify position and velocity against the harness's physics?", got no answer,
+lost 41 points and was certified `capability`. `ambiguity` reads every failing
+run's own words for the questions it put to the user and the readings it chose;
+one that concerns the failed decision makes the failure `ambiguity_suspect`
+until both calibration families answer that the instruction settles the point,
+quoting the deciding sentence (receipt AMBIGUITY_RECEIPT).
 """
 from __future__ import annotations
 
@@ -291,7 +300,276 @@ def _published(bundle: Path) -> dict[str, list[str]]:
     return out
 
 
-def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, write: bool = True) -> dict:
+# ---------------------------------------------------------------------------
+# Ambiguity-suspect failures
+# ---------------------------------------------------------------------------
+
+AMBIGUITY_RECEIPT = "verification/genuine-ambiguity.json"
+AMBIGUITY_SCHEMA = "arena-pipeline/genuine-ambiguity/1"
+
+#: Sentences that say a run chose between readings, in English and the languages the instructions are written in
+#: (Russian, Chinese, Persian, Japanese). A detector's net only: the extracting judges read every language, and both
+#: families judge relevance before anything counts.
+_CHOICE = re.compile(
+    r"\bI(?:'|’)?(?:ll| will| am going to|'m going to) (?:assume|interpret|read|treat|take|go with)\b|"
+    r"\bassum(?:e|ing) (?:that|the user|you)\b|\b(?:two|both|several|multiple) (?:ways|readings|interpretations)\b|"
+    r"\binterpret(?:ing|ed|ation)\b|\bambigu|\bunless you (?:want|request|prefer|ask)\b|\bif you (?:want|prefer|meant)\b|"
+    r"\bread (?:this|it|that) as\b|\b(?:stated|listed) (?:rules|checks|limits) only\b|"
+    r"предполага|предположу|будем считать|трактов|假设|假定|理解为|解读为|فرض (?:می|کرد)|تفسیر|仮定|と解釈|解釈し", re.I)
+_SENTENCES = re.compile(r"(?<=[.!?。！？؟])\s+|\n+")
+
+EXTRACT_PROMPT = """\
+Below are the words a coding agent wrote while it worked on a user's task: its messages and its reasoning, not its \
+commands or their output. List every place where it
+(a) ASKED the user a question about what they want, or
+(b) CHOSE one reading of the user's instruction over another: an assumption about what the user meant, an \
+interpretation of an unclear rule, a scope it settled on because the instruction could be read two ways, or a \
+behaviour it deliberately left out or put in pending the user's word.
+The words may be in any language. Progress notes, questions the agent asks itself while debugging, and plans that \
+do not choose between readings of the instruction are not listed.
+
+THE AGENT'S WORDS
+-----------------
+{notes}
+
+Reply with one line per item, exactly
+ITEM: <ASKED|CHOSE> | <the agent's own words, copied verbatim: one or two sentences>
+and then a final line exactly
+ITEMS: <how many items you listed, 0 when there are none>"""
+
+AMBIGUITY_PROMPT = """\
+A user gave a developer the instruction below. A hidden test then graded the work and one check FAILED. While \
+working, the developer asked the user the question(s) below or wrote down the reading it chose; nobody answered. \
+Judge as a careful developer who reads only the instruction would.
+
+INSTRUCTION
+-----------
+{instruction}
+
+THE FAILED CHECK
+----------------
+id: {check}
+what it grades (its author's description): {basis}
+the instruction sentences it enforces:
+{sentences}
+the failing assertion (grader output, cut):
+{assertion}
+
+WHAT THE RUN ASKED OR CHOSE (its own words)
+-------------------------------------------
+{items}
+
+Answer two questions.
+1. RELEVANT: Does any of these questions or choices concern the behaviour this check grades -- would acting on the \
+other answer change whether the check passes? YES or NO.
+2. SETTLED: Does the instruction itself settle that point, so that every careful developer would act the same way \
+without asking? YES, NO, or UNDETERMINED (reasonable readings differ). If YES, quote the deciding sentence(s) \
+verbatim from the instruction.
+
+Reply with your reasoning in at most five sentences, then exactly these final lines:
+RELEVANT: <YES|NO>
+SETTLED: <YES|NO|UNDETERMINED>
+QUOTE: <the deciding sentence(s), verbatim, or NONE>"""
+
+
+def _sha(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _notes_text(notes: list[dict]) -> str:
+    from . import policy
+    from .attribution import _cut
+    return _cut("\n".join(f"[turn {n.get('turn')}, {n['kind']}] {n['text']}" for n in notes),
+                policy.AMBIGUITY_NOTES_CHARS)
+
+
+def detected(notes: list[dict]) -> list[dict]:
+    """The deterministic half of the detector: every question put through an ask-the-user tool, every sentence of a
+    message that ends in a question mark, and every sentence matching a reading-choice cue."""
+    out = []
+    for note in notes:
+        if note["kind"] == "asked":
+            out.append({"kind": "asked", "text": note["text"], "turn": note.get("turn"), "found_by": "ask-the-user tool"})
+            continue
+        for sentence in (s.strip() for s in _SENTENCES.split(note["text"]) if s.strip()):
+            if note["kind"] == "message" and sentence.endswith(("?", "？", "؟")):
+                out.append({"kind": "asked", "text": sentence, "turn": note.get("turn"), "found_by": "question in a message"})
+            elif _CHOICE.search(sentence):
+                out.append({"kind": "chose", "text": sentence, "turn": note.get("turn"), "found_by": "cue"})
+    return out
+
+
+def _extracted(text: str) -> bool:
+    return re.search(r"^\s*\**ITEMS\**\s*:\s*\d+", text or "", re.M) is not None
+
+
+def extract(notes: list[dict], *, ask=None) -> dict:
+    """The model half: both families list what the run asked or chose, in any language. An item counts only when its
+    words are found verbatim in the run's notes; the notes count as read when at least one family answered."""
+    from .attribution import ask_families, quote_found
+    text = _notes_text(notes)
+    answers = ask_families(EXTRACT_PROMPT.format(notes=text), _extracted, ask=ask)
+    record = {"answered": sorted(m for m, a in answers.items() if "text" in a),
+              "errors": {m: a["error"] for m, a in answers.items() if "error" in a}, "items": [], "unverified": []}
+    for model, answer in answers.items():
+        for kind, words in re.findall(r"^\s*ITEM:\s*(ASKED|CHOSE)\s*\|\s*(.+?)\s*$", answer.get("text") or "", re.M | re.I):
+            words = words.strip().strip('"“”«»')
+            row = {"kind": "asked" if kind.upper() == "ASKED" else "chose", "text": words, "found_by": model}
+            (record["items"] if quote_found(words, text) else record["unverified"]).append(row)
+    return record
+
+
+def _judged(text: str) -> bool:
+    from .attribution import final_line, verdict_word
+    return (verdict_word(final_line(text, "RELEVANT")) in ("YES", "NO")
+            and verdict_word(final_line(text, "SETTLED")) in ("YES", "NO", "UNDETERMINED"))
+
+
+def judge_ambiguity(instruction: str, answers: dict[str, dict]) -> dict:
+    """{"relevant", "settled", "judges"} from both families' answers.
+
+    Relevant when ANY family says the question or choice concerns the graded decision, or gives no usable answer (an
+    erring judge never clears a failure). Settled only when EVERY family answers YES with a deciding sentence found
+    verbatim in the instruction."""
+    from .attribution import final_line, quote_found, verdict_word
+    per = {}
+    for model, answer in answers.items():
+        if "error" in answer:
+            per[model] = {"error": answer["error"]}
+            continue
+        text = answer["text"]
+        quote = final_line(text, "QUOTE") or ""
+        per[model] = {"relevant": verdict_word(final_line(text, "RELEVANT")),
+                      "settled": verdict_word(final_line(text, "SETTLED")), "quote": quote[:800],
+                      "quote_found": quote_found(quote, instruction), "reasoning": text.strip()[-900:],
+                      **({"judge": answer["judge"]} if answer.get("judge") else {})}
+    relevant = any(a.get("relevant") != "NO" for a in per.values())
+    settled = bool(per) and all(a.get("settled") == "YES" and a.get("quote_found") for a in per.values())
+    return {"relevant": relevant, "settled": settled, "judges": per}
+
+
+def ambiguity(bundle: Path, rows: list[dict], steps: dict[tuple, dict], *, ask=None, write: bool = True) -> list[str]:
+    """Mark every failure whose run asked or chose on the graded decision `ambiguity_suspect` unless both families
+    say the instruction settles it; the problems that keep the certificate from being certified.
+
+    `steps` maps (model, episode id, step) to {"evidence_dir", "records": {check id: grader record}}. The extraction
+    and every judgement are recorded in AMBIGUITY_RECEIPT, bound to the grading sha: an answered one holds for the
+    version, an erring one is asked again by the next audit and blocks until then.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from . import policy
+    from .artifacts import identity
+    from .attribution import ask_families, grading_sha, instruction_text, run_notes
+    bundle = Path(bundle)
+    sha = grading_sha(bundle)
+    try:
+        doc = strict_json((bundle / AMBIGUITY_RECEIPT).read_text())
+    except (OSError, ValueError):
+        doc = {}
+    if doc.get("schema") != AMBIGUITY_SCHEMA or doc.get("grading_sha256") != sha:
+        doc = {"schema": AMBIGUITY_SCHEMA, "bundle": bundle.name, "grading_sha256": sha,
+               "extractions": {}, "judgements": {}}
+    try:
+        basis = {c["id"]: c.get("basis") for c in strict_json((bundle / "tests/checks.json").read_text())["checks"]}
+    except (OSError, ValueError, KeyError):
+        basis = {}
+    published = _published(bundle)
+    failing = [(entry, step) for entry in rows if entry["verdict"] not in ("void", "pass")
+               for step in sorted({i["step"] for i in entry["failures"] if i.get("check")})]
+
+    def read(pair):
+        entry, step = pair
+        notes = run_notes((steps.get((entry["model"], entry["id"], step)) or {}).get("evidence_dir"))
+        if notes is None:
+            return pair, None, {"unread": "no retained trajectory or transcript"}
+        key = _sha(_notes_text(notes))
+        known = doc["extractions"].get(key)
+        record = known if known and not known.get("errors") else extract(notes, ask=ask)
+        doc["extractions"][key] = record
+        # Neither family read the notes: what the tools and cues found is still judged, and the step stays unread.
+        trouble = {} if record["answered"] else {
+            "unread": "; ".join(f"{m.split('/')[-1]}: {e}" for m, e in record["errors"].items())}
+        items, seen = [], []
+        for item in detected(notes) + record["items"]:
+            words = re.sub(r"\s+", " ", item["text"]).casefold()
+            if not any(words in other or other in words for other in seen):     # the same words found twice
+                seen.append(words)
+                items.append(item)
+        items.sort(key=lambda i: i["kind"] != "asked")
+        return pair, items[:policy.AMBIGUITY_MAX_ITEMS], trouble
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        found = list(pool.map(read, failing))
+
+    prompts: dict[str, tuple[str, str]] = {}          # key -> (prompt, the instruction its quotes are found in)
+    plan = []
+    for (entry, step), items, trouble in found:
+        failures = [i for i in entry["failures"] if i["step"] == step and i.get("check")]
+        if not items:
+            for item in failures:
+                item["ambiguity"] = {"status": "unread", "why": trouble["unread"]} if trouble else {"status": "none"}
+            continue
+        instruction = instruction_text(bundle, step)
+        records = (steps.get((entry["model"], entry["id"], step)) or {}).get("records") or {}
+        for item in failures:
+            record = records.get(item["check"]) or {}
+            prompt = AMBIGUITY_PROMPT.format(
+                instruction=instruction, check=item["check"], basis=basis.get(item["check"]) or "(none given)",
+                sentences="\n".join(f"- {q}" for q in published.get(item["check"]) or []) or "(none published)",
+                assertion=str(record.get("stdout") or record.get("stderr") or item.get("detail") or "")[-1500:],
+                items="\n".join(f"{n}. [{i['kind']}] {i['text']}" for n, i in enumerate(items, 1)))
+            key = _sha(prompt)
+            prompts[key] = (prompt, instruction)
+            plan.append((entry, step, item, items, key))
+
+    def judge(key):
+        known = doc["judgements"].get(key)
+        if known and not any("error" in a for a in (known.get("judges") or {}).values()):
+            return key, known
+        prompt, instruction = prompts[key]
+        return key, {**judge_ambiguity(instruction, ask_families(prompt, _judged, ask=ask)), "at": time.time()}
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        doc["judgements"].update(dict(pool.map(judge, sorted(prompts))))
+
+    problems = []
+    for (entry, step), _, trouble in found:
+        if trouble:
+            problems.append(f"{entry['model'].split('/')[-1]} {entry['id']} {step}: the run's own words could not be "
+                            f"read for questions to the user or reading choices ({trouble['unread']}) -- could-not-check "
+                            "is not capability")
+    for entry, step, item, items, key in plan:
+        judged = doc["judgements"][key]
+        label = f"{entry['model'].split('/')[-1]} {entry['id']} {step}/{item['check']}"
+        if not judged["relevant"]:
+            item["ambiguity"] = {"status": "unrelated", "judgement": key}
+            continue
+        if judged["settled"]:
+            item["ambiguity"] = {"status": "settled", "judgement": key,
+                                 "quotes": sorted({a.get("quote") for a in judged["judges"].values()})}
+            continue
+        item["ambiguity"] = {"status": "unsettled", "judgement": key, "was": item["kind"]}
+        item["kind"] = "ambiguity_suspect"
+        why = "; ".join(f"{m.split('/')[-1]}: " + (a["error"] if "error" in a else a.get("settled") + (
+            "" if a.get("settled") != "YES" or a.get("quote_found") else " without a deciding sentence found in the instruction"))
+            for m, a in judged["judges"].items())
+        sentence = (published.get(item["check"]) or ["(no published sentence)"])[0]
+        problems.append(f"{label}: ambiguity_suspect -- the run {items[0]['kind']} \"{items[0]['text'][:240]}\" and the "
+                        f"instruction does not settle the decision this check grades ({why}); the check enforces "
+                        f"\"{sentence[:240]}\". Route to the instruction: state the rule in the user's voice (or drop "
+                        "the assertion), then recalibrate")
+    doc["episodes"] = [{"model": entry["model"], "id": entry["id"], "step": step, "items": items,
+                        "unread": trouble.get("unread")} for (entry, step), items, trouble in found]
+    doc["artifact_sha256"], doc["at"] = identity(bundle), time.time()
+    if write:
+        atomic_json(bundle / AMBIGUITY_RECEIPT, doc)
+    return problems
+
+
+def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, write: bool = True,
+          ask=None) -> dict:
     """The certificate for every counted failure of the bundle's current screen."""
     from .author import sandbox
     bundle = Path(bundle).resolve()
@@ -300,6 +578,7 @@ def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, wr
     controls = _controls_pass(bundle)
     verifier_tag = None
     rows = []
+    step_records: dict[tuple, dict] = {}
     for episode in episodes(bundle, record):
         entry = {k: episode[k] for k in ("model", "id", "verdict", "valid")}
         entry["failures"] = []
@@ -319,6 +598,8 @@ def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, wr
                 continue
             failed = {cid: rec for cid, rec in (grade.get("checks") or {}).items()
                       if isinstance(rec, dict) and not rec.get("passed") and not rec.get("gated_out")}
+            step_records[(entry["model"], entry["id"], step["name"])] = {"evidence_dir": step.get("evidence_dir"),
+                                                                         "records": failed}
             regraded = None
             capture = folder / "artifacts/app" if folder else None
             if regrade and failed and capture is not None and capture.is_dir():
@@ -360,6 +641,8 @@ def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, wr
     for label in ("golden", "alternative"):
         if not controls.get(label):
             problems.append(f"the {label} control does not pass every check")
+    # Before the per-failure verdicts: a failure the run asked or chose on is not yet the model's (user, 2026-10-21).
+    problems += ambiguity(bundle, rows, step_records, ask=ask, write=write)
     for entry in rows:
         if entry["verdict"] in ("void", "pass"):
             continue
@@ -367,7 +650,7 @@ def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, wr
             problems.append(f"{entry['model']} {entry['id']}: episode verdict {entry['verdict']}")
         for item in entry["failures"]:
             label = f"{entry['model'].split('/')[-1]} {entry['id']} {item['step']}/{item['check']}"
-            if item["kind"] not in CERTIFIED_KINDS:
+            if item["kind"] not in CERTIFIED_KINDS and item["kind"] != "ambiguity_suspect":   # stated by `ambiguity`
                 problems.append(f"{label}: {item['kind']} -- {item['detail']}")
             if regrade and not item.get("reproduced"):
                 problems.append(f"{label}: did not reproduce on re-grade")
@@ -377,10 +660,13 @@ def audit(bundle: Path, *, regrade: bool = False, record: dict | None = None, wr
             problems.append(f"{entry['model'].split('/')[-1]} {entry['id']}: {note}")
     problems += guardrail_share_problems(bundle, rows)
     from .artifacts import identity
+    from .attribution import grading_sha
     doc = {"schema": SCHEMA, "bundle": bundle.name, "artifact_sha256": identity(bundle),
+           "grading_sha256": grading_sha(bundle),
            "regraded": regrade, "controls": controls, "episodes": rows,
            "counted_failures": sum(len(e["failures"]) for e in rows),
-           "kinds": _kinds(rows), "problems": problems, "certified": not problems}
+           "kinds": _kinds(rows), "ambiguity": {"receipt": AMBIGUITY_RECEIPT, **_statuses(rows)},
+           "problems": problems, "certified": not problems}
     if write:
         atomic_json(bundle / RECEIPT, doc)
     return doc
@@ -430,6 +716,17 @@ def _kinds(rows: list[dict]) -> dict[str, int]:
     for entry in rows:
         for item in entry["failures"]:
             out[item["kind"]] = out.get(item["kind"], 0) + 1
+    return out
+
+
+def _statuses(rows: list[dict]) -> dict[str, int]:
+    """Failures by what the ambiguity read found: none, unrelated, settled, unsettled, unread."""
+    out: dict[str, int] = {}
+    for entry in rows:
+        for item in entry["failures"]:
+            status = (item.get("ambiguity") or {}).get("status")
+            if status:
+                out[status] = out.get(status, 0) + 1
     return out
 
 
