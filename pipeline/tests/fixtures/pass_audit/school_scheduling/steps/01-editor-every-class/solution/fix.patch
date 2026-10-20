@@ -1,0 +1,112 @@
+--- a/app/engine.js
++++ b/app/engine.js
+@@ -17,9 +17,9 @@
+ /* ---------- state ---------- */
+ function loadState(data){
+   const st=clone(data);
+   st.lessons=st.lessons||[];
+   st.taByKey={};
+-  ((st.teacherApp&&st.teacherApp.teachers)||[]).forEach(t=>{t.entries=t.entries||[];st.taByKey[canonTeacher(t.key)]=t;});
++  ((st.teacherApp&&st.teacherApp.teachers)||[]).forEach(t=>{t.entries=t.entries||[];const k=canonTeacher(t.key!=null&&String(t.key).trim()!==''?t.key:t.name);if(st.taByKey[k])st.taByKey[k].entries=st.taByKey[k].entries.concat(t.entries);else st.taByKey[k]=t;});
+   st.nextId=st.lessons.reduce((m,l)=>Math.max(m,l.id),0)+1;
+   return st;
+ }
+@@ -28,12 +28,18 @@
+ function classById(st,id){return st.classes.find(c=>c.id===id);}
+-function gridFor(st,id){const c=classById(st,id);return st.grids[c.grid];}
++function gridFor(st,id){const c=classById(st,id);return (c&&st.grids[c.grid])||[];}
+ function periodsFor(st,id){return gridFor(st,id).map(x=>x.p);}
+-function periodTime(st,id,day,p){const c=classById(st,id);const g=st.grids[c.grid].find(x=>x.p==p);if(c.grid==='A')return[g.s,g.e];return day==='Monday'?g.mon:g.wk;}
++function slotTimes(g,day){const t=g?((g.s!=null&&g.e!=null)?[g.s,g.e]:(day==='Monday'?g.mon:g.wk)):null;return (t&&t.length===2)?[t[0],t[1]]:null;}
++/* the periods that class really has that day, in the order the day runs them */
++function daySlots(st,id,day){return gridFor(st,id).map(g=>{const t=slotTimes(g,day);return t?{p:g.p,start:t[0],end:t[1]}:null;}).filter(Boolean).sort((a,b)=>toMin(a.start)-toMin(b.start));}
++function periodTime(st,id,day,p){const x=daySlots(st,id,day).find(y=>String(y.p)===String(p));return x?[x.start,x.end]:null;}
++/* when a lesson runs: its own clock times, or the ones its class keeps that day */
++function lessonSpan(st,l){let s=(l.startMin!=null)?Number(l.startMin):(l.start!=null?toMin(l.start):NaN),e=(l.endMin!=null)?Number(l.endMin):(l.end!=null?toMin(l.end):NaN);if(isFinite(s)&&isFinite(e))return[s,e];const d=daySlots(st,l.classId,l.day),a=d.find(x=>String(x.p)===String(l.period)),b=d.find(x=>String(x.p)===String(l.periodEnd!=null?l.periodEnd:l.period));return (a&&b)?[toMin(a.start),toMin(b.end)]:[s,e];}
++function lessonTeachers(l){const n=l.teachersNorm;return (Array.isArray(n)&&n.length)?n.map(t=>canonTeacher(t&&t.key!=null?t.key:(t&&t.raw))):parseTeachers(l.teacherStr).map(t=>t.key);}
+ function lessonsOf(st,cid,day){return st.lessons.filter(l=>l.classId===cid&&l.day===day).sort((a,b)=>a.startMin-b.startMin);}
+ function pLabel(l){return l.double?('P'+l.period+'–P'+l.periodEnd):('P'+(l.period==='SUPP'?'Supp':l.period));}
+ 
+ /* ---------- teachers ---------- */
+-function canonTeacher(name){const m=String(name).match(/^[\u4e00-\u9fff]+/);return m?m[0]:String(name).trim();}
++function canonTeacher(name){const m=String(name==null?'':name).trim().match(/^\p{Script=Han}+/u);return m?m[0]:String(name==null?'':name).trim();}
+ function parseTeachers(str){return String(str==null?'':str).split('/').map(s=>s.trim()).filter(Boolean).map(raw=>({key:canonTeacher(raw),raw}));}
+ function teacherDisplay(st,key){const t=st.teachers.find(x=>x.key===key);return t?t.display:key;}
+ 
+@@ -42,9 +48,10 @@
+    par 0 = every week, 1 = odd weeks only, 2 = even weeks only            */
+ function entryInWeek(e,week){if(!week||week==='all')return true;if(!e.par)return true;return (week==='odd'&&e.par===1)||(week==='even'&&e.par===2);}
+ function teacherDayBlocks(st,key,day,week){
+-  const t=st.taByKey[key];if(!t)return[];
++  const t=st.taByKey[canonTeacher(key)];if(!t)return[];
+   const di=st.days.indexOf(day);
+   return t.entries.filter(e=>e.d===di&&BUSY_T.has(e.t)&&entryInWeek(e,week))
+-    .map(e=>({start:hhmm(e.s),end:hhmm(e.e),kind:e.t,label:e.txt,classId:e.cid||null}))
++    .map(e=>{const s=(e.s==null||e.s==='')?toMin(e.st):Number(e.s),x=(e.e==null||e.e==='')?toMin(e.et):Number(e.e);
++      return{start:hhmm(s),end:hhmm(x),kind:e.t,label:e.txt,classId:e.cid||null};})
+     .sort((a,b)=>toMin(a.start)-toMin(b.start));
+ }
+@@ -52,9 +58,8 @@
+ function rowForPeriod(p){if(p==='MS')return 2;if(p==='SUPP')return 12;const n=parseInt(p,10);return isNaN(n)?12:(n<=4?n+2:n+3);}
+ const ROW_TIME={2:['07:40','08:10'],3:['08:35','09:15'],4:['09:25','10:05'],5:['10:15','10:55'],6:['11:05','11:45'],7:['11:45','13:20'],8:['13:30','14:10'],9:['14:20','15:00'],10:['15:30','16:10'],11:['16:20','17:00'],12:['17:10','17:50']};
+ function mirrorToTeacher(st,key,lesson){
+-  const t=st.taByKey[key];if(!t)return;
+-  const r0=rowForPeriod(lesson.period),r1=rowForPeriod(lesson.periodEnd);
+-  const s=toMin(ROW_TIME[r0][0]),e=toMin(ROW_TIME[r1][1]);
++  const t=st.taByKey[canonTeacher(key)];if(!t)return;
++  const s=lesson.startMin,e=lesson.endMin;
+   t.entries.push({d:st.days.indexOf(lesson.day),t:'class',txt:lesson.subject+' / '+lesson.className,par:0,s,e,st:hhmm(s),et:hhmm(e),cid:lesson.classId});
+ }
+ 
+@@ -64,22 +69,35 @@
+    returns {ok:true, lesson} or {ok:false, problems:[{code,...}]}
+    (app/ui.js turns every problem code into the sentence it shows)
+    ===================================================================== */
+-const EDITOR_PERIODS=[1,2,3,4,5,6,7,8,'SUPP'];
++function periodOptions(st,classId){return periodsFor(st,classId).map(p=>({value:p,label:p==='SUPP'?'Supplementary':'Period '+p}));}
+ 
+-function periodOptions(st,classId){return EDITOR_PERIODS.map(p=>({value:p,label:p==='SUPP'?'Supplementary':'Period '+p}));}
+-function slotTime(st,classId,period){const c=classById(st,classId);const g=st.grids[c.grid].find(x=>x.p==period);return c.grid==='A'?[g.s,g.e]:g.wk;}
++/* the week a date falls in: Monday-Sunday, week 1 holds the first Thursday */
++function validDate(s){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));if(!m)return null;const y=+m[1],mo=+m[2],d=+m[3];const dt=new Date(Date.UTC(y,mo-1,d));return (dt.getUTCFullYear()===y&&dt.getUTCMonth()===mo-1&&dt.getUTCDate()===d)?dt:null;}
++function isoWeekNo(dt){const t=new Date(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate()));t.setUTCDate(t.getUTCDate()+3-((t.getUTCDay()+6)%7));const w1=new Date(Date.UTC(t.getUTCFullYear(),0,4));w1.setUTCDate(w1.getUTCDate()+3-((w1.getUTCDay()+6)%7));return 1+Math.round((t-w1)/604800000);}
++function weekOfDate(s){const dt=validDate(s);if(!dt)return null;return (isoWeekNo(dt)%2)?'odd':'even';}
+ 
+ function addLesson(st,req){
+   const cid=req.classId,day=req.day,per=req.period;
+-  const periods=req.double?[per,Number(per)+1]:[per];
+-  const start=slotTime(st,cid,periods[0])[0],end=slotTime(st,cid,periods[periods.length-1])[1];
+   const problems=[];
+-  st.lessons.forEach(l=>{if(l.classId===cid&&l.day===day&&String(l.period)===String(per))problems.push({code:'class-busy',lessonId:l.id});});
++  let week='all';
++  if(req.date){week=weekOfDate(req.date);if(!week)problems.push({code:'bad-date',date:req.date});}
++  const slots=daySlots(st,cid,day),i=slots.findIndex(x=>String(x.p)===String(per));
++  if(i<0)problems.push({code:'no-such-period',period:per});
++  else if(req.double&&i+1>=slots.length)problems.push({code:'no-next-period',period:per});
++  if(problems.length)return{ok:false,problems:problems};
++  const used=req.double?[slots[i],slots[i+1]]:[slots[i]];
++  const periods=used.map(x=>x.p);
++  const start=used[0].start,end=used[used.length-1].end,sMin=toMin(start),eMin=toMin(end);
++  const c=classById(st,cid),norm=parseTeachers(req.teacher),keys=norm.map(t=>t.key);
++  st.lessons.forEach(l=>{if(l.day!==day)return;const sp=lessonSpan(st,l);
++    if(!(isFinite(sp[0])&&isFinite(sp[1])&&sp[0]<eMin&&sMin<sp[1]))return;
++    if(l.classId===cid)problems.push({code:'class-busy',lessonId:l.id});
++    lessonTeachers(l).forEach(k=>{if(keys.indexOf(k)>=0)problems.push({code:'teacher-busy',teacher:k,lessonId:l.id});});});
++  keys.forEach(k=>teacherDayBlocks(st,k,day,week).forEach(b=>{if(toMin(b.start)<eMin&&sMin<toMin(b.end))problems.push({code:'teacher-busy',teacher:k});}));
+   if(problems.length)return{ok:false,problems};
+-  const c=classById(st,cid),norm=parseTeachers(req.teacher);
+   const lesson={id:st.nextId++,classId:cid,className:c.name,classZh:c.zh,grade:c.grade,grid:c.grid,day:day,
+     period:periods[0],periodEnd:periods[periods.length-1],periods:periods,double:periods.length>1,
+-    start:start,end:end,startMin:toMin(start),endMin:toMin(end),
++    start:start,end:end,startMin:sMin,endMin:eMin,
+     subject:String(req.subject||'NEW').trim(),subjectZh:'',
+     rooms:String(req.room||'').split(',').map(s=>s.trim()).filter(Boolean),
+     teacherStr:String(req.teacher||''),teachersNorm:norm};
+@@ -90,6 +107,6 @@
+ 
+ const ENGINE={toMin,hhmm,loadState,classById,gridFor,periodsFor,periodTime,lessonsOf,pLabel,
+   canonTeacher,parseTeachers,teacherDisplay,entryInWeek,teacherDayBlocks,mirrorToTeacher,
+-  periodOptions,addLesson,BUSY_T};
++  periodOptions,weekOfDate,daySlots,lessonSpan,addLesson,BUSY_T};
+ if(typeof module!=='undefined'&&module.exports)module.exports=ENGINE;
+ if(typeof window!=='undefined')window.ENGINE=ENGINE;

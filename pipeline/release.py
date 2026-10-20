@@ -501,6 +501,26 @@ def _evaluate(bundle: Path, replay: bool = True) -> dict:
         return problems
     check("calibration", campaigns)
 
+    # User, 2026-10-21 (external audit, class 3): the calibration solutions that PASSED a check are audited for a
+    # published clause they break (coverage_critic.pass_audit, run by qualify after the campaigns). A demonstrated
+    # violation blocks; a missing, stale or incomplete audit of this calibration is unverified, never a pass.
+    def pass_audit():
+        from . import coverage_critic
+        record = None
+        try:
+            record = strict_json((bundle / coverage_critic.PASS_RECEIPT).read_text())
+        except (OSError, ValueError):
+            pass
+        if isinstance(record, dict) and record.get("artifact_sha256") == sha:
+            evidence["pass_audit"] = {"complete": record.get("complete"), "open": len(record.get("gaps") or []),
+                                      "advisory": len(record.get("advisory") or []),
+                                      "closed": len(record.get("closed") or []),
+                                      "unaudited_checks": {s: e.get("unaudited_checks") for s, e in
+                                                           (record.get("steps") or {}).items()
+                                                           if e.get("unaudited_checks")}}
+        return coverage_critic.pass_problems(bundle, sha)
+    check("pass audit", pass_audit)
+
     # Solvability. The spec: "At least one calibration run OR reference
     # trajectory scores 1.0." The reference trajectory alone satisfies it, and
     # `controls` above already proves the reference scores 1 and an untouched
@@ -791,7 +811,32 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
             if extra:
                 index["topups"][path] = extra
             atomic_json(bundle / "verification/native-calibrations.json", index)
+    progress("pass-audit")
+    _pass_audit(bundle, sha)
     return _evaluate(bundle)
+
+
+def _pass_audit(bundle: Path, sha: str) -> dict:
+    """The pass audit of the calibration of record, after the campaigns (user, 2026-10-21, external audit class 3:
+    passing runs were never read). A complete receipt for this version and these campaigns is reused; an audit that
+    cannot run is recorded as incomplete -- release reads it as unverified, never as clean."""
+    from . import coverage_critic
+    campaigns = [c["campaign"] for c in coverage_critic.audited_campaigns(bundle)]
+    try:
+        prior = strict_json((bundle / coverage_critic.PASS_RECEIPT).read_text())
+    except (OSError, ValueError):
+        prior = {}
+    prior = prior if isinstance(prior, dict) else {}
+    if prior.get("artifact_sha256") == sha and prior.get("campaigns") == campaigns and prior.get("complete"):
+        return prior
+    try:
+        return coverage_critic.pass_audit(bundle, record_dir=bundle / "verification")
+    except Exception as exc:                            # noqa: BLE001 -- recorded as unverified, never as clean
+        record = {"schema": coverage_critic.PASS_SCHEMA, "artifact_sha256": sha, "campaigns": campaigns,
+                  "complete": False, "incomplete": [f"the pass audit did not run: {type(exc).__name__}: {str(exc)[:600]}"],
+                  "steps": {}, "gaps": [], "advisory": [], "closed": []}
+        atomic_json(bundle / coverage_critic.PASS_RECEIPT, record)
+        return record
 
 
 def _awaiting_screen(bundle: Path, revisions: list) -> dict:

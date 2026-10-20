@@ -1,0 +1,269 @@
+{
+  "checks": [
+    {
+      "band": "core",
+      "basis": "the question numbering end to end: a number is read whatever shape it is typed in - the other digit script, a number past nine, a space beside its dash, a dash drawn with another code point - only the paper's own consecutive run counts as question numbers wherever the page breaks fall, and the appended section carries on from the number the paper itself ends on",
+      "id": "o_labels_digits",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_number_written_in_another_digit_script",
+          "test_examkit_more.py::test_numbers_past_nine_join_the_run",
+          "test_examkit_hard.py::test_a_space_beside_the_dash_is_still_the_number",
+          "test_examkit_edge.py::test_a_number_typed_with_another_dash_is_still_the_number",
+          "test_examkit_edge.py::test_a_page_that_opens_on_a_number_that_is_not_a_question",
+          "test_examkit_edge.py::test_the_new_section_carries_on_from_the_last_question_of_the_paper"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 11
+    },
+    {
+      "band": "core",
+      "basis": "a number stored in pieces of its own - another dash, invisible marks glued to it, the pieces carrying the stem's font and sitting inside the margin - is still read off the whole line and written back as Persian digits plus a plain hyphen",
+      "id": "o_labels_marks",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_dash_shape_and_invisible_marks",
+          "test_examkit_hard.py::test_a_label_kept_in_pieces_of_its_own_is_read_from_the_line"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 12
+    },
+    {
+      "band": "core",
+      "basis": "numbers inside a question's own text keep their stored form; only the consecutive run of question numbers is rewritten",
+      "id": "o_labels_scope",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_only_consecutive_question_numbers_are_renumbered"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 12
+    },
+    {
+      "band": "core",
+      "basis": "the bonus-question line is gone wherever the page keeps it, including the copy printed at the foot of the page under the last question; a line that merely sends the reader to the points table is still there; every other span on that page still sits exactly where it sat and the page still carries one numbering line reading total / page",
+      "id": "o_note_removed",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_bonus_note_is_removed",
+          "test_examkit_more.py::test_removing_the_note_leaves_everything_else_where_it_was",
+          "test_examkit_edge.py::test_the_line_that_only_points_at_the_table_stays",
+          "test_examkit_rows.py::test_a_bonus_line_at_the_foot_of_the_page_still_goes"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 8
+    },
+    {
+      "band": "core",
+      "basis": "every line that says certain questions are bonus is removed, including ones broken into runs, typed with a no-break space, without the half-space, with the other digit shape, worded shorter, or carrying other words of the page before the sentence itself",
+      "id": "o_note_all",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_every_bonus_note_is_removed",
+          "test_examkit_hard.py::test_a_bonus_note_among_other_words_is_removed"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 11
+    },
+    {
+      "band": "core",
+      "basis": "only the lines saying certain questions are bonus are deleted; lines that name questions and the points table in the same breath, questions that use the word themselves, and the line a page prints at its own foot beside the numbering line all survive byte for byte while the numbering line is the one that gets the new count",
+      "id": "o_note_keep",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_only_the_bonus_note_is_removed",
+          "test_examkit_hard.py::test_lines_that_only_name_the_points_table_are_kept",
+          "test_examkit_rows.py::test_the_other_line_at_the_foot_of_the_page_is_left_alone"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 5
+    },
+    {
+      "band": "core",
+      "basis": "a four-option row is flush at both margins with three equal gaps measured from the real option widths, the cells carry the paper's own characters exactly as the dump stores them - the spacing inside an option included - and each cell's recorded box is as wide as the text it carries",
+      "id": "o_gaps_equal",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_four_options_share_one_row_with_equal_gaps",
+          "test_examkit_more.py::test_option_text_is_written_as_it_is_now",
+          "test_examkit_more.py::test_every_option_cell_keeps_its_own_box",
+          "test_examkit_rows.py::test_option_cells_are_written_the_way_the_dump_stores_them"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 4
+    },
+    {
+      "band": "core",
+      "basis": "what the appended section does when something does not fit: a row whose equal gap falls under the minimum goes two per line, each line flush at both margins with its own gap and measured on the text the dump actually stores; and a section too long for one sheet carries on to another, with every question's stem and its four options on one page, nothing reaching down into the strip the page keeps for its numbering, and the questions in the order they were given. Determinacy probe on the hidden case: asked whether a question whose stem line would land at y=781 and whose option cells would land at y=806 must be moved in full onto a further page, both calibration families answer yes.",
+      "id": "o_gaps_two_rows",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_wide_options_split_two_per_row",
+          "test_examkit_rows.py::test_the_row_is_measured_on_the_text_the_dump_stores",
+          "test_examkit_page.py::test_the_section_runs_on_to_another_page",
+          "test_examkit_page.py::test_a_question_keeps_its_options_on_its_own_page"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 9
+    },
+    {
+      "band": "stretch",
+      "basis": "a row whose equal gap works out at exactly 12 points stays on one line, a row whose equal gap works out a little under 12 goes two per line, and a row whose two-per-line gap is itself under 12 still goes two per line and no further",
+      "id": "o_gaps_boundary",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_a_gap_of_exactly_twelve_points_stays_on_one_row",
+          "test_examkit_edge.py::test_a_row_whose_gap_falls_short_goes_two_per_line",
+          "test_examkit_rows.py::test_a_row_that_cannot_fit_two_per_line_still_goes_two_per_line"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 2
+    },
+    {
+      "band": "stretch",
+      "basis": "the appended section is numbered on from the last question of the paper",
+      "id": "o_start_number",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_new_section_continues_the_numbering"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 11
+    },
+    {
+      "band": "stretch",
+      "basis": "what the finished booklet says about itself: two consecutive builds of the same dump give identical output, on a short paper and on one whose appended section runs past a single page, and every page of the booklet carries one numbering line reading the booklet's own page count and that page's place in it - whether the section took two pages, one, or none at all. Determinacy probe on the hidden case: asked what the line at the foot of the third page of a four-page booklet must read, both calibration families answer ۴ / ۳.",
+      "id": "o_rerun",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_running_it_twice_gives_the_same_dump",
+          "test_examkit_page.py::test_building_the_same_long_dump_twice_gives_the_same_dump",
+          "test_examkit_page.py::test_every_page_says_how_many_pages_the_booklet_has",
+          "test_examkit_page.py::test_a_dump_with_nothing_to_append_still_counts_its_pages"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 4
+    },
+    {
+      "band": "stretch",
+      "basis": "a paper carrying every published case at once comes out right end to end",
+      "id": "o_combined",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_whole_document"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 11
+    },
+    {
+      "band": "core",
+      "basis": "every page footer still reads total / page with the new page counted",
+      "id": "g_footers",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_footers_follow_the_page_count"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 0
+    },
+    {
+      "band": "core",
+      "basis": "a dump with no dash-first numbers and no bonus line keeps every line, every run and every run's own box",
+      "id": "g_clean_doc",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_examkit.py::test_a_clean_document_is_left_alone",
+          "test_examkit_hard.py::test_a_clean_paper_keeps_every_box"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 0
+    },
+    {
+      "band": "core",
+      "basis": "no planted module shadows the package the tests import",
+      "id": "g_no_shadow",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "modules": [
+          "examkit",
+          "examkit.build",
+          "examkit.layout",
+          "examkit.model",
+          "examkit.metrics",
+          "examkit.digits"
+        ],
+        "type": "shadow-guard"
+      },
+      "step": "01-exam-dump-repair",
+      "weight": 0
+    }
+  ],
+  "deliverables": [],
+  "schema": "arena-coding/checks/1",
+  "toolchain": {
+    "deps_root": "/opt/deps",
+    "env": {
+      "PATH": "/opt/deps/venv/bin:/usr/local/bin:/usr/bin:/bin",
+      "VIRTUAL_ENV": "/opt/deps/venv"
+    },
+    "name": "python",
+    "vendored": []
+  }
+}

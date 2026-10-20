@@ -950,7 +950,10 @@ HACK_TRIAGE_EVIDENCE_CHARS = 12000
 #: lineage already has a searching critic run re-executes THAT run's executed proposals on the new version
 #: (coverage_critic.ship_critic): every former gap must score below 1.0, and a proposal that failed there and
 #: scores 1.0 now is a regression and blocks too. A lineage with no usable searching run still gets a fresh one.
-#: "fresh" restores the earlier rule.
+#: "fresh" restores the earlier rule. User, 2026-10-21 (external audit, class 5): re-execution alone never searched
+#: the version that shipped, and most audited tasks showed 0 open gaps. A final whose instruction or hidden suites
+#: differ from what its source run examined now ALSO gets a fresh search bounded by CRITIC_FRESH_SEARCH_PROPOSALS
+#: (coverage_critic.changed_since / fresh_search); an unchanged final keeps re-execution only.
 CRITIC_SHIP_RULE = "closed_and_verified"
 
 #: Which executed critic gaps block shipping (user, 2026-10-09 ~19:00 IST, "Block only realistic gaps"). Of 34
@@ -960,7 +963,12 @@ CRITIC_SHIP_RULE = "closed_and_verified"
 #: (coverage_critic.judge_gap): a gap is advisory -- recorded, listed under the delivered package's untested
 #: surfaces, never blocking -- when any family says the instruction does not clearly settle it, or every family
 #: calls it contrived. A judge that errs demotes nothing. "all" makes every executed gap block again.
-CRITIC_GAP_RULE = "realistic_only"
+#: User, 2026-10-21 (external audit, class 1, "unsettled reading decides points"): "realistic_asserted" keeps both
+#: demotions for grading (no hidden case is owed for an unsettled point), but a gap demoted as unsettled on a
+#: sentence a hidden check grades (its rule_quote, coverage_critic.asserting_checks) blocks with route
+#: "instruction" -- state the rule in the user's voice, or drop that assertion -- because the grader is rewarding
+#: one reading of it. Unsettled gaps on sentences no check grades stay advisory. "realistic_only" is the 10-09 rule.
+CRITIC_GAP_RULE = "realistic_asserted"
 
 #: Arena's evaluation harness (user, 2026-10-12: "Let's ensure that we have a reproducibility check before we ship a
 #: task. It should be reproducible at Arena's end."). Arena builds and grades every task on Harbor 0.20.0 pinned to
@@ -1046,3 +1054,20 @@ CLAUSE_MAP_SUITE_CHARS = 200_000
 #: csv-log-analysis 0.67); 0.7 would pass pdf-tooling and csv-log, 0.5 would refuse 14 of 29. 0.6 still leaves the
 #: heaviest decision nearly twice an even share of the SIGNAL_MIN_INDEPENDENT_HARD decisions a usable signal needs.
 SIGNAL_SINGLE_DECISION_SHARE_MAX = 0.6
+
+# --- 2026-10-21 audit: coverage critic and pass audit ---
+#: Counter-implementations the fresh search may propose per CHANGED step of a closed-and-verified final (user,
+#: 2026-10-21, after the external audit of Batch 3: re-executing an earlier run's proposals never searched the
+#: instruction and suites that shipped). Half the full search's six: the search reruns at every changed final, and
+#: a white-box critic found ~5 new gaps per full run (2026-10-09), so an unbounded rerun never converged.
+CRITIC_FRESH_SEARCH_PROPOSALS = 3
+#: The pass audit (coverage_critic.pass_audit, a release step after qualify; user, 2026-10-21, after the external
+#: audit: 8/10 Astra runs of python-pdf-tooling renumbered the carried paper and passed its check, 3 Fable runs of
+#: school-scheduling merged two teachers and got full o_identity credit, and nobody read a passing run). Distinct
+#: calibration solutions -- identical final trees counted once -- the critic reads per objective check they passed,
+#: from EACH model family (a cap the families shared never read the Fable runs that merged the teachers); one
+#: solution counts for every check it passed, so a step reads at most this many times its checks times two.
+PASS_AUDIT_SOLUTIONS_PER_CHECK = 3
+#: Demonstrations (one new hidden test each, executed on the reference and on every passing solution) the critic may
+#: write per audited solution.
+PASS_AUDIT_DEMONSTRATIONS = 3

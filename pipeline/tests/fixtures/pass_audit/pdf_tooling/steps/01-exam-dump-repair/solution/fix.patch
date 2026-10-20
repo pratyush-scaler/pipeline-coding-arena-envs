@@ -1,0 +1,176 @@
+--- a/examkit/build.py
++++ b/examkit/build.py
+@@ -6,6 +6,10 @@
+ با همان استایل بقیهٔ دفترچه چیده می‌شود.
+ """
+ 
++import copy
++import re
++import unicodedata
++
+ from .digits import fa
+ from .layout import (COL2, COL4, FIRST_Y, HEAD_FONT, HEAD_SIZE, HEAD_Y,
+                      LABEL_FONT, LABEL_SIZE, LINE_STEP, MIN_GAP, OPTION_FONT,
+@@ -14,18 +18,70 @@
+                      STEM_RIGHT_FIRST, STEM_SIZE, STEM_TO_OPTIONS,
+                      place_options, wrap_stem)
+ from .metrics import text_width
+-from .model import PAGE_W, RIGHT_MARGIN, footer_span
++from .model import (FOOTER_MIN_Y, PAGE_W, RIGHT_MARGIN, footer_span,
++                    line_text, lines)
+ 
+-START_Q = 7          # ادامهٔ شماره‌گذاری دفترچه (آخرین سؤال جغرافیا ۶ بود)
++DASHES = "-‐‑‒–—―"
++BONUS = re.compile(r"سؤال[^0-9]{0,12}[0-9][0-9 و]*امتیازی")
+ 
+ FOOTER_Y = 823.0
+ FOOTER_FONT = "Naz"
+ FOOTER_SIZE = 9.0
+ 
+ 
++def plain(text):
++    """متن را برای مقایسه ساده می‌کند: بی‌نویسهٔ نامرئی، فاصلهٔ معمولی، رقم لاتین."""
++    keep = [" " if c.isspace() else str(unicodedata.digit(c))
++            if unicodedata.category(c) == "Nd" else c
++            for c in text if unicodedata.category(c) != "Cf"]
++    return re.sub(r" +", " ", "".join(keep)).strip()
++
++
++def number_of(text):
++    """عدد «شمارهٔ سؤال» یا None."""
++    t = plain(text)
++    if len(t) < 2:
++        return None
++    t = (t[1:] if t[0] in DASHES else t[:-1] if t[-1] in DASHES else "").strip()
++    return int(t) if t.isdigit() and t.isascii() else None
++
++
++def fix_question_numbers(doc):
++    """شماره‌ها را «اول عدد، بعد خط تیره» می‌کند و آخرین شماره را برمی‌گرداند."""
++    want = last = 0
++    for page in doc["pages"]:
++        for line in lines(page):
++            for size in (1, 2):
++                if size > len(line):
++                    break
++                n = number_of("".join(s["text"] for s in line[:size]))
++                if n is None:
++                    continue
++                if want and n != want:
++                    break
++                head = line[:size]
++                new = dict(head[0], text=fa(n) + "-",
++                           x0=min(float(s["x0"]) for s in head),
++                           x1=max(float(s["x1"]) for s in head))
++                drop = {id(s) for s in head}
++                page["spans"] = [s for s in page["spans"]
++                                 if id(s) not in drop] + [new]
++                last, want = n, n + 1
++                break
++    return last
++
++
++def drop_bonus_notes(doc):
++    """خط‌هایی را که می‌گویند فلان سؤال‌ها امتیازی‌اند برمی‌دارد."""
++    for page in doc["pages"]:
++        drop = {id(s) for line in lines(page)
++                if BONUS.search(plain(line_text(line))) for s in line}
++        page["spans"] = [s for s in page["spans"] if id(s) not in drop]
++
++
+ def renumber_footers(doc):
+-    """پاصفحه‌ها را با تعداد صفحه‌های تازه به‌روز می‌کند."""
+-    total = len(doc["pages"]) + 1
++    """پاصفحه‌ها را با تعداد صفحه‌های دفترچه به‌روز می‌کند."""
++    total = len(doc["pages"])
+     for page in doc["pages"]:
+         span = footer_span(page)
+         if span is not None:
+@@ -38,17 +94,19 @@
+             "y": y, "font": font, "size": size}
+ 
+ 
+-def add_new_section(doc):
+-    """صفحهٔ بخش تازه را می‌سازد و ته دفترچه می‌گذارد."""
++def add_new_section(doc, start):
++    """صفحه‌های بخش تازه را می‌سازد و ته دفترچه می‌گذارد."""
+     section = doc.get("new_section")
+     if not section:
+         return
+     metrics = doc["metrics"]
+-    spans = [_centered(section["title"], HEAD_FONT, HEAD_SIZE, HEAD_Y, metrics)]
++    sheets = [[_centered(section["title"], HEAD_FONT, HEAD_SIZE, HEAD_Y, metrics)]]
++    room = [False]
+ 
+     y = FIRST_Y
+-    number = START_Q
++    number = start
+     for question in section["questions"]:
++        spans, head = [], y
+         label = fa(number) + "-"
+         width = text_width(label, LABEL_FONT, LABEL_SIZE, metrics)
+         spans.append({"text": label, "x0": RIGHT_MARGIN - width,
+@@ -73,17 +131,29 @@
+             spans.append({"text": cell, "x0": x0, "x1": x1,
+                           "y": y + row_index * OPTION_STEP,
+                           "font": OPTION_FONT, "size": OPTION_SIZE})
+-        y += OPTION_STEP * (1 + max(p[2] for p in placed)) + QUESTION_GAP
++        y += OPTION_STEP * max(p[2] for p in placed)
++        if y >= FOOTER_MIN_Y and room[-1]:
++            sheets.append([])
++            room.append(False)
++            spans = [dict(s, y=float(s["y"]) - head + FIRST_Y) for s in spans]
++            y = y - head + FIRST_Y
++        sheets[-1].extend(spans)
++        room[-1] = True
++        y += OPTION_STEP + QUESTION_GAP
+         number += 1
+ 
+-    page_number = len(doc["pages"]) + 1
+-    footer = "{} / {}".format(fa(page_number), fa(page_number))
+-    spans.append(_centered(footer, FOOTER_FONT, FOOTER_SIZE, FOOTER_Y, metrics))
+-    doc["pages"].append({"number": page_number, "spans": spans})
++    for spans in sheets:
++        sheet = len(doc["pages"]) + 1
++        text = "{} / {}".format(fa(sheet), fa(sheet))
++        spans.append(_centered(text, FOOTER_FONT, FOOTER_SIZE, FOOTER_Y, metrics))
++        doc["pages"].append({"number": sheet, "spans": spans})
+ 
+ 
+ def build(doc):
+     """دامپ آمادهٔ چاپ را برمی‌گرداند."""
++    doc = copy.deepcopy(doc)
++    last = fix_question_numbers(doc)
++    drop_bonus_notes(doc)
++    add_new_section(doc, last + 1)
+     renumber_footers(doc)
+-    add_new_section(doc)
+     return doc
+--- a/examkit/layout.py
++++ b/examkit/layout.py
+@@ -48,12 +48,18 @@
+     return out
+ 
+ 
++def spread(widths, row):
++    """یک ردیف را از لبهٔ راست تا لبهٔ چپ با فاصله‌های مساوی پخش می‌کند."""
++    gap = (OPTION_RIGHT - OPTION_LEFT - sum(widths)) / (len(widths) - 1)
++    out, x = [], OPTION_RIGHT
++    for w in widths:
++        out.append((x - w, x, row))
++        x = x - w - gap
++    return out
++
++
+ def place_options(cells, widths):
+     """جای چهار گزینه را برمی‌گرداند: فهرست (x0, x1, row) به ترتیب گزینه‌ها."""
+-    if max(widths) <= (OPTION_RIGHT - OPTION_LEFT - 3 * MIN_GAP) / 4:
+-        return [(edge - w, edge, 0) for edge, w in zip(COL4, widths)]
+-    out = []
+-    for r in (0, 1):
+-        for edge, w in zip(COL2, widths[2 * r:2 * r + 2]):
+-            out.append((edge - w, edge, r))
+-    return out
++    if (OPTION_RIGHT - OPTION_LEFT - sum(widths)) / 3 >= MIN_GAP:
++        return spread(widths, 0)
++    return spread(widths[:2], 0) + spread(widths[2:], 1)

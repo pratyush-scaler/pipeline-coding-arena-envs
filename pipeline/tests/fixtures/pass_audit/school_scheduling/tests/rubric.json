@@ -1,0 +1,18 @@
+{
+  "01-editor-every-class": [
+    "o_refuse_period",
+    "o_grid_times",
+    "o_double_end",
+    "o_double_last",
+    "o_class_busy",
+    "o_teacher_busy",
+    "o_ta_busy",
+    "o_identity",
+    "o_mirror",
+    "o_week_parity",
+    "o_bad_date",
+    "o_week_zone",
+    "g_preserved",
+    "g_no_shadow"
+  ]
+}

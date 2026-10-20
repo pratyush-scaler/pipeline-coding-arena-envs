@@ -1,0 +1,369 @@
+# -*- coding: utf-8 -*-
+"""Hidden behaviour tests: a paper whose questions do not begin at one, a page
+that opens on a number that is not a question, a dash the sample never shows,
+a row whose equal gap falls just short of the minimum, and a line that only
+points at the points table."""
+import copy
+import os
+import sys
+import unicodedata
+
+sys.path.insert(0, os.environ["ARENA_REPO"])
+
+import examkit  # noqa: E402
+
+_build = getattr(examkit, "build", None)
+if not callable(_build):  # pragma: no cover - package layout fallback
+    from examkit.build import build as _build
+
+RIGHT = 555.6
+OPT_RIGHT = 553.5
+OPT_LEFT = 47.5
+EM = "\u2014"
+HY = "\u2010"
+NB = "\u2011"
+
+FA = "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9"
+AR = "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
+ALPHA = ("\u0622\u0627\u0628\u067e\u062a\u062b\u062c\u0686\u062d\u062e\u062f"
+         "\u0630\u0631\u0632\u0698\u0633\u0634\u0635\u0636\u0637\u0638\u0639"
+         "\u063a\u0641\u0642\u06a9\u06af\u0644\u0645\u0646\u0648\u0647\u06cc"
+         "\u0621\u0623\u0624\u0626 \u061f\u060c.\u061b:\u00ab\u00bb()-/"
+         + FA + AR)
+
+RIYAZI = "\u0631\u06cc\u0627\u0636\u06cc"
+JOGH = "\u062c\u063a\u0631\u0627\u0641\u06cc\u0627"
+TARIKH = "\u062a\u0627\u0631\u06cc\u062e"
+
+
+def fa(n):
+    return "".join(FA[int(d)] for d in str(int(n)))
+
+
+def varied():
+    table = {ch: 250 + 25 * ((i * 7) % 19) for i, ch in enumerate(ALPHA)}
+    return {f: {"default": 500, "widths": dict(table)}
+            for f in ("Naz", "Naz-Bold", "Dig-Bold")}
+
+
+def width_of(text, metrics, font="Naz", size=10.0):
+    table = metrics[font]
+    return sum(table["widths"].get(ch, table["default"])
+               for ch in text) * float(size) / 1000.0
+
+
+def lines_of(page):
+    rows = {}
+    for span in page["spans"]:
+        rows.setdefault(round(float(span["y"]), 2), []).append(span)
+    return [sorted(rows[y], key=lambda s: -float(s["x1"])) for y in sorted(rows)]
+
+
+def ltext(line):
+    return "".join(s["text"] for s in line)
+
+
+def texts(page):
+    return [ltext(line) for line in lines_of(page)]
+
+
+def body_texts(page):
+    return [t for t in texts(page) if " / " not in t]
+
+
+def first_difference(got, want):
+    """A short message: the first line that is not what it should be."""
+    for i in range(max(len(got), len(want))):
+        a = got[i] if i < len(got) else "<missing>"
+        b = want[i] if i < len(want) else "<extra>"
+        if a != b:
+            return "line {}: {!r} != {!r}".format(i, a[:40], b[:40])
+    return "same"
+
+
+def label(text, y, width=12.6, x1=RIGHT):
+    return {"text": text, "x0": x1 - width, "x1": x1, "y": y,
+            "font": "Dig-Bold", "size": 11.5}
+
+
+def body(text, y, x1=537.0, width=220.0, font="Naz", size=11.5):
+    return {"text": text, "x0": x1 - width, "x1": x1, "y": y,
+            "font": font, "size": size}
+
+
+def runs(parts, y, x1=553.4, font="Naz", size=10.5):
+    """One line stored as several back-to-back runs, in reading order."""
+    out, x = [], x1
+    for part in parts:
+        width = 7.0 * max(len(part), 1)
+        out.append({"text": part, "x0": x - width, "x1": x, "y": y,
+                    "font": font, "size": size})
+        x -= width
+    return out
+
+
+def heading(title):
+    return {"text": title, "x0": 270.0, "x1": 325.0, "y": 64.0,
+            "font": "Naz-Bold", "size": 16.0}
+
+
+def footer(number, total):
+    return {"text": fa(total) + " / " + fa(number), "x0": 283.0, "x1": 312.0,
+            "y": 823.0, "font": "Naz", "size": 9.0}
+
+
+def page_of(number, spans, total):
+    return {"number": number, "spans": list(spans) + [footer(number, total)]}
+
+
+def qlines(items, start_y=104.0, step=60.0):
+    spans, y = [], start_y
+    for head, stem in items:
+        spans.append(label(head, y))
+        spans.append(body(stem, y))
+        y += step
+    return spans
+
+
+STEMS = [
+    "\u0646\u062e\u0633\u062a\u06cc\u0646 \u067e\u0631\u0633\u0634 \u0627\u06cc\u0646 \u0628\u062e\u0634 \u06a9\u062f\u0627\u0645 \u0627\u0633\u062a\u061f",
+    "\u0628\u0627\u0631\u0627\u0646 \u0633\u0627\u0644\u0627\u0646\u0647 \u06a9\u062f\u0627\u0645 \u0646\u0627\u062d\u06cc\u0647 \u0628\u06cc\u0634\u062a\u0631 \u0627\u0633\u062a\u061f",
+    "\u06a9\u062f\u0627\u0645 \u0631\u0648\u062f \u0628\u0647 \u062e\u0644\u06cc\u062c \u0641\u0627\u0631\u0633 \u0645\u06cc\u0631\u06cc\u0632\u062f\u061f",
+    "\u0628\u0644\u0646\u062f\u062a\u0631\u06cc\u0646 \u0642\u0644\u0647 \u0627\u06cc\u0631\u0627\u0646 \u06a9\u062f\u0627\u0645 \u0627\u0633\u062a\u061f",
+    "\u06a9\u0648\u06cc\u0631 \u0644\u0648\u062a \u062f\u0631 \u06a9\u062f\u0627\u0645 \u0627\u0633\u062a\u0627\u0646 \u0627\u0633\u062a\u061f",
+    "\u0645\u0631\u06a9\u0632 \u0627\u0633\u062a\u0627\u0646 \u06af\u06cc\u0644\u0627\u0646 \u06a9\u062c\u0627\u0633\u062a\u061f",
+]
+
+LIST_STEM = ("\u06a9\u062f\u0627\u0645\u200c\u06cc\u06a9 \u0627\u0632 \u0627\u06cc\u0646 "
+             "\u0646\u0627\u062d\u06cc\u0647\u200c\u0647\u0627 \u067e\u0631\u0628\u0627\u0631\u0634\u200c"
+             "\u062a\u0631 \u0627\u0633\u062a\u061f")
+SUB_A = "\u0631\u0634\u062a\u0647\u200c\u06a9\u0648\u0647 \u0627\u0644\u0628\u0631\u0632"
+SUB_B = "\u062f\u0634\u062a \u06a9\u0648\u06cc\u0631"
+
+SHORT = {"stem": "\u067e\u0627\u06cc\u062a\u062e\u062a \u0627\u06cc\u0631\u0627\u0646 \u06a9\u062c\u0627\u0633\u062a\u061f",
+         "options": ["\u062a\u0647\u0631\u0627\u0646", "\u0634\u06cc\u0631\u0627\u0632",
+                     "\u062a\u0628\u0631\u06cc\u0632", "\u0631\u0634\u062a"]}
+
+
+def doc_of(pages, questions=None, metrics=None):
+    return {"metrics": metrics or varied(),
+            "pages": pages,
+            "new_section": {"title": TARIKH,
+                            "questions": copy.deepcopy(questions or [SHORT])}}
+
+
+def built(doc):
+    return _build(doc)
+
+
+def basic_pages():
+    page1 = page_of(1, [heading(RIYAZI)] + qlines(
+        [(fa(i + 1) + "-", STEMS[i]) for i in range(3)]), 2)
+    page2 = page_of(2, [heading(JOGH)] + qlines(
+        [(fa(i + 1) + "-", STEMS[i]) for i in range(3, 6)]), 2)
+    return [page1, page2]
+
+
+# ------------------------------ a paper whose questions do not begin at one
+
+def carried_pages():
+    page1 = page_of(1, [heading(RIYAZI)] + qlines(
+        [(fa(51) + "-", STEMS[0]), (fa(52) + "-", STEMS[1])]), 2)
+    page2 = page_of(2, [heading(JOGH)] + qlines(
+        [("-" + fa(53), STEMS[2]), ("-" + fa(54), STEMS[3])]), 2)
+    return [page1, page2]
+
+
+HIST_A = {"stem": "\u062a\u06cc\u0633\u0641\u0648\u0646 \u067e\u0627\u06cc\u062a\u062e\u062a \u06a9\u062f\u0627\u0645 \u062f\u0648\u0644\u062a \u0628\u0648\u062f\u061f",
+          "options": ["\u0627\u0634\u06a9\u0627\u0646\u06cc\u0627\u0646", "\u0633\u0627\u0633\u0627\u0646\u06cc\u0627\u0646",
+                      "\u0633\u0644\u0648\u06a9\u06cc\u0627\u0646", "\u0647\u062e\u0627\u0645\u0646\u0634\u06cc\u0627\u0646"]}
+
+HIST_B = {"stem": "\u062c\u0646\u06af \u0686\u0627\u0644\u062f\u0631\u0627\u0646 \u062f\u0631 \u0632\u0645\u0627\u0646 \u06a9\u062f\u0627\u0645 \u0634\u0627\u0647 \u0631\u062e \u062f\u0627\u062f\u061f",
+          "options": ["\u0634\u0627\u0647 \u0639\u0628\u0627\u0633", "\u0634\u0627\u0647 \u0627\u0633\u0645\u0627\u0639\u06cc\u0644",
+                      "\u0634\u0627\u0647 \u0637\u0647\u0645\u0627\u0633\u0628", "\u0646\u0627\u062f\u0631\u0634\u0627\u0647"]}
+
+
+def number_in_front_of(page, stem):
+    """The number written in front of that question, whatever digits it uses."""
+    for line in lines_of(page):
+        text = ltext(line)
+        at = text.find(stem)
+        if at > 0:
+            digits = [c for c in text[:at] if unicodedata.category(c) == "Nd"]
+            assert digits, "no number in front of: " + stem[:16]
+            return int("".join(str(unicodedata.digit(c)) for c in digits))
+    raise AssertionError("that question is not on the page: " + stem[:16])
+
+
+def test_the_new_section_carries_on_from_the_last_question_of_the_paper():
+    doc = doc_of(carried_pages(), [HIST_A, HIST_B])
+    out = built(doc)
+    last = number_in_front_of(out["pages"][1], STEMS[3])
+    page = out["pages"][-1]
+    got = number_in_front_of(page, HIST_A["stem"])
+    assert got == last + 1, "first new question {}, paper ends at {}".format(got, last)
+    got = number_in_front_of(page, HIST_B["stem"])
+    assert got == last + 2, "second new question {}, paper ends at {}".format(got, last)
+
+
+# -------------------------------- a page that opens on a number inside a question
+
+def test_a_page_that_opens_on_a_number_that_is_not_a_question():
+    page1 = page_of(1, [heading(RIYAZI)] + qlines(
+        [(fa(1) + "-", STEMS[0]), (fa(2) + "-", STEMS[1]),
+         (fa(3) + "-", LIST_STEM)]), 2)
+    spans = [label("-" + fa(1), 104.0),
+             body(SUB_A, 104.0, x1=540.0, width=120.0),
+             label("-" + fa(2), 125.0),
+             body(SUB_B, 125.0, x1=540.0, width=90.0)]
+    spans += qlines([("-" + fa(4), STEMS[3]), ("-" + fa(5), STEMS[4])],
+                    start_y=186.0)
+    doc = doc_of([page1, page_of(2, spans, 2)])
+    before = copy.deepcopy(doc)
+    out = built(doc)
+    want = ["-" + fa(1) + SUB_A, "-" + fa(2) + SUB_B,
+            fa(4) + "-" + STEMS[3], fa(5) + "-" + STEMS[4]]
+    got = body_texts(out["pages"][1])
+    assert got == want, "page 2: " + first_difference(got, want)
+    want = body_texts(before["pages"][0])
+    got = body_texts(out["pages"][0])
+    assert got == want, "page 1: " + first_difference(got, want)
+
+
+# ------------------------------------------- a number typed with another dash
+
+def test_a_number_typed_with_another_dash_is_still_the_number():
+    page1 = page_of(1, [heading(RIYAZI)] + qlines(
+        [(fa(i + 1) + "-", STEMS[i]) for i in range(3)]), 2)
+    page2 = page_of(2, [heading(JOGH)] + qlines(
+        [(EM + fa(4), STEMS[3]), (HY + fa(5), STEMS[4]),
+         (NB + fa(6), STEMS[5])]), 2)
+    doc = doc_of([page1, page2])
+    before = copy.deepcopy(doc)
+    out = built(doc)
+    want = [JOGH, fa(4) + "-" + STEMS[3], fa(5) + "-" + STEMS[4],
+            fa(6) + "-" + STEMS[5]]
+    got = body_texts(out["pages"][1])
+    assert got == want, "page 2: " + first_difference(got, want)
+    want = body_texts(before["pages"][0])
+    got = body_texts(out["pages"][0])
+    assert got == want, "page 1: " + first_difference(got, want)
+
+
+# ------------------------------------------------------- the row that falls short
+
+TIGHT = {"stem": "\u06a9\u062f\u0627\u0645 \u06af\u0632\u06cc\u0646\u0647 \u062f\u0631\u0633\u062a \u0627\u0633\u062a\u061f",
+         "options": ["\u0633\u0648\u0627\u062d\u0644 \u062e\u0632\u0631 \u0648 \u062c\u0644\u06af\u0647 \u06af\u06cc\u0644\u0627\u0646",
+                     "\u0632\u0627\u06af\u0631\u0633 \u0648 \u062f\u0634\u062a \u062e\u0648\u0632\u0633\u062a\u0627\u0646",
+                     "\u06a9\u0648\u06cc\u0631 \u0644\u0648\u062a \u0648 \u0628\u06cc\u0627\u0628\u0627\u0646 \u0645\u0631\u06a9\u0632\u06cc",
+                     "\u0627\u0644\u0628\u0631\u0632 \u0648 \u062f\u0631\u0647 \u0647\u0631\u0627\u0632"]}
+
+
+def tuned(cells, gap):
+    """A font table whose space width puts the row's equal gap exactly at `gap`."""
+    want = OPT_RIGHT - OPT_LEFT - 3 * gap
+    spaces = sum(c.count(" ") for c in cells)
+    other = sum(len(c) for c in cells) - spaces
+    assert spaces, "the cells carry no spaces"
+    width = (100.0 * want - 500.0 * other) / spaces
+    assert 0.0 < width < 1200.0, "space width {}".format(round(width, 3))
+    return {f: {"default": 500, "widths": {" ": width}}
+            for f in ("Naz", "Naz-Bold", "Dig-Bold")}
+
+
+def row_cells(line, options, metrics):
+    """(left, right) of each option on one line, including its unchanged prefix."""
+    text = ltext(line)
+    owner = []
+    for span in line:
+        owner.extend([span] * len(span["text"]))
+    bounds, pos = [], 0
+    for opt in options:
+        found = text.find(opt, pos)
+        assert found >= 0, "option out of reading order: {}".format(opt[:16])
+        bounds.append((found, found + len(opt)))
+        pos = found + len(opt)
+    cells, start = [], 0
+    for _, end in bounds:
+        seen, group = set(), []
+        for span in owner[start:end]:
+            if id(span) not in seen:
+                seen.add(id(span))
+                group.append(span)
+        assert group, "no run carries that option"
+        right = max(float(s["x0"]) + width_of(s["text"], metrics, s["font"],
+                                              float(s["size"])) for s in group)
+        cells.append((min(float(s["x0"]) for s in group), right))
+        start = end
+    return cells
+
+
+def option_rows(page, options, metrics):
+    """[(y, [(left, right), ...])] for the option cells, by the line they sit on."""
+    todo = list(options)
+    rows = []
+    for line in lines_of(page):
+        text = ltext(line)
+        here = []
+        while todo and todo[0] in text:
+            here.append(todo.pop(0))
+        if here:
+            rows.append((round(float(line[0]["y"]), 3),
+                         row_cells(line, here, metrics)))
+    assert not todo, "options not found on the page: {}".format(len(todo))
+    return rows
+
+
+def test_a_row_whose_gap_falls_short_goes_two_per_line():
+    cells = ["{}) {}".format(fa(i + 1), o)
+             for i, o in enumerate(TIGHT["options"])]
+    metrics = tuned(cells, 11.75)
+    oracle = copy.deepcopy(metrics)
+    widths = [width_of(c, oracle) for c in cells]
+    gap = (OPT_RIGHT - OPT_LEFT - sum(widths)) / 3
+    assert abs(gap - 11.75) < 1e-9, "the row is not the one meant: {}".format(gap)
+    out = built(doc_of(basic_pages(), [TIGHT], metrics))
+    rows = option_rows(out["pages"][-1], TIGHT["options"], oracle)
+    assert [len(c) for _, c in rows] == [2, 2], "rows {}".format(
+        [len(c) for _, c in rows])
+    assert rows[1][0] > rows[0][0], "the second row is not below the first"
+
+
+# ------------------------------------------- the line that only names the table
+
+TABLE_LINE = ("\u0628\u0631\u0627\u06cc \u067e\u0627\u0633\u062e \u0628\u0647 "
+              "\u0633\u0624\u0627\u0644\u200c\u0647\u0627\u06cc \u0627\u06cc\u0646 "
+              "\u0628\u062e\u0634 \u0628\u0647 \u062c\u062f\u0648\u0644 " + fa(2)
+              + " \u0627\u0645\u062a\u06cc\u0627\u0632\u06cc \u0645\u0631\u0627\u062c\u0639\u0647 "
+              "\u06a9\u0646\u06cc\u062f")
+
+NOTE_HEAD = "\u0633\u0624\u0627\u0644\u200c\u0647\u0627\u06cc "
+NOTE_TAIL = (" \u0627\u0645\u062a\u06cc\u0627\u0632\u06cc \u0627\u0633\u062a\u061b \u0686\u0648\u0646"
+             " \u062a\u0645\u0631\u06cc\u0646\u0627\u062a \u06a9\u062a\u0627\u0628 \u062d\u0644"
+             " \u0646\u0634\u062f\u0647 \u0627\u0633\u062a")
+NOTE_ONE = NOTE_HEAD + fa(5) + " \u0648 " + fa(6) + NOTE_TAIL
+
+
+def box(span):
+    return (span["text"], round(float(span["x0"]), 6), round(float(span["x1"]), 6),
+            round(float(span["y"]), 6), span["font"], float(span["size"]))
+
+
+def test_the_line_that_only_points_at_the_table_stays():
+    pages = basic_pages()
+    keeper = body(TABLE_LINE, 300.0, x1=553.4, width=250.0, size=10.5)
+    pages[1]["spans"].append(keeper)
+    pages[1]["spans"].extend(runs(
+        [NOTE_HEAD, fa(5), " \u0648 ", fa(6), NOTE_TAIL], 340.0))
+    watched = copy.deepcopy(keeper)
+    doc = doc_of(pages)
+    before = copy.deepcopy(doc)
+    out = built(doc)
+    want = [t for t in body_texts(before["pages"][1]) if t != NOTE_ONE]
+    got = body_texts(out["pages"][1])
+    assert got == want, "page 2: " + first_difference(got, want)
+    boxes = [box(s) for s in out["pages"][1]["spans"]]
+    assert box(watched) in boxes, "the line that names the table moved"
+    want = body_texts(before["pages"][0])
+    got = body_texts(out["pages"][0])
+    assert got == want, "page 1: " + first_difference(got, want)

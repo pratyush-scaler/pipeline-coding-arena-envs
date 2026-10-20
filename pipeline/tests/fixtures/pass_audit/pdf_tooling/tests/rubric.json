@@ -1,0 +1,19 @@
+{
+  "01-exam-dump-repair": [
+    "o_labels_digits",
+    "o_labels_marks",
+    "o_labels_scope",
+    "o_note_removed",
+    "o_note_all",
+    "o_note_keep",
+    "o_gaps_equal",
+    "o_gaps_two_rows",
+    "o_gaps_boundary",
+    "o_start_number",
+    "o_rerun",
+    "o_combined",
+    "g_footers",
+    "g_clean_doc",
+    "g_no_shadow"
+  ]
+}
