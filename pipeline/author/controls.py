@@ -19,6 +19,12 @@ Every claim a bundle makes about its grader is checked by running it:
                  for (repo conftest/pytest.ini/sitecustomize, a fake reward
                  file, a `tests/` directory, a shadowing package): the reward
                  must equal golden's, i.e. none of it reaches the verifier
+  neutral_additions  the reference on every step plus what an honest agent
+                 commonly leaves beside a correct fix (a local conftest.py with
+                 an unused fixture, one passing test in the repo's own runner,
+                 NOTES.md, an empty __pycache__/): every check reads as it does
+                 for the reference, so no guardrail fails on files outside its
+                 sentence. A tree-guard's published file budget is an advisory
   prefix_only:<s>  (two or more steps) the reference for every step before s,
                  nothing at s: no objective of step s passes. A later turn must
                  need new work (Spec Appendix A: every turn is substantive)
@@ -26,12 +32,19 @@ Every claim a bundle makes about its grader is checked by running it:
                  patch where it applies to the untouched fixture: step s is not
                  full credit. A later turn builds on the state earlier turns left
 
+Guardrail isolation needs no trial of its own: a mutant must fail exactly the
+checks it declares, all inside its trap's checks, so a guardrail it breaks
+without its trap declaring it is already a mutant error.
+
 The receipt is `verification/controls.json` (`arena-coding/controls/1`),
 bound to the artifact hash. Nothing here decides difficulty.
 """
 from __future__ import annotations
 
 import json
+import posixpath
+import re
+import shlex
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -253,6 +266,139 @@ TAMPER_FILES = {
     ".pth": "",
 }
 
+#: User, 2026-10-21 (external audit, class 6): what an honest agent commonly leaves beside a correct
+#: fix. grade.py removes an added conftest.py and added test_*.py from every grading copy, so none of it
+#: can reach a hidden test, yet three shipped tasks (a_f1_pptx-generator-script, a_f2_3d-scene-pipeline,
+#: a_f1_vanilla-js-pwa) list `conftest` in g_no_shadow's modules and scored their own reference 0 once a
+#: tests/conftest.py was added; no control added a harmless file. Each file is written only where the
+#: tree has none, so the control never edits a fixture or reference file.
+NEUTRAL_CONFTEST = ("import pytest\n\n\n@pytest.fixture\ndef sample_notes():\n"
+                    "    return {\"kept\": \"while fixing\"}\n")
+NEUTRAL_NOTES = ("NOTES.md", "# Notes\n\nWhat I checked while fixing this. Nothing here is read by the code.\n")
+#: The extra passing test, in the repository's own runner where one is recognisable: pytest for a
+#: Python toolchain; for node and browser the runner a fixture package.json names, else node:test.
+#: Other toolchains get none (recorded in the receipt).
+NEUTRAL_TESTS = {
+    "pytest": ("test_zz_notes.py", "def test_notes_are_kept():\n    assert \"notes\" in \"working notes\"\n"),
+    "vitest": ("zz_notes.test.mjs", "import { test, expect } from \"vitest\";\n\n"
+                                    "test(\"notes are kept\", () => {\n  expect(\"working notes\").toContain(\"notes\");\n});\n"),
+    "jest": ("zz_notes.test.js", "test(\"notes are kept\", () => {\n  expect(\"working notes\").toContain(\"notes\");\n});\n"),
+    "mocha": ("zz_notes.test.cjs", "const assert = require(\"node:assert\");\n\n"
+                                   "it(\"notes are kept\", () => {\n  assert.ok(\"working notes\".includes(\"notes\"));\n});\n"),
+    "node:test": ("zz_notes.test.mjs", "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\n\n"
+                                       "test(\"notes are kept\", () => {\n  assert.ok(\"working notes\".includes(\"notes\"));\n});\n"),
+}
+
+
+def _repo_test_runner(repo: Path, chain: str | None) -> str | None:
+    if chain == "python":
+        return "pytest"
+    if chain not in ("node", "browser"):
+        return None
+    # A runner the fixture declares as a package or invokes from a script; `eslint-plugin-jest` is neither.
+    names, scripts = set(), []
+    for path in sorted(repo.rglob("package.json")):
+        if "node_modules" in path.relative_to(repo).parts:
+            continue
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except ValueError:
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            if isinstance(manifest.get(key), dict):
+                names.update(manifest[key])
+        if isinstance(manifest.get("scripts"), dict):
+            scripts += [str(v) for v in manifest["scripts"].values()]
+    return next((name for name in ("vitest", "jest", "mocha")
+                 if name in names or any(re.search(rf"(^|[\s;&|]){name}\b", s) for s in scripts)), "node:test")
+
+
+def neutral_additions(bundle: Path, toolchain: dict) -> dict:
+    """What the neutral_additions control plants beside the reference: {files, dirs, test_runner}.
+
+    The test directory is the fixture's own (`tests/`, else `test/`), else the toolchain's convention.
+    Derived from the bundle alone, so cached evidence re-evaluates to the same plan.
+    """
+    repo = Path(bundle) / "environment/repo"
+    chain = toolchain.get("name")
+    tops = {p.name for p in repo.iterdir() if p.is_dir()} if repo.is_dir() else set()
+    testdir = next((d for d in ("tests", "test") if d in tops), "test" if chain in ("node", "browser") else "tests")
+    conftest = f"{testdir}/conftest.py"
+    if (repo / conftest).exists():
+        conftest = f"{testdir}/notes/conftest.py"
+    files = {conftest: NEUTRAL_CONFTEST, NEUTRAL_NOTES[0]: NEUTRAL_NOTES[1]}
+    runner = _repo_test_runner(repo, chain)
+    if runner is not None:
+        name, text = NEUTRAL_TESTS[runner]
+        files[f"{testdir}/{name}"] = text
+    return {"files": files, "dirs": ["__pycache__", f"{testdir}/__pycache__"], "test_runner": runner}
+
+
+def neutral_shell(planted: dict) -> str:
+    """The planting, run from the working tree's root; a path the tree already holds is left alone."""
+    writes = [f"if [ ! -e {shlex.quote(rel)} ]; then mkdir -p {shlex.quote(posixpath.dirname(rel) or '.')} && "
+              f"printf %s {shlex.quote(text)} > {shlex.quote(rel)}; fi" for rel, text in planted["files"].items()]
+    return "{ " + "; ".join(writes + ["mkdir -p " + " ".join(shlex.quote(d) for d in planted["dirs"])]) + "; }"
+
+
+def neutral_variants(bundle: Path, golden: dict[str, sandbox.Variant], steps: list[str],
+                     toolchain: dict) -> dict[str, sandbox.Variant]:
+    """The reference for every step, each followed by the neutral additions (idempotent across steps)."""
+    shell = "cd /app/repo && " + neutral_shell(neutral_additions(bundle, toolchain))
+    return {step: sandbox.Variant("shell", label=f"neutral_additions:{step}",
+                                  shell=(golden[step].shell + " && " + shell if golden[step].kind == "shell"
+                                         else _patch_then(bundle, step, shell)))
+            for step in steps}
+
+
+def neutral_moves(doc: dict, golden_flags: dict, neutral_flags: dict) -> tuple[dict, dict]:
+    """Checks the reference passes and the neutral additions fail, per step: (misfires, file_budgets).
+
+    A check whose runner counts new files by design (policy.NEUTRAL_ADDITIONS_EXEMPT_RUNNERS) is a
+    file budget, not a misfire; every other moved check is.
+    """
+    runners = {c["id"]: (c.get("runner") or {}).get("type") for c in doc["checks"]}
+    misfires: dict[str, list[str]] = {}
+    budgets: dict[str, list[str]] = {}
+    for step, reference in golden_flags.items():
+        got = neutral_flags.get(step, {})
+        for cid in sorted(cid for cid, ok in reference.items() if ok and not got.get(cid)):
+            exempt = runners.get(cid) in policy.NEUTRAL_ADDITIONS_EXEMPT_RUNNERS
+            (budgets if exempt else misfires).setdefault(step, []).append(cid)
+    return misfires, budgets
+
+
+def _module_leaf(name: str) -> str:
+    leaf = str(name).strip().rstrip("/").rsplit("/", 1)[-1]
+    return leaf[:-3] if leaf.endswith(".py") else leaf
+
+
+def shadow_conftest_problems(checks) -> list[str]:
+    """Shadow-guards that name a module grade.py exempts as an agent-added file (`conftest`).
+
+    grade.py skips an added conftest.py in a shadow-guard -- it is removed from every grading copy and
+    the hidden suites run with --rootdir /tests/suites, so it hooks nothing -- unless the guard lists
+    `conftest` (or a path ending in it) among its modules. Read by the grader.data gate (refused) and
+    by check_draft (advisory). User, 2026-10-21, after the external audit.
+    """
+    out = []
+    for check in checks or []:
+        runner = check.get("runner") if isinstance(check, dict) else None
+        if not isinstance(runner, dict) or runner.get("type") != "shadow-guard":
+            continue
+        listed = [m for m in runner.get("modules") or []
+                  if isinstance(m, str) and _module_leaf(m) in policy.SHADOW_GUARD_REFUSED_MODULES]
+        if listed:
+            out.append(f"check {check.get('id')!r}: the shadow-guard lists {listed} among its modules, which turns "
+                       "off grade.py's exemption for an agent-added conftest.py (removed from every grading copy; the "
+                       "hidden suites run with --rootdir /tests/suites, so it hooks nothing). A correct fix that adds "
+                       "tests/conftest.py for its own tests then scores 0, as it did on three shipped tasks "
+                       "(a_f1_pptx-generator-script, a_f2_3d-scene-pipeline, a_f1_vanilla-js-pwa). Drop it from "
+                       "modules and name only modules the hidden tests import")
+    return out
+
 
 def _flags(record: dict) -> dict[str, dict[str, bool]]:
     return {step: {cid: bool(r.get("passed")) for cid, r in ((s.get("grade") or {}).get("checks") or {}).items()}
@@ -349,6 +495,8 @@ def _trial_plan(bundle: Path, spec: dict, doc: dict, steps: list[str], toolchain
                  if golden[first].kind == "shell" else _patch_then(bundle, first, benign_shell))
         benign[first] = sandbox.Variant("shell", shell=shell, label="benign_test")
         plan["benign_test"] = benign
+    # User, 2026-10-21 (external audit, class 6): one trial, every step graded once.
+    plan["neutral_additions"] = neutral_variants(bundle, golden, steps, toolchain)
     forge_shell = REPORT_FORGE_SHELL.get(toolchain.get("name"))
     if forge_shell is not None:
         plan["report_forge"] = {first: sandbox.Variant("shell", shell=forge_shell, label="report_forge")}
@@ -636,6 +784,44 @@ def _evaluate(bundle: Path, spec: dict, doc: dict, steps: list[str], toolchain: 
     else:
         results["benign_test"] = {"valid": False, "skipped": f"no benign-test planting for toolchain {toolchain.get('name')!r}"}
 
+    # -- neutral additions -------------------------------------------------------
+    # User, 2026-10-21 (external audit, class 6): a guardrail that fails on a local conftest, a test of
+    # the agent's own, notes or a bytecode cache zeroes a correct solution for something outside its
+    # sentence (three shipped tasks zeroed their own reference beside a tests/conftest.py). The reference
+    # plus those files must read check for check as the reference does, on every step.
+    neutral = trial("neutral_additions")
+    planted = neutral_additions(bundle, toolchain)
+    listed = sorted(planted["files"]) + [d + "/" for d in planted["dirs"]]
+    results["neutral_additions"] = {**neutral, "planted": listed, "test_runner": planted["test_runner"]}
+    if neutral["valid"] and golden["valid"]:
+        misfires, budgets = neutral_moves(doc, golden["flags"], neutral["flags"])
+        by_id = {c["id"]: c for c in doc["checks"]}
+        for step, ids in budgets.items():
+            advisories.append(f"neutral_additions/{step}: {', '.join(ids)} counts the harmless files an honest agent "
+                              f"adds ({', '.join(listed)}) against its file budget; right only when the instruction "
+                              "publishes that budget, and its rule_quote must say so")
+        for step, ids in misfires.items():
+            why = []
+            for cid in ids:
+                if shadow_conftest_problems([by_id[cid]]):
+                    why.append(f"{cid} is a shadow-guard listing `conftest`, which turns off grade.py's exemption "
+                               "for an agent-added conftest.py")
+                elif by_id[cid]["kind"] == "objective":
+                    why.append(f"{cid} is an objective that grades the tree's inventory, not the behaviour its "
+                               "sentence states")
+                else:
+                    why.append(f"{cid} is a guardrail failing on files outside its sentence")
+            message = (f"neutral_additions/{step}: the reference plus what an honest agent commonly adds "
+                       f"({', '.join(listed)}) fails {', '.join(ids)}; " + "; ".join(why) + " -- a correct "
+                       "solution that keeps a local conftest, its own test, notes or a bytecode cache must not "
+                       "lose credit")
+            (errors if policy.NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE else advisories).append(message)
+        if not misfires and not budgets and neutral["reward"] != golden["reward"]:
+            contract = {s: e for s, e in neutral["contract_errors"].items() if e}
+            (errors if policy.NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE else advisories).append(
+                f"neutral_additions: the reference plus harmless additions scores {neutral['reward']} against the "
+                f"reference's {golden['reward']} with every check unmoved; contract errors: {contract}")
+
     # -- report forgery from inside the test process ---------------------------
     # Reviewer finding S1 (2026-09-30), reproduced on a validated task: code
     # the hidden tests import ran inside the grader's interpreter and read
@@ -762,7 +948,9 @@ def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None 
                    "misreading_max_objective_share": policy.MISREADING_MAX_OBJECTIVE_SHARE,
                    "mutant_share_is_advisory": policy.MUTANT_SHARE_IS_ADVISORY,
                    "test_tamper_must_not_move_objectives": policy.TEST_TAMPER_MUST_NOT_MOVE_OBJECTIVES,
-                   "coverage_bands": list(policy.MUTANT_COVERAGE_BANDS)}}
+                   "coverage_bands": list(policy.MUTANT_COVERAGE_BANDS),
+                   "neutral_additions_must_match_reference": policy.NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE,
+                   "neutral_additions_exempt_runners": list(policy.NEUTRAL_ADDITIONS_EXEMPT_RUNNERS)}}
     path, sha = control_cache.retain(cache_root, inputs, receipt, records)
     if cache_root != bundle / control_cache.ROOT:
         path, sha = control_cache.retain(bundle / control_cache.ROOT, inputs, receipt, records)

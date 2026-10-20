@@ -189,6 +189,7 @@ prepared working tree and writes `verification/controls.json`.
 | `empty` | `/app` emptied | guardrails fail, reward 0 |
 | `destructive` | tests and features deleted | regression guardrails fail, reward 0 |
 | `test_tamper` | repo tests edited, conftest/jest config set to skip, `reward.json` pre-written, exit codes forced | reward equals `nop`: the verifier ignores agent-side test state |
+| `neutral_additions` | the reference on every step plus what an honest agent leaves beside it: a local `conftest.py` with an unused fixture, one passing test in the repo's own runner, `NOTES.md`, an empty `__pycache__/` (2026-10-21 audit) | every check reads as it does for the reference; no guardrail fails. A tree-guard's published file budget is reported as an advisory. A shadow-guard naming `conftest` is refused statically too (`grader.data`) |
 | `forged_output` | expected output files written without the fix | fails the checks that compute |
 | `resource` | golden with `/usr/bin/time -v` | verifier timeout ≥ 3x measured, memory ≥ 2x |
 

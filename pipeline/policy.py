@@ -969,3 +969,25 @@ ARENA_REPRO_WORKSPACE = "arena-coding-3"
 #: Ship gate: True refuses to publish a zip whose receipt is missing, stale (zip bytes changed) or not oracle 1.0 /
 #: NOP 0.0 on the pinned harness at the pinned resources.
 ARENA_REPRO_REQUIRED = True
+
+# --- 2026-10-21 audit: guardrail misfires (controls, gates, check_draft) ---
+
+#: The executed `neutral_additions` control (user, 2026-10-21, after the external audit, class 6): the
+#: reference plus what an honest agent commonly leaves beside a correct fix -- a local tests/conftest.py
+#: with an unused fixture, one passing test in the repo's own runner, NOTES.md and an empty __pycache__/
+#: -- must read check for check as the reference does on every step. Three shipped tasks
+#: (a_f1_pptx-generator-script, a_f2_3d-scene-pipeline, a_f1_vanilla-js-pwa) zeroed their own reference
+#: beside an added tests/conftest.py, and no control added a harmless file. True: a moved check is a
+#: control error and validation refuses the bundle; False: an advisory. Read by author/controls.py.
+NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE = True
+#: Guardrail runners that count new files by design. A tree-guard's file budget is a published sentence
+#: ("do not add files"; `validate.overfit_advisories` checks its rule_quote says so), so its failure on the
+#: neutral additions is recorded as an advisory, not a misfire (the synthetic task's zero-allowance
+#: tree-guard is one such budget).
+NEUTRAL_ADDITIONS_EXEMPT_RUNNERS = ("tree-guard",)
+#: Module names a shadow-guard may not list, compared with a module's last path component (`.py` dropped).
+#: grade.py exempts an agent-added conftest.py from the shadow-guard (it is removed from every grading copy
+#: and the hidden suites run with --rootdir /tests/suites) unless the guard names `conftest` as a module;
+#: named, a correct fix that adds tests/conftest.py scores 0 (the three tasks above). The grader.data gate
+#: refuses it; check_draft advises (`controls.shadow_conftest_problems`).
+SHADOW_GUARD_REFUSED_MODULES = ("conftest",)

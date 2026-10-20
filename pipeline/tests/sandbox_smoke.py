@@ -2,8 +2,9 @@
 
 Builds both images, then runs the shipped grader over the untouched fixture
 (must score 0 with every guardrail intact), the reference (1.0), the
-alternative fix (1.0) and every mutant (fails exactly its trap's checks). This
-is the contract the whole pipeline rests on, executed.
+alternative fix (1.0), every mutant (fails exactly its trap's checks) and the
+reference plus harmless additions (no check moves but a published file budget).
+This is the contract the whole pipeline rests on, executed.
 """
 from __future__ import annotations
 
@@ -56,6 +57,8 @@ def main() -> int:
         variants = {s: golden[s] for s in steps[:steps.index(step)]}
         variants[step] = patch(f"authoring/mutants/{mutant['id']}.patch", mutant["id"])
         runs[f"mutant:{mutant['id']}"] = variants
+    # The reference plus what an honest agent leaves beside it, on every step (2026-10-21 audit).
+    runs["neutral_additions"] = controls.neutral_variants(bundle, golden, steps, sandbox._toolchain(bundle))
     results, failures = {}, []
     records = controls._execute_trials(bundle, runs, root / "runs", agent, verifier,
                                        args.control_workers, keep_capture=args.keep)
@@ -85,6 +88,14 @@ def main() -> int:
         failed = sorted(cid for cid, ok in got.items() if not ok)
         if failed != sorted(mutant["fails"]):
             failures.append(f"mutant {mutant['id']}: failed {failed}, declared {sorted(mutant['fails'])}")
+    doc = json.loads((bundle / "tests/checks.json").read_text())
+    misfires, budgets = controls.neutral_moves(doc, results["golden"]["checks"], results["neutral_additions"]["checks"])
+    for step, ids in misfires.items():
+        failures.append(f"neutral_additions/{step}: the reference plus harmless additions fails {ids}")
+    # Every step's zero-allowance tree-guard ("Do not add files") is a published budget: it must count the
+    # planted files, which proves the variant planted them and the capture carried them to the verifier.
+    if sorted(budgets) != sorted(steps):
+        failures.append(f"neutral_additions: the file budgets did not see the planted files on every step: {budgets}")
     (root / "smoke.json").write_text(json.dumps({"results": results, "failures": failures}, indent=2))
     for line in failures:
         print("FAIL", line)

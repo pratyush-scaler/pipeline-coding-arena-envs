@@ -182,8 +182,9 @@ def _complete(records: dict, spec: dict, case) -> dict:
     out.setdefault("alternative", case.record({s: everything for s in case.steps}))
     for mutant in spec.get("mutants") or []:
         out.setdefault(f"mutant:{mutant['id']}", case.record({s: everything for s in case.steps}))
-    for label in ("empty", "destructive", "test_tamper", "early_exit", "report_forge", "benign_test"):
-        out.setdefault(label, case.record({s: (everything if label == "benign_test" else nothing)
+    for label in ("empty", "destructive", "test_tamper", "early_exit", "report_forge", "benign_test",
+                  "neutral_additions"):
+        out.setdefault(label, case.record({s: (everything if label in ("benign_test", "neutral_additions") else nothing)
                                            for s in case.steps}))
     return out
 

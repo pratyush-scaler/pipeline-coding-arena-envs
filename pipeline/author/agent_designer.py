@@ -810,7 +810,8 @@ def _tools(n_msgs: int) -> list[dict]:
                           "hypothesis": {"type": "string"}, "expected_fails": {"type": "array", "items": {"type": "string"}}},
                           "required": ["step", "patch"]}},
         {"name": "run_controls", "description": "Run every executed control over the current draft (nop, golden x3, "
-         "alternative, every mutant, empty, destructive, test_tamper, coverage). Returns errors and advisories.",
+         "alternative, every mutant, empty, destructive, test_tamper, neutral_additions, coverage). Returns errors "
+         "and advisories.",
          "input_schema": obj},
         {"name": "pre_review", "description": "Run the INDEPENDENT REVIEWER (a different model) over your staged draft, "
          "exactly as the gate will after submission: verdict, every finding, harness problems. Needs a draft that "
@@ -1758,6 +1759,9 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             advisories = [f"ADVISORY unavailable: {type(exc).__name__}: {exc}"]
         try:
             advisories += computed_load_advisories(spec)
+            # User, 2026-10-21 (external audit): validation's grader.data gate refuses this shape.
+            advisories += [f"ADVISORY guardrail misfire: {p}"
+                           for p in controls_mod.shadow_conftest_problems(spec.get("checks"))]
             advisories += trap_research.advisories(spec, bundle)
             advisories += bites_mod.advisories(spec, bundle)
             advisories += bites_mod.announcement_advisories(spec)
