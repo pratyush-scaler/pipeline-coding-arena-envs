@@ -148,7 +148,8 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   (user, 2026-10-21, after an external audit found 22 grading defects in 11
   shipped tasks that every gate above had passed). Release blocks unless:
   every decisive check (failed by >= `SIGNAL_HARD_FAIL_RATE` of a model's runs)
-  is judged settled by both families with the deciding sentence quoted
+  is judged settled by both families with the deciding sentence quoted (a
+  split is decided by `READING_ARBITER`)
   (`reading_settled`, verification/reading-settled.json) -- settled means the
   words decide the correct outcome in the tested case: a precision slip or an
   implementation shortcut is not a second reading, and an input form nothing
