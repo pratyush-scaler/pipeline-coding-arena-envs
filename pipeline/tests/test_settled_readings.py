@@ -344,6 +344,20 @@ class SettledReadingObligation(unittest.TestCase):
         self.assertEqual(json.loads((self.bundle / attribution.READINGS).read_text())
                          ["checks"][f"{STEP}/o_bogus_after"]["asked"], 2)
 
+    def test_a_reworded_question_is_asked_again(self):
+        attribution.reading_problems(self.bundle, self.report, ask=Judges(reading="UNDETERMINED"))
+        settled = Judges(reading="YES", reading_quote=f'"{DECIDING}: BOGUS"')
+        self.assertEqual(len(attribution.reading_problems(self.bundle, self.report, ask=settled)), 1)
+        self.assertEqual(settled.asked("THE HIDDEN TEST SOURCE"), 0)       # the receipt answers the same question
+        with patch.object(attribution, "READING_PROMPT", attribution.READING_PROMPT + "\n"):
+            self.assertEqual(attribution.reading_problems(self.bundle, self.report, ask=settled), [])
+        self.assertEqual(settled.asked("THE HIDDEN TEST SOURCE"), 2)
+
+    def test_the_question_is_what_the_words_decide_not_how_hard_it_is(self):
+        for words in ("not about how hard it is to get right", "a precision or parsing slip", "is not a reading",
+                      "neither the instruction nor the repository ever shows is decided only when"):
+            self.assertIn(words, attribution.READING_PROMPT)
+
     def test_a_refusing_judge_with_no_quote_never_passes(self):
         judges = Judges(reading="YES", reading_quote="NONE")
         issues = attribution.reading_problems(self.bundle, self.report, ask=judges)
@@ -393,6 +407,16 @@ class SettledReadingObligation(unittest.TestCase):
         self.assertFalse(attribution.quote_found("Keep the name. Round every amount to the nearest cent.",
                                                  "Keep the name. Round every amount down to the cent."))
         self.assertFalse(attribution.quote_found("A single sentence that is not there.", "Keep the name."))
+        text = "varchar(n) takes n characters at most. those are the types. the tables come out of the create script."
+        self.assertTrue(attribution.quote_found("varchar(n) takes n characters at most. / the tables come out of the "
+                                                "create script", text))
+        self.assertTrue(attribution.quote_found("varchar(n) takes n characters at most. | the tables come out of the "
+                                                "create script", text))
+        self.assertFalse(attribution.quote_found("varchar(n) takes n characters at most. / the tables come from the "
+                                                 "database", text))
+        bengali = "লাইনের প্রথম শব্দটা হুবহু SAFE_PREFIXES এর একটা নাম। হুবহু মানে পুরো শব্দ। লাইনটা খালি হলে চলবে না।"
+        self.assertTrue(attribution.quote_found("লাইনের প্রথম শব্দটা হুবহু SAFE_PREFIXES এর একটা নাম। লাইনটা খালি হলে চলবে না।",
+                                                bengali))
 
 
 if __name__ == "__main__":

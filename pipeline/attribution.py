@@ -1339,12 +1339,14 @@ def _plain(text: str) -> str:
     return _re.sub(r"\s+", " ", text).strip().casefold()
 
 
-#: Where one sentence of a quote ends and the next begins: Latin, Persian/Arabic and CJK terminators.
-_SENTENCE_END = _re.compile(r"(?<=[.!?;؟؛])\s+|(?<=[。！？；])")
+#: Where one sentence of a quote ends and the next begins: Latin, Persian/Arabic, Urdu, Indic (danda), Armenian,
+#: Ethiopic, Burmese and CJK terminators.
+_SENTENCE_END = _re.compile(r"(?<=[.!?;؟؛۔।॥։።။])\s+|(?<=[。！？；])")
 
 
 def quote_found(quote: str, text: str) -> bool:
-    """Every quoted piece of `quote` (split on ellipses; pieces in quotation marks taken one by one) is in `text`.
+    """Every quoted piece of `quote` (split on ellipses and spaced slashes or bars; pieces in quotation marks taken one
+    by one) is in `text`.
 
     A piece that is not is still found when every one of its sentences is: judges join non-adjacent sentences of
     the instruction without an ellipsis (2026-10-21, a_f0_next-js-club-management: three Astra answers quoted two
@@ -1353,7 +1355,8 @@ def quote_found(quote: str, text: str) -> bool:
         return False
     marked = _re.findall(r'"([^"]{8,})"|“([^”]{8,})”|«([^»]{8,})»|「([^」]{8,})」', quote)
     pieces = [next(s for s in groups if s) for groups in marked] or [quote]
-    parts = [_plain(p).strip(" '\"`.,;:") for piece in pieces for p in _re.split(r"\.\.\.|…", piece)]
+    # Ellipses, a spaced slash and a spaced bar all join non-adjacent pieces (Fable writes "... at most. / the ...").
+    parts = [_plain(p).strip(" '\"`.,;:") for piece in pieces for p in _re.split(r"\.\.\.|…|\s[/|]\s", piece)]
     parts = [p for p in parts if len(p) >= 8]
     haystack = _plain(text)
 
@@ -1680,12 +1683,19 @@ RUNS THAT FAILED IT (excerpts)
 ------------------------------
 {runs}
 
-Answer three questions.
-1. SETTLED: Does the instruction settle the behaviour this test rewards, so that every careful developer reading it \
-would make the code pass? YES, NO, or UNDETERMINED (reasonable readings differ).
+Answer three questions. They are about WHAT the instruction asks for, not about how hard it is to get right: the \
+exact arithmetic a stated rule implies, or a mistake a run made while applying a stated rule to a case of a form the \
+instruction or repository shows, is decided when the instruction's words fix the correct outcome. A tested input of a \
+form that neither the instruction nor the repository ever shows is decided only when the instruction's words say how \
+that form is to be treated.
+1. SETTLED: Do the instruction's words (with the repository it points at) decide the correct outcome in the case this \
+test checks, so that a developer who implemented what they say would pass? YES, NO (the instruction says nothing that \
+decides it, or says otherwise), or UNDETERMINED (its words support two different correct outcomes).
 2. QUOTE: the sentence(s) of the instruction that decide it, copied verbatim, or NONE.
-3. SECOND_READING: a second reasonable reading of the instruction under which this test fails, in one line, or NONE; \
-and RUNS_TOOK_IT: did the failing runs above act on that second reading? YES or NO.
+3. SECOND_READING: a second reasonable reading of the instruction's words -- something the user who wrote them could \
+have meant -- under which the tested outcome is wrong, in one line, or NONE. An implementation shortcut, a precision \
+or parsing slip, or a habit of the existing code that a stated rule overrides is not a reading. RUNS_TOOK_IT: did the \
+failing runs above act on that second reading? YES or NO.
 
 Reply with your reasoning in at most six sentences, then exactly these final lines:
 SETTLED: <YES|NO|UNDETERMINED>
@@ -1737,6 +1747,7 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
     Judgements missing from READINGS for this grading sha are asked now and recorded; a settled or unsettled answer
     holds for the version, an erring one is asked again by the next read and blocks until then.
     """
+    import hashlib
     import threading
     import time
     from pathlib import Path
@@ -1759,8 +1770,12 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
             doc = strict_json((bundle / READINGS).read_text())
         except (OSError, ValueError):
             doc = {}
-        if doc.get("schema") != READINGS_SCHEMA or doc.get("grading_sha256") != sha:
-            doc = {"schema": READINGS_SCHEMA, "bundle": bundle.name, "grading_sha256": sha, "checks": {}}
+        # A judgement holds for the grading AND the question asked: a reworded prompt asks again.
+        asked = hashlib.sha256(READING_PROMPT.encode()).hexdigest()
+        if (doc.get("schema") != READINGS_SCHEMA or doc.get("grading_sha256") != sha
+                or doc.get("prompt_sha256") != asked):
+            doc = {"schema": READINGS_SCHEMA, "bundle": bundle.name, "grading_sha256": sha, "prompt_sha256": asked,
+                   "checks": {}}
         entries = doc["checks"]
 
         def judge(key):
