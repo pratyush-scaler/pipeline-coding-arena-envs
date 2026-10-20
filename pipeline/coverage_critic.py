@@ -124,6 +124,11 @@ REFERENCE VERSIONS OF OTHER FILES THE INSTRUCTION NAMES
 -------------------------------------------------------
 {named}
 
+PROMISES THE TESTS MAY NOT ENFORCE (the clause map's text judgement -- target these FIRST: write the \
+counter-implementation a solver could plausibly ship that breaks exactly that promise, and let execution decide)
+-----------------------------------------------------------------------------------------------------------------
+{promises}
+
 DECLARED UNDETERMINED (a determinacy probe showed the instruction does not settle these -- do not \
 propose them again)
 ---------------------
@@ -194,7 +199,10 @@ def build_prompt(bundle: Path, step: str, tree: Path, limit: int = MAX_PROPOSALS
     bundle = Path(bundle)
     instruction = (bundle / "steps" / step / "instruction.md").read_text()
     checks = json.loads((bundle / "tests/checks.json").read_text()).get("checks", [])
-    rows = [f"{c['id']} | {c.get('kind')} | {' / '.join(c.get('rule_quote') or [])[:400]}"
+    # Shipped checks.json files carry no rule_quote: the sentences come from the spec / basis (2026-10-21).
+    from .clause_map import rule_quotes
+    quotes = rule_quotes(bundle)
+    rows = [f"{c['id']} | {c.get('kind')} | {' / '.join(c.get('rule_quote') or quotes.get(c['id']) or [])[:400]}"
             for c in checks if c.get("step") in (None, step)]
     patch = (bundle / "steps" / step / "solution/fix.patch").read_text()
     touched = []
@@ -207,7 +215,26 @@ def build_prompt(bundle: Path, step: str, tree: Path, limit: int = MAX_PROPOSALS
                          reference=patch.strip(), touched="\n\n".join(touched) or "(none)",
                          named=_named_files(instruction, tree, set(_patch_paths(patch))) or "(none)",
                          undetermined=_undetermined(bundle) or "(none)",
+                         promises=_flagged_promises(bundle, step) or "(none)",
                          suites=_suites_text(bundle))
+
+
+def _flagged_promises(bundle: Path, step: str) -> str:
+    """Promises the clause map judged unenforced or enforced in name only (verification/clause-map.json), with the
+    judges' counter-examples: the critic's first targets, since only an executed 1.0 counter-implementation blocks."""
+    try:
+        record = json.loads((Path(bundle) / "verification/clause-map.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    lines = []
+    for clause in ((record.get("steps") or {}).get(step) or {}).get("clauses") or []:
+        if clause.get("status") not in ("unenforced", "in_name_only"):
+            continue
+        said = [a.get("counter_example") for a in (clause.get("judgement") or {}).values()
+                if isinstance(a, dict) and a.get("detects") == "NO" and a.get("counter_example")]
+        lines.append(f"- [{clause['status']}] {' '.join(str(clause.get('quote', '')).split())[:300]}"
+                     + (f" -- judge's counter-example: {said[0][:300]}" if said else ""))
+    return "\n".join(lines[:40])
 
 
 def _undetermined(bundle: Path) -> str:

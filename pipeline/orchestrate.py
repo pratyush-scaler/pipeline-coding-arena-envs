@@ -291,6 +291,14 @@ def _ship_readiness(bundle: Path) -> list[dict]:
         except Exception as exc:                      # noqa: BLE001 -- an unprobed image is not a pass
             found.append(shipcheck.finding("image.probe", "agent image", f"probe failed: {exc}"[:300],
                                            route="regenerate", measure="screen"))
+    if (bundle / "tests/checks.json").is_file() and resolve_credential():
+        # Built before the critic, which takes the promises it flags as its first targets; its own findings
+        # advise (shipcheck.sweep), so none of them is repair feedback here (2026-10-21).
+        try:
+            clause_map.clause_findings(bundle)
+        except Exception as exc:                      # noqa: BLE001 -- the ship-time sweep re-runs it
+            (bundle / "verification").mkdir(parents=True, exist_ok=True)
+            (bundle / "verification/clause-map-error.txt").write_text(f"{type(exc).__name__}: {exc}")
     receipt = bundle / coverage_critic.RECEIPT
     if not receipt.is_file() and (bundle / "tests/checks.json").is_file() and resolve_credential():
         try:
@@ -298,12 +306,6 @@ def _ship_readiness(bundle: Path) -> list[dict]:
         except Exception as exc:                      # noqa: BLE001 -- the ship-time sweep re-runs it
             (bundle / "verification").mkdir(parents=True, exist_ok=True)
             (bundle / "verification/coverage-critic-error.txt").write_text(f"{type(exc).__name__}: {exc}")
-    if (bundle / "tests/checks.json").is_file() and resolve_credential():
-        try:
-            found += [f for f in clause_map.clause_findings(bundle) if f["check"] != "coverage.clause_map"]
-        except Exception as exc:                      # noqa: BLE001 -- the ship-time sweep re-runs it
-            (bundle / "verification").mkdir(parents=True, exist_ok=True)
-            (bundle / "verification/clause-map-error.txt").write_text(f"{type(exc).__name__}: {exc}")
     granted = shipcheck.waivers(bundle)
     found = [f for f in found if not shipcheck._waived(f, granted)]
     advice = {

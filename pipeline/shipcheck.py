@@ -587,6 +587,15 @@ def clause_coverage(bundle: Path) -> list[dict]:
     return clause_map.clause_findings(bundle)
 
 
+def _clause_advisory(bundle: Path) -> list[dict]:
+    """The clause map's findings, advisory (see sweep): the promises it flags are fed to the coverage critic."""
+    try:
+        return [{**f, "advisory": True} for f in clause_coverage(bundle)]
+    except Exception as exc:                          # noqa: BLE001 -- an unbuilt map advises nothing, blocks nothing
+        return [finding("coverage.clause_map", "verification/clause-map.json", f"clause map not built: {exc}"[:300],
+                        route="regenerate", measure="none")]
+
+
 def _conftest_entry(name) -> bool:
     return str(name).strip().rstrip("/").rsplit("/", 1)[-1] in ("conftest", "conftest.py")
 
@@ -1097,10 +1106,13 @@ def _waived(item: dict, granted: list[dict]) -> dict | None:
 def sweep(bundle: Path, *, runs: Path | None = None, image: bool = False, repro: bool = False) -> dict:
     bundle = Path(bundle)
     found: list[dict] = []
-    # User, 2026-10-21 (external audit): preservation_unguarded left the blocking sweep for clause_coverage,
-    # which reads every language; its sentences now seed the clause map.
+    # User, 2026-10-21 (external audit): preservation_unguarded left the blocking sweep for the clause map, which
+    # reads every language. The map ADVISES: its first sweep of the 37 delivered packages judged ~29 clauses per
+    # task "in name only" (any clause not tested exhaustively) and flagged framing sentences and data facts as
+    # unenforced -- a text judgement, not executed evidence. Its flagged promises are the coverage critic's first
+    # targets (coverage_critic.build_prompt), and an executed counter-implementation scoring 1.0 is what blocks.
     for detector in (grader_current, login_shell, deps_declared, docs_toolchain, fixture_outside_paths,
-                     ledger_omissions, level_name, coverage, critic_empty, clause_coverage,
+                     ledger_omissions, level_name, coverage, critic_empty,
                      guardrail_shadow_conftest, sandbox_refer, step_timeouts, suite_unrooted_scan):
         found += detector(bundle)
     probe, reproduced = {}, {}
@@ -1129,7 +1141,8 @@ def sweep(bundle: Path, *, runs: Path | None = None, image: bool = False, repro:
     return {"schema": SCHEMA, "artifact_sha256": ident, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "runs": str(runs) if runs else None, "episodes": len({(t['model'], t['trial']) for t in trials}),
             "image_probed": bool(probe), "image": probe, "reproduced": reproduced, "findings": found, "open": len(open_items),
-            "ok": not open_items, "measure": _measure(open_items), "advisory": coverage_advisory(bundle)}
+            "ok": not open_items, "measure": _measure(open_items),
+            "advisory": coverage_advisory(bundle) + _clause_advisory(bundle)}
 
 
 def sweep_for_shipping(bundle: Path, runs: Path | None) -> dict:

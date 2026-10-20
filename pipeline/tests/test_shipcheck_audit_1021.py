@@ -456,8 +456,9 @@ class Wiring(AuditBundle):
         with mock.patch.object(clause_map, "_ask", families):
             report = shipcheck.sweep(b)
         self.assertFalse(report["ok"])
-        self.assertEqual(sorted(f["check"] for f in report["findings"]),
-                         ["coverage.clause_in_name_only", "guardrail.shadow_conftest"])
+        # The clause map advises (2026-10-21): the in-name-only clause is listed, the conftest rule blocks.
+        self.assertEqual(sorted(f["check"] for f in report["findings"]), ["guardrail.shadow_conftest"])
+        self.assertIn("coverage.clause_in_name_only", [f["check"] for f in report["advisory"]])
         self.assertEqual(report["measure"], "regrade")
 
     def test_a_clean_bundle_with_clean_runs_has_no_finding(self):
@@ -498,9 +499,11 @@ class Wiring(AuditBundle):
         (b / "tests/checks.json").write_text(json.dumps({"checks": []}))
         self.complete(b, "a_f2_fastapi")
         with mock.patch.object(clause_map, "_ask", Families()):
-            checks = [f["check"] for f in shipcheck.sweep(b)["findings"]]
+            report = shipcheck.sweep(b)
+        checks = [f["check"] for f in report["findings"]]
         self.assertNotIn("coverage.preservation", checks)
-        self.assertIn("coverage.clause_unenforced", checks)
+        self.assertNotIn("coverage.clause_unenforced", checks)
+        self.assertIn("coverage.clause_unenforced", [f["check"] for f in report["advisory"]])
         self.assertEqual([f["check"] for f in shipcheck.preservation_unguarded(b)], ["coverage.preservation"])
 
     def test_build_time_readiness_returns_them_as_repair_feedback(self):
@@ -515,10 +518,12 @@ class Wiring(AuditBundle):
              mock.patch.object(clause_map, "_ask", families):
             blockers = orchestrate._ship_readiness(b)
         by = {x["code"]: x for x in blockers}
-        self.assertEqual(sorted(by), ["coverage.clause_in_name_only", "guardrail.shadow_conftest"])
-        self.assertEqual(by["coverage.clause_in_name_only"]["where"], "tests/suites")
+        # The map is built (the critic reads its flagged promises) but none of its findings is repair feedback.
+        self.assertEqual(sorted(by), ["guardrail.shadow_conftest"])
         self.assertEqual(by["guardrail.shadow_conftest"]["where"], "authoring/spec.json")
-        self.assertIn("m_partial_", by["coverage.clause_in_name_only"]["message"])
+        record = json.loads((b / clause_map.RECEIPT).read_text())
+        statuses = [c.get("status") for row in record["steps"].values() for c in row.get("clauses") or []]
+        self.assertIn("in_name_only", statuses)
 
     def test_build_time_leaves_an_unanswered_judge_to_the_ship_sweep(self):
         from pipeline import coverage_critic, orchestrate
@@ -530,7 +535,7 @@ class Wiring(AuditBundle):
             codes = [x["code"] for x in orchestrate._ship_readiness(b)]
         self.assertEqual(codes, ["guardrail.shadow_conftest"])
         record = json.loads((b / clause_map.RECEIPT).read_text())
-        self.assertFalse(record["complete"])                                # the ship-time sweep still blocks
+        self.assertFalse(record["complete"])                                # asked again at the next sweep
 
 
 if __name__ == "__main__":
