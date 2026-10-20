@@ -429,6 +429,21 @@ def command_argv(args: list[str], code_root: Path | None = None) -> list[str]:
     return [str(ROOT / ".venv/bin/python"), "-m", "pipeline.cli", *args]
 
 
+def ensure_dump(ws: str, dump: str) -> None:
+    """The trace dump a run will read, mounted from the workspace's persistent mirror, or the launch is refused.
+
+    A workspace restart drops the bind mounts `persist_script` made. On 2026-10-21 three workspaces had lost the
+    kaizen dump that way and every release there stopped at the qualification preflight ("does not look like a trace
+    dump: no sessions/ directory") -- three hard lineages (c-018-fastapi-scraper-api, c-019-vanilla-js-spa,
+    c-003-three-js-browser-game) read as not ready. Re-mounting is idempotent; a dump the mirror does not hold
+    refuses the launch now instead of failing the run hours later.
+    """
+    out = coder_mod.ssh(ws, persist_script([Path(dump)]) + f"\ntest -d {q(dump + '/sessions')} && echo DUMP_OK",
+                        timeout=300, check=False)
+    if "DUMP_OK" not in coder_mod._clean(out.stdout.decode(errors="replace")):
+        raise RuntimeError(f"{ws} has no trace dump at {dump}; `arena coder prepare {ws}` pushes it")
+
+
 def launch(ws: str, args: list[str], *, env: dict[str, str] | None = None, create: bool = False,
            sync: bool = True, staged: bool = False) -> dict:
     """Prepare the workspace and start one detached orchestrator on it.
@@ -450,6 +465,7 @@ def launch(ws: str, args: list[str], *, env: dict[str, str] | None = None, creat
     run_dir = ROOT / RUNS / rid
     request = {"root": str(root), "run_dir": str(run_dir), "argv": command_argv(args, root),
                "env": remote_env(extra), "keys": keys_values(), "code_sha": coder_mod._tree_sha(CODE_PATHS)}
+    ensure_dump(ws, request["env"]["ARENA_DUMP"])
     proc = coder_mod.ssh(ws, coder_mod._with_docker(f"python3 -c {q(LAUNCHER)}"),
                          stdin=json.dumps(request).encode(), timeout=300)
     started = json.loads(coder_mod._clean(proc.stdout.decode()).strip().splitlines()[-1])

@@ -214,7 +214,7 @@ class Staged(unittest.TestCase):
         snapshot = coder_run.ROOT / coder_run.STAGED / "abc"
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(coder_run, "ensure_running"), patch.object(coder_run, "sync_data"), \
-                patch.object(coder_run, "prepare") as prepare, \
+                patch.object(coder_run, "prepare") as prepare, patch.object(coder_run, "ensure_dump") as dump, \
                 patch.object(coder_run, "stage_code", return_value=snapshot), \
                 patch.object(coder_run, "keys_values", return_value={}), \
                 patch.object(coder_run, "dump_path", return_value=Path("/data/dump")), \
@@ -223,12 +223,37 @@ class Staged(unittest.TestCase):
                 patch.object(coder_run.coder_mod, "ssh", ssh):
             record = coder_run.launch("ws", ["harden", "/abs/bundle", "--apply"], staged=True)
         prepare.assert_not_called()                      # no code sync under live runs
+        dump.assert_called_once_with("ws", "/data/dump")  # the dump the run reads is mounted first
         self.assertEqual(sent["request"]["root"], str(snapshot))
         self.assertEqual(sent["request"]["env"]["ARENA_PIPELINE_ARTIFACTS"],
                          str(coder_run.ROOT / "pipeline-artifacts"))
         self.assertEqual(record["code_root"], str(snapshot))
         import shutil
         shutil.rmtree(coder_run.ROOT / coder_run.RUNS / record["run"], ignore_errors=True)
+
+
+class DumpMountedBeforeLaunch(unittest.TestCase):
+    """A restart drops the dump's bind mount; a launch re-mounts it or refuses (2026-10-21, three hard lineages)."""
+
+    def _ssh(self, reply):
+        calls = []
+
+        def ssh(ws, command, stdin=None, timeout=None, check=True):
+            calls.append(command)
+            return subprocess.CompletedProcess([], 0, reply.encode(), b"")
+        return ssh, calls
+
+    def test_the_dump_is_remounted_from_the_mirror(self):
+        ssh, calls = self._ssh("persistent=1\nDUMP_OK\n")
+        with patch.object(coder_run.coder_mod, "ssh", ssh):
+            coder_run.ensure_dump("ws", "/data/dump")
+        self.assertIn('mount --bind "$M" "$P"', calls[0])
+        self.assertIn("/data/dump/sessions", calls[0])
+
+    def test_a_dump_the_workspace_does_not_hold_refuses_the_launch(self):
+        ssh, _ = self._ssh("persistent=1\n")
+        with patch.object(coder_run.coder_mod, "ssh", ssh), self.assertRaisesRegex(RuntimeError, "no trace dump"):
+            coder_run.ensure_dump("ws", "/data/dump")
 
 
 class Pull(unittest.TestCase):
