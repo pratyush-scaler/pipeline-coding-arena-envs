@@ -969,3 +969,16 @@ ARENA_REPRO_WORKSPACE = "arena-coding-3"
 #: Ship gate: True refuses to publish a zip whose receipt is missing, stale (zip bytes changed) or not oracle 1.0 /
 #: NOP 0.0 on the pinned harness at the pinned resources.
 ARENA_REPRO_REQUIRED = True
+
+# --- 2026-10-21 audit: learning signal and failure attribution ---
+#: The largest share of ALL the reward a calibration loses (objective checks that ran and failed, summed over every
+#: valid run of both models) that one decision -- a primary trap joined with every check it passes and fails in
+#: lockstep with -- may carry (user, 2026-10-21, after the external audit of Batch 3: c-game-bot lost 93% of its
+#: reward on one unstated motion replay spread over four checks, static-html-mindmap 100% on one fold). Above it the
+#: task's grade is one reading of one decision, and `learning_signal.problems` refuses it wherever the other signal
+#: problems refuse (the pilot verdict, release's hardness step, release blockers). Measured on the 29 Batch 3 packages'
+#: shipped calibrations (2026-10-21): 0.6 refuses 8, among them every one whose concentrated decision the audit found
+#: unsettled with calibration data to show it (c-game-bot 0.93, static-html-mindmap 1.0, python-pdf-tooling 0.68,
+#: csv-log-analysis 0.67); 0.7 would pass pdf-tooling and csv-log, 0.5 would refuse 14 of 29. 0.6 still leaves the
+#: heaviest decision nearly twice an even share of the SIGNAL_MIN_INDEPENDENT_HARD decisions a usable signal needs.
+SIGNAL_SINGLE_DECISION_SHARE_MAX = 0.6
