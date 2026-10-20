@@ -264,11 +264,18 @@ def _ship_readiness(bundle: Path) -> list[dict]:
                  clauses, and a repair loop chasing a moving target would
                  never shrink its findings; the ship-time sweep re-runs it on
                  the final version.
+      clauses    (user, 2026-10-21, after the external audit) a shadow-guard
+                 listing conftest, and the clause map: every promise the
+                 instruction makes, in its own language, quoted by a check
+                 whose tests can detect its violation, or declared undetermined.
+                 The map's extraction is reused while the instruction is
+                 unchanged, so a repair meets the same clauses again.
 
     Findings a designer cannot act on (ledger declarations, which the ledger
-    build now writes itself; human waivers) are left to the ship-time sweep.
+    build now writes itself; human waivers; a judge that did not answer) are
+    left to the ship-time sweep.
     """
-    from . import shipcheck, coverage_critic
+    from . import clause_map, shipcheck, coverage_critic
     from .author import sandbox
     from .credential import resolve_credential
     found = []
@@ -276,6 +283,7 @@ def _ship_readiness(bundle: Path) -> list[dict]:
     # (agent_designer.stage_spec), so the build checks what a designer can get wrong.
     for detector in (shipcheck.deps_declared, shipcheck.docs_toolchain, shipcheck.fixture_outside_paths):
         found += [f for f in detector(bundle) if f["route"] in ("fixture", "regenerate")]
+    found += shipcheck.guardrail_shadow_conftest(bundle)
     if (bundle / "environment/Dockerfile").is_file() and sandbox.available()[0]:
         try:
             extra, _ = shipcheck.image_probe(bundle)
@@ -290,6 +298,12 @@ def _ship_readiness(bundle: Path) -> list[dict]:
         except Exception as exc:                      # noqa: BLE001 -- the ship-time sweep re-runs it
             (bundle / "verification").mkdir(parents=True, exist_ok=True)
             (bundle / "verification/coverage-critic-error.txt").write_text(f"{type(exc).__name__}: {exc}")
+    if (bundle / "tests/checks.json").is_file() and resolve_credential():
+        try:
+            found += [f for f in clause_map.clause_findings(bundle) if f["check"] != "coverage.clause_map"]
+        except Exception as exc:                      # noqa: BLE001 -- the ship-time sweep re-runs it
+            (bundle / "verification").mkdir(parents=True, exist_ok=True)
+            (bundle / "verification/clause-map-error.txt").write_text(f"{type(exc).__name__}: {exc}")
     granted = shipcheck.waivers(bundle)
     found = [f for f in found if not shipcheck._waived(f, granted)]
     advice = {
@@ -304,9 +318,17 @@ def _ship_readiness(bundle: Path) -> list[dict]:
         "docs.toolchain": "correct the doc's version to the image's toolchain (write_fixture_file, declared as authored)",
         "fixture.outside_paths": "guard the advertised script so it reports NOT RUN when the unshipped file is absent "
                                  "(declare it authored with a reason starting 'guard:')",
+        "guardrail.shadow_conftest": "remove the conftest entry from the shadow-guard's runner.modules in spec.checks; "
+                                     "the grader already drops every added conftest.py before a check runs",
+        "coverage.clause_unenforced": "add a hidden case for exactly this clause to a check whose rule_quote quotes it, "
+                                      "with its m_partial_ mutant, only if determinacy_probe settles it; else record the "
+                                      "clause verbatim under quality.untested_surfaces with the probe's undetermined result",
+        "coverage.clause_in_name_only": "extend the quoting check's tests until the judge's counter-example fails them "
+                                        "(keep it as an m_partial_ mutant), or narrow the rule_quote to what they enforce "
+                                        "and record the rest under quality.untested_surfaces with determinacy evidence",
     }
     def where(f: dict) -> str:
-        if f["check"] == "coverage.gap":
+        if f["check"] in ("coverage.gap", "coverage.clause_unenforced", "coverage.clause_in_name_only"):
             return "tests/suites"
         if f["check"] in ("docs.toolchain", "fixture.outside_paths"):
             return "environment/repo/" + str(f["subject"]).split(":")[0]

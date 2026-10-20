@@ -1,0 +1,31 @@
+# -*- coding: utf-8 -*-
+"""Вид слайдов остался прежним."""
+from tourcheck import deck_run_styles, load_content, slide_size
+
+SIZE = ('12191695', '6858000')
+
+
+def test_deck_keeps_its_look(tour_a):
+    content = load_content('content_a.py')
+    assert slide_size(tour_a.deck) == SIZE, (
+        'размер слайда поменялся: %r' % (slide_size(tour_a.deck),))
+    room = [e for e in content.SLIDES if e['kind'] == 'room'][3]
+    body = deck_run_styles(tour_a.deck, room['body'])
+    assert body, 'на слайде нет текста комнаты'
+    assert set((s, f) for s, f, _ in body) == set([('1600', 'Calibri')]), (
+        'шрифт в тексте комнаты поменялся: %r'
+        % sorted(set((s, f) for s, f, _ in body)))
+    assert 'FBBF24' in [c for _, _, c in body], 'жёлтый цвет подсветки пропал'
+    note = deck_run_styles(tour_a.deck, room['note'])
+    assert note, 'на слайде нет напоминалки'
+    assert set((s, f) for s, f, _ in note) == set([('1200', 'Calibri')]), (
+        'шрифт напоминалки поменялся: %r'
+        % sorted(set((s, f) for s, f, _ in note)))
+    gloss = [e for e in content.SLIDES if e['kind'] == 'gloss'][0]
+    term, meaning = gloss['terms'][0]
+    words = deck_run_styles(tour_a.deck, term + meaning)
+    assert words, 'на слайде нет словарной строки'
+    assert set((s, f) for s, f, _ in words) == set([('1550', 'Calibri')]), (
+        'шрифт в словаре поменялся: %r'
+        % sorted(set((s, f) for s, f, _ in words)))
+    assert 'FBBF24' in [c for _, _, c in words], 'жёлтый у термина пропал'

@@ -1,0 +1,135 @@
+# The public basis of every check: what the instruction says, verbatim.
+# A hidden test enforces a stated requirement; this file is where a reviewer
+# finds that requirement without reading test code.
+
+[o_expand_click]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "floor"
+basis = "点节点只展开它自己的下一层，再点收回，第四层、第五层同样；全收起之后再点一个维度也只冒出一层；搜索一轮后点击仍生效"
+runner = "command"
+rule_quote = ["有下级的节点点一下就得把它的下一级真的露出来、再点一下收回去，点一次只开一层", "「全部展开」是整棵树从上到下全看得见（我后来往里多套了一层，也得跟着出来），「收成七大维度」是全收起来只剩顶上那排维度，「展开到行业组」是只开到第二层。", "搜完一轮以后再点节点，照样得能开能收。"]
+trap = "t_level_family"
+
+[o_expand_all]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "全部展开后数据里每个节点（含第四、第五层）都可见；展开到行业组把更深的层收回去；收起只剩顶层"
+runner = "command"
+rule_quote = ["「全部展开」是整棵树从上到下全看得见（我后来往里多套了一层，也得跟着出来），「收成七大维度」是全收起来只剩顶上那排维度，「展开到行业组」是只开到第二层。"]
+trap = "t_level_family"
+
+[o_empty_cell]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "下级为空的格子（第三层的、第二层的、以及换一份 data.js 后顶上那排里的）都没有 ▸、点下去画面不变、鼠标停上去也不是那只能点开的手；真有下级的节点仍然有 ▸ 也仍然是手型；词条清空重写的那一份 data.js 下，图上冒不出任何旧词条"
+runner = "command"
+rule_quote = ["data.js 里有些格子我只写了名字、下级留空了，那种就是到头了，别给它画 ▸、也别装成能点开。", "词条我自己还会往 data.js 里继续加，页面别把数据再抄一份写死在里面，我都是双击打开这个本地文件看的，不开服务器也不联网。", "页面的结构、id 和 class（.kid / .n / .lbl / .bdg 这些）还有样式都别动，我要的就是现在这个长相。"]
+trap = "t_empty_cell"
+
+[o_stats]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "统计行的维度数/行业组数/职业方向数跟当前 data.js 对得上（第二层那个下级留空的格子两边都要算进去），换一份 data.js 后三个数字跟着变；搜索时那行里的职业方向数照旧，命中数只数名字自己对得上的节点——用户用中文输入法打出来的价格符号和数据里写的那一个算同一个东西，说明里写着同一个符号的节点不算"
+runner = "command"
+rule_quote = ["右上角那行统计跟着数据算：几大维度、第二层有几个行业组、到头的职业方向有几个——措辞照旧，三个数字都得对得上，我加一个维度它就得跟着变。", "data.js 里有些格子我只写了名字、下级留空了，那种就是到头了，别给它画 ▸、也别装成能点开。", "对上的是节点自己的名字，父节点别因为儿子对上就跟着算；对上的节点不管埋多深都得自己露出来，不是只跳第一个，那行统计还照旧显示命中几个。", "我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）"]
+trap = "t_group_count"
+
+[o_gray_badge]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "每个灰区节点（含有下级的灰区整组、同时写了说明与跨界理由的那个、换一份 data.js 后下级留空的那个、以及顶上那排里写了灰区的维度）都有 ◐ 且悬停文字同时包含说明与灰区原因；没写灰区的维度一个 ◐ 都没有；跨界的 ✳ 和裁定理由保留；两个角标仍旧是 .bdg.g / .bdg.x 那两个小圆点"
+runner = "command"
+rule_quote = ["◐ 只认灰区这一件事：是灰区的就挂，哪怕它同时还写了说明也照挂，鼠标放上去说明和灰区原因都得看得到；只写了说明、不是灰区的节点，一个 ◐ 都不许有。", "跨界的 ✳ 和它的裁定理由照旧，两样都占的节点就两个都挂，一样都不占的一个都别挂。", "data.js 里有些格子我只写了名字、下级留空了，那种就是到头了，别给它画 ▸、也别装成能点开。", "页面的结构、id 和 class（.kid / .n / .lbl / .bdg 这些）还有样式都别动，我要的就是现在这个长相。"]
+trap = "t_gray_cumulative"
+
+[o_search_reveal]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "搜一个常见词时每个对得上的节点都露出来且命中数相等；祖先节点不算命中；换一份 data.js、全收起之后再搜用户打出来的价格符号，埋在第四层的那几个同样要自己露出来、数目也要对——数据里那个符号写成哪一种宽度都算对得上，而只写在说明里的不算"
+runner = "command"
+rule_quote = ["对上的是节点自己的名字，父节点别因为儿子对上就跟着算；对上的节点不管埋多深都得自己露出来，不是只跳第一个，那行统计还照旧显示命中几个。", "我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）"]
+trap = "t_regex_lastindex"
+
+[o_search_scope]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "stretch"
+basis = "命中数只数名字自己对得上的节点：写在说明或跨界裁定理由里的字不算；同一个判断上还压着全角半角要当同一个东西，半角价格符号的输入要对上名字里写的全角那一个；埋在第三层的命中自己露出来"
+runner = "command"
+rule_quote = ["对上的是节点自己的名字，父节点别因为儿子对上就跟着算；对上的节点不管埋多深都得自己露出来，不是只跳第一个，那行统计还照旧显示命中几个。", "名字里对上的那几个字给我标黄（mark 的样式 css 里早写好了），一个名字里出现几回就标几回，当前这次没对上的就一个黄都别留着，而节点上显示的字还是 data.js 里写的那样，一个字都不许变。"]
+trap = "t_search_scope"
+
+[o_search_fold]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "半角词能找到全角名字、全角词能找到半角名字，两个方向的命中数都一致；把空格删掉或者多打一个空格的词命中 0，换词后没有残留的标黄"
+runner = "command"
+rule_quote = ["我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）", "名字里对上的那几个字给我标黄（mark 的样式 css 里早写好了），一个名字里出现几回就标几回，当前这次没对上的就一个黄都别留着，而节点上显示的字还是 data.js 里写的那样，一个字都不许变。"]
+trap = "t_fold_width"
+
+[o_search_mark]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "一个名字里两次命中标两次；全角名字标的是原来那两个全角字；两个方向的价格符号都标在名字里原来写的那一个字上；显示文本不变"
+runner = "command"
+rule_quote = ["名字里对上的那几个字给我标黄（mark 的样式 css 里早写好了），一个名字里出现几回就标几回，当前这次没对上的就一个黄都别留着，而节点上显示的字还是 data.js 里写的那样，一个字都不许变。", "我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）"]
+trap = "t_firstpass_symptom"
+
+[o_mark_offset]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "stretch"
+basis = "名字里含有归一化后长度会变的字符时（面积、毫米这类单位符号），标黄仍然盖住正确的那几个字（符号前后都要对）；换一份 data.js 后，同一个名字里两种宽度写法的价格符号要各标一回、且盖住数据里原来写的那一个字，节点上显示的字一个都没变"
+runner = "command"
+rule_quote = ["名字里对上的那几个字给我标黄（mark 的样式 css 里早写好了），一个名字里出现几回就标几回，当前这次没对上的就一个黄都别留着，而节点上显示的字还是 data.js 里写的那样，一个字都不许变。", "我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）"]
+trap = "t_mark_offset"
+
+[o_search_punct]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "stretch"
+basis = "逐字打入全角括号、星号、问号、反斜杠、以及斜杠时页面不报错、照样按规则筛出节点并标黄（斜杠这个字必须真的进得了搜索框）；只打一个空格（全角的、半角的都算）时空格也是要对上的字：名字里带空格的节点才算命中、按出现次数标黄，连打两个空格或者词前多打一个空格就是 0 命中"
+runner = "command"
+rule_quote = ["括号这类符号我也会往搜索框里打，不管打进去什么，树该怎么筛就怎么筛，别给我卡死在那儿。", "我用中文输入法打字，打出来的字母、空格、括号经常是全角的，所以全角半角、大小写都算同一个东西，除此之外就得原样对上（我多打一个空格那就是多打了，别自作主张给我抹掉）", "搜索框里的字一变（我打的、粘的、还是一键清空的都算），树和那行统计立刻就得跟着变。", "名字里对上的那几个字给我标黄（mark 的样式 css 里早写好了），一个名字里出现几回就标几回，当前这次没对上的就一个黄都别留着，而节点上显示的字还是 data.js 里写的那样，一个字都不许变。"]
+trap = "t_regex_meta"
+
+[o_restore]
+kind = "objective"
+step = "01-mindmap-behaviour"
+band = "core"
+basis = "收全部→手动展一支→逐字搜→Esc，整棵树回到搜之前的可见集合；中间再手动开一支、再搜一轮清空，回到的是第二轮搜之前的样子；清空后每个节点的文字和身上描的框都跟搜之前一样"
+runner = "command"
+rule_quote = ["最后，搜索框清空或者按 Esc 之后，整张图要回到我开始搜之前的那个样子——我手动展开收起成什么样就还是什么样，不是回到刚打开时的默认版，搜第二回、第三回也一样。", "对上的是节点自己的名字，父节点别因为儿子对上就跟着算；对上的节点不管埋多深都得自己露出来，不是只跳第一个，那行统计还照旧显示命中几个。"]
+trap = "t_restore_snapshot"
+
+[g_local_file]
+kind = "guardrail"
+step = "01-mindmap-behaviour"
+band = "floor"
+basis = "换一份 data.js 后页面渲染的是新词条、没有写死的旧数据；data.js 里一条词条都没写时图上也冒不出旧词条；从磁盘上双击打开的这一页没有发出任何 http/https/ws/ftp 这类要服务器或外网才拿得到的请求（页面自己造的 blob:/data: 本地资源不算），页面不报错"
+runner = "command"
+rule_quote = ["词条我自己还会往 data.js 里继续加，页面别把数据再抄一份写死在里面，我都是双击打开这个本地文件看的，不开服务器也不联网。"]
+
+[g_live_input]
+kind = "guardrail"
+step = "01-mindmap-behaviour"
+band = "floor"
+basis = "直接写入搜索框后统计行立刻变化，清空后变回原句"
+runner = "command"
+rule_quote = ["搜索框里的字一变（我打的、粘的、还是一键清空的都算），树和那行统计立刻就得跟着变。"]
+
+[g_no_shadow]
+kind = "guardrail"
+step = "01-mindmap-behaviour"
+band = "floor"
+basis = "仓库里不得出现会遮蔽用例所导入模块的条目"
+runner = "shadow-guard"
+rule_quote = ["页面的结构、id 和 class（.kid / .n / .lbl / .bdg 这些）还有样式都别动，我要的就是现在这个长相。"]

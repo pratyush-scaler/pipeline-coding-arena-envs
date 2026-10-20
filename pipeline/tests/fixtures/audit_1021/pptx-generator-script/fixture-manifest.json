@@ -1,0 +1,18 @@
+{
+  "build_tour.py": {
+    "sha256": "1b1864f57d0acceae68e777312d693e11ce61ab91e7f6c5817c6f95e5c9c5bf2",
+    "bytes": 5354
+  },
+  "gen_script.py": {
+    "sha256": "4de546581a28ee1176714d779354ae04a27821d2d8914d989433260149771306",
+    "bytes": 2413
+  },
+  "requirements.txt": {
+    "sha256": "c8c232a8a6e1a9e5015d30d7c6e1cb6458c53a4e6e386cd66a37884a6b042752",
+    "bytes": 125
+  },
+  "tour_content.py": {
+    "sha256": "2c9280200845f904dbb8fe83efec4748dda2f42e84a293371df3a02926079092",
+    "bytes": 12023
+  }
+}

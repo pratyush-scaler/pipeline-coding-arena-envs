@@ -1,0 +1,264 @@
+{
+  "checks": [
+    {
+      "band": "core",
+      "basis": "Decks a consumer has to be able to open: three slides built through build_deck, a whole study of eleven slides whose pictures repeat and whose kinds are mixed, a deck whose media are not all the same kind, and a deck of captures that came off the instrument rather than out of a library. Each is read back the way an OPC consumer reads it -- no repeated part names, no folder entries, every part covered by the content types with the type its relationship role requires (so a media part's own name has to agree with what the stream declares for it), every XML part well formed, every internal relationship resolving against its source part, the slides in the order they were given, each slide showing its own picture unchanged. And when what is sitting at the output path cannot be read back as a deck at all, a build that has to be refused names the file that is wrong, leaves that file byte for byte as it was -- its permissions included -- and adds nothing to the folder: over a picture that is missing, over two files from the share that carry a picture only part of the way (a capture cut off inside the scan whose own small preview still ends the way a jpeg ends, and a print cut off inside its data with the tail of another file glued on behind it), over a capture the stick wrote with nothing in it at all, and over a capture cut off inside its scan that has the next file's block sitting behind it -- a whole small jpeg with its own end marker, then the first bytes of a png -- so the end marker that is in the file belongs to another picture and the capture's own picture is not all there. determinacy_probe of that last file against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer \"fails naming the file\"; the cut capture with the preview was probed the same way and both answer \"refused\". A build that has everything it needs then replaces what is at the path with a package that reads back cleanly, the whole capture going in as it is. That replacement goes over a copy that stopped part way through the share, which the user settles himself: a file already there that is too broken to get the made date off it does not stop the build, the date just starts fresh -- determinacy_probe of exactly that file is determinate on claude-fable-5-1 and gpt-6-astra, both answering that the build replaces it with a deck that opens. Every call is made in an interpreter of its own, so nothing the repository ships runs in the process that judges these files, and whether a call came back is settled before anything is done with what came back.",
+      "id": "o_package_opens",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_package_opens",
+          "test_pictures.py::test_a_package_of_mixed_pictures_reads_back",
+          "test_pictures.py::test_a_scope_capture_goes_in",
+          "test_rebuilds.py::test_a_failed_build_leaves_the_folder_alone",
+          "test_rebuilds.py::test_a_capture_that_stops_inside_the_picture_is_refused",
+          "test_stick.py::test_a_capture_with_nothing_in_it_is_refused",
+          "test_stick.py::test_a_capture_that_stops_with_another_file_behind_it"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 10
+    },
+    {
+      "band": "core",
+      "basis": "Four decks of pictures: one whose files are .png, .PNG, .jpeg and .JPG; one folder of captures where the names the instruments wrote do not all agree with the data in the files and one capture was left filled out to a whole block on the stick; a third built from the captures as the stick and the restore left them (a print with a block of fill behind its last chunk, a capture filled out behind its end marker, a capture whose first segment is the badge its own pipeline stamps on it, an ordinary print); and a fourth off the stick where the names say nothing at all about the data -- a capture written as scope_0042 with no extension in its name, a print written as run_17.bin, the same capture again under copies/scope_0042.JPG and a second nameless capture. In all four the content types declare one default per extension (compared the way OPC compares them), every part of the package has a content type at all, every stored picture ends up with a content type that matches the kind of data it actually holds, the bytes are stored exactly as the file holds them (fill included), the capture handed over under two names is stored once, and every slide shows its own picture. A fifth build goes over the same run: a print is built into one deck, the file at that path is then written again as a capture, and the deck built from it afterwards in that same run has to hold the capture, declared for what it now is. determinacy_probe of the nameless capture against the instruction: claude-fable-5-1 and gpt-6-astra both answer image/jpeg. determinacy_probe of the filled-out print: both answer \"goes in with all 3979 bytes\" (a second run of the same probe had gpt-6-astra agreeing and claude-fable-5-1 returning no answer); the capture whose name disagrees with its data was probed too and both answer image/jpeg. The builds are made in an interpreter of their own and judged from the package this process reads back itself.",
+      "id": "o_picture_formats",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_picture_formats_declared",
+          "test_deck.py::test_captures_the_instruments_named_after_nothing",
+          "test_pictures.py::test_pictures_are_the_kind_they_hold",
+          "test_pictures.py::test_captures_off_the_stick_go_in_whole",
+          "test_stick.py::test_a_picture_that_changed_kind_in_the_same_run"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 15
+    },
+    {
+      "band": "core",
+      "basis": "Pictures reach the package as the files they are: in a four slide deck of distinct pictures each slide's reference resolves through its own relationships to a part whose bytes equal the source file, a redrawn picture rebuilt in the same session replaces what the deck held before, a whole but very large picture goes in beside an ordinary one, pictures whose file dates are nonsense still go in, and no source file is touched.",
+      "id": "o_picture_binding",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_each_slide_shows_its_own_picture",
+          "test_deck.py::test_a_very_large_picture_still_goes_in"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 19
+    },
+    {
+      "band": "core",
+      "basis": "Decks that repeat pictures across slides: two different pictures that share a file name, one picture reached through two different paths, the same picture under two spellings of its name and under two different extensions, and two figures printed from the same run that came back under one name in two run folders, are the same size, are identical for their first 64 kB and differ only in their last rows. Each distinct picture is stored exactly once, the slides between them link exactly as many distinct package parts as there are distinct pictures (targets resolved to the part they name, however they are spelled), and every slide still shows the picture it was given.",
+      "id": "o_media_once",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_same_picture_stored_once",
+          "test_pictures.py::test_one_picture_however_it_is_named",
+          "test_rebuilds.py::test_two_plots_that_start_the_same_stay_two"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 6
+    },
+    {
+      "band": "core",
+      "basis": "Headings carrying maths, units and padding come back out of the parsed slide parts as the exact strings they were given, and so do headings typed with the shapes markup itself uses -- an ampersand spelled out, a less-than spelled out, a numeric character reference -- which have to read back character for character out of the slide and out of the deck title rather than as the markup they look like.",
+      "id": "o_heading_text",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_headings_come_out_as_typed",
+          "test_stick.py::test_headings_that_look_like_markup_come_back"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 2
+    },
+    {
+      "band": "core",
+      "basis": "The deck's title is exactly the first slide's heading, character for character including any padding and anything that is not a plain letter, and the slide count in the properties is the real number of slides: for a deck built fresh, for a deck whose first heading was typed with padding, and for the same deck built again over itself with different slides.",
+      "id": "o_doc_props",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_file_properties_match_the_deck",
+          "test_pictures.py::test_the_title_is_the_heading_as_typed"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 3
+    },
+    {
+      "band": "core",
+      "basis": "Builds whose picture is missing, is a directory, is a text file, or holds only the first part of a jpeg or of a png each raise an error naming that path; a build carrying both a whole very large picture and a half saved one names the half saved one; and in every case the deck already at the output path is byte for byte unchanged and no new file is left in the folder.",
+      "id": "o_build_failure",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_failed_build_keeps_the_old_deck",
+          "test_deck.py::test_the_error_names_the_file_that_is_wrong"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 20
+    },
+    {
+      "band": "stretch",
+      "basis": "In a deck whose middle slide has no picture and whose outer slides share one picture, the middle slide keeps its heading and shows no picture, the outer slides both still show that picture, and it is stored once; every slide of that deck, the heading only one included, still hangs off the same layout, master and theme the rest of the deck uses, so a slide with nothing to point at is not left unattached; and a deck whose slides are all headings and no pictures at all still opens, with every heading on its own slide and no picture anywhere in it. determinacy_probe of the heading only slide's relationship against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer that it still has to carry the slideLayout relationship.",
+      "id": "o_text_only_slide",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_slide_without_a_picture",
+          "test_rebuilds.py::test_a_deck_of_headings_only"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 1
+    },
+    {
+      "band": "stretch",
+      "basis": "Both scripts are run the way the user runs them and the deck each hands back is read: it opens, holds its own slides with their own pictures in the right order, the two tables are not swapped, the properties carry the first heading as the title and the real slide count. One script is run again over the deck it left in the folder, which has to keep the date that deck recorded for when it was made. And each is run the way its own signature allows and the user types it -- one with the folder as a plain string that does not exist yet, one with nothing handed to it at all, falling back on the folder it defaults to -- and both still have to build a deck and hand back the path it went to. determinacy_probe of those two calls against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer that they still have to build a deck and hand back its path.",
+      "id": "o_scripts",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_both_scripts_build_usable_decks",
+          "test_rebuilds.py::test_running_a_script_again_over_its_own_deck",
+          "test_stick.py::test_the_scripts_take_the_folder_as_it_is_written"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 2
+    },
+    {
+      "band": "stretch",
+      "basis": "Rebuilding over a deck that is mode 664 leaves the file mode 664, rebuilding over a deck that is mode 640 leaves it 640, and rebuilding over a file at that path that cannot be read back as a deck at all leaves that file's mode alone too, while the contents change. That last file is a copy that stopped part way through the share, and whether a build goes through over it is settled by the user's fallback -- too broken to get the made date off it does not stop the build -- which determinacy_probe returns determinate on both claude-fable-5-1 and gpt-6-astra (\"replaces it with a deck that opens\"); the mode it has to be left on is settled by the permissions sentence alone.",
+      "id": "o_file_mode",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_rebuild_keeps_the_file_permissions",
+          "test_rebuilds.py::test_a_rebuild_keeps_the_permissions_of_what_it_replaces"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 1
+    },
+    {
+      "band": "stretch",
+      "basis": "Pictures whose file timestamps are nonsense in either direction, from before the zip epoch and from long after this build, still end up in the deck with their own bytes on their own slides, and the files on disk are not re-saved to get them there.",
+      "id": "o_old_dates",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_pictures_with_old_dates",
+          "test_rebuilds.py::test_pictures_whose_file_dates_are_nonsense"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 1
+    },
+    {
+      "band": "core",
+      "basis": "What a rebuild takes from the deck that is already at the path: the made date stays exactly as that deck recorded it, whatever shape it was written in, the changed date moves off whatever the deck carried in the past and in the future, and a deck that came back damaged is still replaced by one that opens and shows each slide's own picture with dates the pane can read. That last case is the user's own fallback rather than an unstated policy: when the file sitting at the path is too broken to get that date off it, the build is not to stop and the made date starts fresh, so a writer that keeps every readable made date and starts a fresh one only where none can be read passes, and one that refuses to build over such a file does not. determinacy_probe of both damaged shapes against the instruction is determinate: for a copy that stopped part way through the share and for a deck still a zip whose properties member came back with a bad block, claude-fable-5-1 and gpt-6-astra both answer that the build replaces it with a deck that opens and carries both dates.",
+      "id": "o_created_date",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_rebuild_keeps_the_date_it_was_made",
+          "test_deck.py::test_rebuild_moves_the_changed_date",
+          "test_deck.py::test_rebuild_keeps_a_made_date_written_another_way",
+          "test_deck.py::test_rebuild_over_a_damaged_deck"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 20
+    },
+    {
+      "band": "core",
+      "basis": "A built deck is still 16:9, every slide still uses one layout that uses the master that uses the theme, and every picture still covers the whole slide from the corner once the shape tree's group transforms are composed. A picture that carries no place of its own is measured where the layout, and then the master, put the placeholder it fills, so a writer that lets a picture placeholder inherit its bounds is read the same way a viewer reads it; a picture this reading cannot place at all is left out rather than held against the deck. The master's background is read the way a viewer resolves it (through the colour map, the theme and the colour transforms in the order they are written) and is held to white only when it can be read at all: any fill, colour element or transform the reading does not implement comes back undecided and is not held against the build, so no way of writing white can cost a correct fix.",
+      "id": "g_deck_shape",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_deck.py::test_deck_shape_is_unchanged",
+          "test_rebuilds.py::test_the_master_still_paints_the_white_background",
+          "test_rebuilds.py::test_the_colour_reading_follows_what_it_can_and_says_so_otherwise"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 0
+    },
+    {
+      "band": "core",
+      "basis": "Nothing planted in the repository shadows the modules the checks import.",
+      "id": "g_modules_intact",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "modules": [
+          "deckgen",
+          "make_fault_table",
+          "make_parameters_slide"
+        ],
+        "type": "shadow-guard"
+      },
+      "step": "01-pptx-that-opens",
+      "weight": 0
+    }
+  ],
+  "deliverables": [
+    {
+      "kind": "file",
+      "path": "make_fault_table.py",
+      "step": "01-pptx-that-opens"
+    },
+    {
+      "kind": "file",
+      "path": "make_parameters_slide.py",
+      "step": "01-pptx-that-opens"
+    }
+  ],
+  "schema": "arena-coding/checks/1",
+  "toolchain": {
+    "deps_root": "/opt/deps",
+    "env": {
+      "PATH": "/opt/deps/venv/bin:/usr/local/bin:/usr/bin:/bin",
+      "VIRTUAL_ENV": "/opt/deps/venv"
+    },
+    "name": "python",
+    "vendored": []
+  }
+}

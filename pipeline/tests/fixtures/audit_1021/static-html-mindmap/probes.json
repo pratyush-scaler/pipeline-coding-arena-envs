@@ -1,0 +1,561 @@
+{
+  "schema": "arena-coding/probes/1",
+  "bundle": "v6",
+  "binding": {
+    "artifact_sha256": "4aaa0f4151d6ba00bc70c4ff99dc041676d78baa9fe158c3c08887d5e31c8b3a",
+    "controls_sha256": "4aaa0f4151d6ba00bc70c4ff99dc041676d78baa9fe158c3c08887d5e31c8b3a"
+  },
+  "results": {
+    "seed_zero": {
+      "reward": 0.0,
+      "ok": true
+    },
+    "golden": {
+      "reward": 1.0,
+      "ok": true
+    },
+    "empty_deliverable": {
+      "reward": 0.0,
+      "ok": true
+    },
+    "destructive": {
+      "reward": 0.0,
+      "ok": true
+    },
+    "test_tamper": {
+      "reward": 0.0,
+      "files": [
+        ".pth",
+        "conftest.py",
+        "json/__init__.py",
+        "pytest.ini",
+        "pytest/__init__.py",
+        "reward.json",
+        "sitecustomize.py",
+        "tests/test_report.py",
+        "usercustomize.py"
+      ],
+      "ok": true,
+      "problems": []
+    },
+    "early_exit": {
+      "reward": 0.0,
+      "ok": true,
+      "problems": []
+    },
+    "report_forge": {
+      "reward": null,
+      "ok": true,
+      "skipped": "no report-forgery planting for toolchain 'browser'; declare it an untested surface",
+      "problems": []
+    },
+    "benign_test": {
+      "reward": null,
+      "ok": true,
+      "skipped": "no benign-test planting for toolchain 'browser'",
+      "problems": []
+    },
+    "per_trap": {
+      "mutants": {
+        "m_baseline_firstpass": {
+          "trap": "t_firstpass_symptom",
+          "reward": 0.05,
+          "failed": [
+            "o_empty_cell",
+            "o_gray_badge",
+            "o_mark_offset",
+            "o_restore",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "declared": [
+            "o_empty_cell",
+            "o_gray_badge",
+            "o_mark_offset",
+            "o_restore",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_partial_emptyc": {
+          "trap": "t_empty_cell",
+          "reward": 0.63,
+          "failed": [
+            "o_empty_cell",
+            "o_gray_badge",
+            "o_search_punct",
+            "o_stats"
+          ],
+          "declared": [
+            "o_empty_cell",
+            "o_gray_badge",
+            "o_search_punct",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_partial_gray": {
+          "trap": "t_gray_cumulative",
+          "reward": 0.83,
+          "failed": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_fold_lower": {
+          "trap": "t_fold_width",
+          "reward": 0.29,
+          "failed": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_fold_strip_space": {
+          "trap": "t_fold_overreach",
+          "reward": 0.54,
+          "failed": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_mark_normalized_offsets": {
+          "trap": "t_mark_offset",
+          "reward": 0.83,
+          "failed": [
+            "o_mark_offset",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_regex_meta": {
+          "trap": "t_regex_meta",
+          "reward": 0.93,
+          "failed": [
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_regex_shared": {
+          "trap": "t_regex_lastindex",
+          "reward": 0.51,
+          "failed": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_snapshot_each_input": {
+          "trap": "t_restore_snapshot",
+          "reward": 0.88,
+          "failed": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_depth_three_cap": {
+          "trap": "t_level_family",
+          "reward": 0.61,
+          "failed": [
+            "o_expand_all",
+            "o_expand_click",
+            "o_mark_offset",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "declared": [
+            "o_expand_all",
+            "o_expand_click",
+            "o_mark_offset",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_badge_on_any_note": {
+          "trap": "t_gray_cumulative",
+          "reward": 0.83,
+          "failed": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_gray_group": {
+          "trap": "t_gray_cumulative",
+          "reward": 0.83,
+          "failed": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_gray_badge",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_stats_total": {
+          "trap": "t_firstpass_symptom",
+          "reward": 0.82,
+          "failed": [
+            "o_search_punct",
+            "o_stats"
+          ],
+          "declared": [
+            "o_search_punct",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_partial_matrix_openonly": {
+          "trap": "t_level_family",
+          "reward": 0.9,
+          "failed": [
+            "o_expand_all",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_expand_all",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_outline_toponly": {
+          "trap": "t_level_family",
+          "reward": 0.91,
+          "failed": [
+            "o_expand_click",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_expand_click",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_snapshot_once": {
+          "trap": "t_restore_snapshot",
+          "reward": 0.88,
+          "failed": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_hit_residue": {
+          "trap": "t_restore_snapshot",
+          "reward": 0.88,
+          "failed": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_restore",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_baseline_asciiwidth": {
+          "trap": "t_fold_width",
+          "reward": 0.29,
+          "failed": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_remote_asset": {
+          "trap": "t_offline_asset",
+          "reward": 0.0,
+          "failed": [
+            "g_local_file",
+            "o_search_punct"
+          ],
+          "declared": [
+            "g_local_file",
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_partial_fold_nameonly": {
+          "trap": "t_fold_asymmetry",
+          "reward": 0.37,
+          "failed": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "declared": [
+            "o_mark_offset",
+            "o_search_fold",
+            "o_search_mark",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_search_tx": {
+          "trap": "t_search_scope",
+          "reward": 0.53,
+          "failed": [
+            "o_search_fold",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "declared": [
+            "o_search_fold",
+            "o_search_punct",
+            "o_search_reveal",
+            "o_search_scope",
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_partial_group_nonempty": {
+          "trap": "t_group_count",
+          "reward": 0.89,
+          "failed": [
+            "o_stats"
+          ],
+          "declared": [
+            "o_stats"
+          ],
+          "ok": true
+        },
+        "m_baseline_trim": {
+          "trap": "t_blank_query",
+          "reward": 0.93,
+          "failed": [
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_has_from_c": {
+          "trap": "t_fake_clickable",
+          "reward": 0.91,
+          "failed": [
+            "o_empty_cell"
+          ],
+          "declared": [
+            "o_empty_cell"
+          ],
+          "ok": true
+        },
+        "m_badge_rename": {
+          "trap": "t_badge_class",
+          "reward": 0.9,
+          "failed": [
+            "o_gray_badge"
+          ],
+          "declared": [
+            "o_gray_badge"
+          ],
+          "ok": true
+        },
+        "m_gray_skip_top": {
+          "trap": "t_gray_depth",
+          "reward": 0.9,
+          "failed": [
+            "o_gray_badge"
+          ],
+          "declared": [
+            "o_gray_badge"
+          ],
+          "ok": true
+        },
+        "m_slash_global": {
+          "trap": "t_slash_shortcut",
+          "reward": 0.93,
+          "failed": [
+            "o_search_punct"
+          ],
+          "declared": [
+            "o_search_punct"
+          ],
+          "ok": true
+        },
+        "m_inline_fallback": {
+          "trap": "t_inline_fallback",
+          "reward": 0.0,
+          "failed": [
+            "g_local_file",
+            "o_empty_cell"
+          ],
+          "declared": [
+            "g_local_file",
+            "o_empty_cell"
+          ],
+          "ok": true
+        }
+      },
+      "ok": true
+    },
+    "answer_lookup": {
+      "reference_lines_found": [],
+      "leaks": [],
+      "ok": true,
+      "checked_lines": 42
+    },
+    "isolation": {
+      "problems": [],
+      "ok": true
+    },
+    "determinism": {
+      "runs": 3,
+      "identical": true,
+      "rewards": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "alternative": {
+      "reward": 1.0,
+      "ok": true
+    }
+  },
+  "problems": [],
+  "ok": true,
+  "untested_surfaces": [
+    "页面的配色、间距、连线样式等视觉细节（只要行为对，怎么排版不管）",
+    "搜索当下命中节点要不要描红框、用什么颜色描——只要求清空或 Esc 之后整张图回到搜之前的样子",
+    "滚动定位、scrollIntoView 的行为",
+    "按 / 聚焦搜索框这个快捷键",
+    "底部三张说明卡片和脚注的文案",
+    "节点数量很大时的性能",
+    "非 Chromium 浏览器的表现",
+    "真实输入法组合态（compositionstart/update）期间的中间态",
+    "report-forgery 和 benign-test 两个控制项在 browser 工具链下没有执行",
+    "页面内部用什么路子把 data.js 里的数据送进渲染：直接读 window.DATA、先 JSON 绕一圈、还是自己造一个 blob:/data: 资源再读回来都不管（已用 blob 版实现跑过 probe，十二项目标加护栏全过）；护栏只认有没有真的去服务器/外网要东西（http/https/ws/wss/ftp）",
+    "量「搜之前长什么样」用的是在页面脚本跑起来之前就扣在闭包里的 Reflect.apply + getComputedStyle + Node.textContent + CSSStyleDeclaration.getPropertyValue，量的时候只直接调这几个闭包引用（不经过 Function.prototype.call、不经过 Array 原型），所以页面后来改掉哪些全局都影响不到计量；除此之外不对实现内部的函数、变量、调用顺序做任何要求。还有一类没有被覆盖：如果有人干脆把 .n.hit 那条描框样式整个删掉（用户明说样式别动），那搜前搜后都没有框，这项比较就谈不上差异——我们不做任何按字节/按文本扫描样式表的检查。",
+    "隐藏用例不规定搜索过程中（还没清空时）非命中分支的收放策略：指令只约束清空/Esc 之后要回到搜之前的样子，中途是每次改字都先打回起点还是一直叠加，两种写法都算对",
+    "隐藏用例不规定点击收起一个节点时要不要顺手把它更深层的展开状态一起清掉",
+    "隐藏用例不规定焦点不在搜索框里时按 Esc 要不要清空",
+    "隐藏用例不规定输入法 composition 期间的逐帧行为，也不规定滚动定位、动画与性能",
+    "browser 工具链没有 benign-test 与 report-forgery 控制项：用例全部从测试进程这一侧读 DOM，不依赖页面自己打印的任何东西，但也因此没有对应的自动控制证据",
+    "报告伪造面：browser 工具链没有 report-forgery 植入控制，隐藏用例只读页面自己的 DOM 与统计行，不读任何被测代码打印出来的东西",
+    "搜索进行中手动点开/收起某一支之后再清空的还原语义：指令没有规定，隐藏用例不涉及",
+    "搜索进行中按三个展开按钮之后的状态：指令没有规定，隐藏用例不涉及",
+    "滚动位置是否随清空一起还原：指令没有规定，隐藏用例不涉及",
+    "隐藏用例不判定搜索词在名字里「互相重叠」的两处出现算一次还是两次（例如 A·A 里搜 A·A），指令没有结论，属于未测面",
+    "隐藏用例不判定搜索进行中非命中分支该不该收起（用户只说清空/Esc 之后要回到搜之前的样子），也不判定 Esc 在焦点不在搜索框时的行为",
+    "browser 工具链下 report-forgery / benign-test 这两项控制被跳过：用例不读任何子进程的输出，只读自己在浏览器里量到的 DOM 与计算样式",
+    "隐藏用例不判定下级留空的节点在数据里写成 c: [] 还是干脆不写 c 的区别（两种写法按同一条规则处理），也不判定灰区原因为空字符串时的长相",
+    "benign regression-test control: no benign-test planting for toolchain 'browser'",
+    "report-forgery control: no report-forgery planting for toolchain 'browser'; declare it an untested surface",
+    "in-process test execution: code the hidden tests import shares the grader's interpreter. The runtime refuses to run a suite over a changed file that names an introspection primitive (frames, gc, closures, the plugin manager, __main__, exec/eval) and the report_forge control proves that refusal; an obfuscated primitive the token scan does not name is not covered"
+  ],
+  "required": [
+    "seed_zero",
+    "golden",
+    "empty_deliverable",
+    "destructive",
+    "test_tamper",
+    "early_exit",
+    "report_forge",
+    "benign_test",
+    "per_trap",
+    "answer_lookup",
+    "isolation"
+  ],
+  "hack_probes": [
+    "empty_deliverable",
+    "destructive",
+    "test_tamper",
+    "early_exit",
+    "report_forge",
+    "answer_lookup"
+  ]
+}
