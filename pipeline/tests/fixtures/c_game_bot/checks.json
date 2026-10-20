@@ -1,0 +1,258 @@
+{
+  "checks": [
+    {
+      "band": "core",
+      "basis": "landing_zone must measure a run of consecutive same-height points end to end, so a zone split into several short pieces still spans its full width, a run that is closed by the end of the listing rather than by a point at another height still counts, and a repeated point inside the run does not cut it in two, while flat ground at one height that another feature interrupts is not one run, and a wider flat run that doubles back is not the zone however wide it is.",
+      "id": "o_zone_run",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_landing_zone_runs",
+          "test_corners.py::test_landing_zone_on_the_users_maps",
+          "test_shapes.py::test_zone_run_to_the_end_of_the_listing"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 11
+    },
+    {
+      "band": "core",
+      "basis": "A flat run that doubles back right to left is an overhang underside and must never be chosen as the landing zone, and a run that nothing follows, or that nothing precedes, is still a run: the pad that closes the listing and the pad that opens it are the zone, and a soft touchdown on either is a landing.",
+      "id": "o_zone_fold",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_landing_zone_overhang_map",
+          "test_ground.py::test_zone_that_ends_the_listing"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 5
+    },
+    {
+      "band": "core",
+      "basis": "clearance must measure against the nearest surface at or below the point: inside a cave, above its roof, under an overhanging shelf, where the point sits exactly on a piece of surface, and at an x where the surface the map lists is a vertical rock face, which occupies every height it spans.",
+      "id": "o_clear_fold",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_clearance_under_overhang",
+          "test_shapes.py::test_clearance_on_a_rock_face"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 4
+    },
+    {
+      "band": "stretch",
+      "basis": "With no surface at or below the point, clearance has no answer and must say so, under an overhanging shelf, below the ground, and inside the body of a shelf whose only surface at that x is over the point.",
+      "id": "o_clear_none",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_clearance_with_nothing_below",
+          "test_shapes.py::test_no_ground_under_the_pocket"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 2
+    },
+    {
+      "band": "core",
+      "basis": "A gentle touchdown anywhere on the landing zone is a landing, with the harness's turn and fuel numbers, including a pad whose run closes on the last point the map lists; a touchdown that reaches the same ground carrying more sideways speed than the landing allows is not, however softly it came down; a landing only counts against the map the recording was flown on, so audited against a map whose starting state is not the one its first line records - a kilometre away, a different tank, or the same place with the ship held at another tilt or another thrust - the same recording is junk at that first line; and the ground all of that is measured against is the surface the map lists, the vertical face of a cliff included, so a ship level with that face has nothing at all between it and rock while a ship one unit to the side of it measures down to the floor.",
+      "id": "o_land_run",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_landing_far_side_of_zone",
+          "test_shapes.py::test_landing_on_the_last_run",
+          "test_machine.py::test_recording_from_another_map",
+          "test_edges.py::test_touchdown_drifting_sideways",
+          "test_edges.py::test_first_line_against_three_maps",
+          "test_edges.py::test_clearance_inside_a_rock_face"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 9
+    },
+    {
+      "band": "core",
+      "basis": "A touchdown is a landing only when the piece of ground the move crossed is part of the zone and the line it ends on is upright and inside both speed limits; where the line it ends on happens to sit, and how the ground it reached is shaped, decide nothing - and a line recording a descent rate that one turn of its own thrust against gravity could not have produced from the line before it is not a touchdown at all but a doctored file.",
+      "id": "o_crash_ledge",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_touchdown_off_the_zone_is_a_crash",
+          "test_audit.py::test_touchdown_still_tilted",
+          "test_audit.py::test_touchdown_at_the_rim_of_the_zone",
+          "test_corners.py::test_touchdown_on_ground_that_is_not_the_zone",
+          "test_machine.py::test_speeds_that_could_not_have_been"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 13
+    },
+    {
+      "band": "core",
+      "basis": "What the move ran into decides the flight: a landing under an overhang on the zone inside it, a cliff face the ship goes straight through while coming to rest over the pad, the same face clipped ten units under the rim on a move that crosses the pad itself later, an ordinary soft touchdown on that pad that must stay a landing, and a touchdown on a thin shelf whose top the move reaches before the underside the map happens to list first.",
+      "id": "o_cave_land",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_landing_inside_the_cave",
+          "test_shapes.py::test_first_piece_is_the_wall",
+          "test_ground.py::test_shelf_listed_from_below"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 9
+    },
+    {
+      "band": "core",
+      "basis": "A move that passes through rock between two recorded lines ends the flight there, whichever way the ship was going: on a built recording, on the two level 3 runs the repository already holds, and on two rises that end inside the rock above an overhang's underside - and the path the audit judges has to be one the machine could have flown, so a file whose positions step sideways faster than its own speeds allow is junk at that line instead.",
+      "id": "o_clip",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_ground_crossed_between_two_lines",
+          "test_audit.py::test_the_level_three_recordings",
+          "test_corners.py::test_through_the_underside_of_an_overhang",
+          "test_machine.py::test_path_that_could_not_have_been"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 12
+    },
+    {
+      "band": "core",
+      "basis": "Lines that break any part of the machine's limits make the file junk: the tilt range and step, whole degrees, the thrust range and step in both directions, whole thrust levels and the fuel arithmetic - while a recording that moves everything at the full legal rate stays good.",
+      "id": "o_bogus",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_impossible_recordings",
+          "test_corners.py::test_more_impossible_lines"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 13
+    },
+    {
+      "band": "stretch",
+      "basis": "An empty tank drops the thrust to zero in one turn without making the file junk, any later line that claims thrust on an empty tank does, and so does a line whose thrust column reads 0 on an empty tank while the ship goes on descending at a rate only a live engine could hold.",
+      "id": "o_bogus_dry",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_recording_that_runs_the_tank_dry",
+          "test_machine.py::test_engine_dead_and_still_slowing"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 8
+    },
+    {
+      "band": "floor",
+      "basis": "An impossible line anywhere in the file wins over the flight's own verdict, whether the flight ended by touching down or by leaving the box many turns before that line, and a file with a line removed and the turns renumbered is junk at the line that cannot follow the one before it.",
+      "id": "o_bogus_after",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_impossible_line_after_the_end",
+          "test_shapes.py::test_impossible_line_after_it_left_the_box",
+          "test_machine.py::test_a_line_taken_out_of_the_file"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 8
+    },
+    {
+      "band": "floor",
+      "basis": "A recording whose line is outside the box is lost in space before anything that turn crossed counts, by whichever side of the box it left - over the top, out of the bottom with nothing under it, or back past the left-hand edge; a run that went through a ridge many turns before it left the box ended at the ridge; and a recording that simply runs out with the ship in the air is still flying, unless one of its lines could not have come from the line before it, in which case the file is junk - a tilt below the bottom of its range and a gauge that has lost more than the thrust that was used are as impossible as the same two the other way up.",
+      "id": "o_endings",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_audit.py::test_runs_that_do_not_touch_down",
+          "test_corners.py::test_past_the_end_of_the_surface",
+          "test_shapes.py::test_crash_before_it_leaves_the_box",
+          "test_edges.py::test_out_of_the_box_going_west",
+          "test_edges.py::test_limits_in_both_directions"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 6
+    },
+    {
+      "band": "core",
+      "basis": "The six level-1 and level-2 runs still audit as LANDED on the turn and fuel the user's own report records, replayed from grader-owned copies of those maps and recordings.",
+      "id": "g_six",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_regression.py::test_existing_runs_unchanged"
+        ],
+        "type": "pytest"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 0
+    },
+    {
+      "band": "core",
+      "basis": "Nothing planted may shadow the audit module the checks import.",
+      "id": "g_shadow",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "modules": [
+          "audit"
+        ],
+        "type": "shadow-guard"
+      },
+      "step": "01-audit-the-recorded-runs",
+      "weight": 0
+    }
+  ],
+  "deliverables": [
+    {
+      "kind": "file",
+      "path": "mars-lander-test/audit.py",
+      "step": "01-audit-the-recorded-runs"
+    }
+  ],
+  "schema": "arena-coding/checks/1",
+  "toolchain": {
+    "deps_root": "/opt/deps",
+    "env": {
+      "PATH": "/opt/deps/venv/bin:/usr/local/bin:/usr/bin:/bin",
+      "VIRTUAL_ENV": "/opt/deps/venv"
+    },
+    "name": "python",
+    "vendored": []
+  }
+}

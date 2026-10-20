@@ -1,0 +1,199 @@
+"""Audit checks on recordings against the machine that is supposed to have flown them.
+
+Every map and recording here is written fresh into the test's own directory and
+replayed with the referee's own arithmetic, so nothing the submission writes is
+ever read back.
+"""
+import csv
+import math
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.environ["ARENA_REPO"], "mars-lander-test"))
+
+import audit  # noqa: E402
+
+G = 3.711
+
+D1_POINTS = [(0, 1200), (800, 300), (1600, 300), (2200, 900), (3000, 1400),
+             (3200, 500), (4400, 500), (5600, 500), (6000, 900), (6600, 900),
+             (6999, 1400)]
+D4_POINTS = [(0, 900), (1000, 1300), (1800, 800), (2600, 300), (4200, 300),
+             (4700, 500), (4800, 1700), (3800, 1700), (3400, 1500), (3900, 2100),
+             (4600, 2300), (5200, 1400), (6999, 1800)]
+
+MAPS = {
+    "d1": (D1_POINTS, (5000, 2600, 0, 0, 900, 0, 0)),
+    "d1b": (D1_POINTS, (3800, 600, 0, -15, 300, 0, 4)),
+    "d1c": (D1_POINTS, (3800, 600, 0, -15, 900, 0, 4)),
+    "d4": (D4_POINTS, (3440, 2600, 0, 0, 900, 0, 0)),
+    "d7": (D1_POINTS, (4400, 2600, 0, 0, 46, 0, 0)),
+}
+
+CMD_TEXT = {}
+CMD_TEXT["d1_land"] = (
+    "0:0 0:0 0:0 0:0 0:0 0:1 0:2 0:3 0:3 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 "
+    "0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 "
+    "0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 "
+    "0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:4 0:4 0:4 0:4")
+CMD_TEXT["d4_clip"] = (
+    "0:0 0:0 0:0 0:0 0:0 0:0 36:4 28:4 24:4 18:4 10:4 3:4 -1:4 -4:4 -7:4 -7:4 -8:4 -8:4 -7:4 -6:4 "
+    "-5:4 -4:4 -4:4 -3:4 -2:4 -1:4 -1:4 0:4 0:4 0:4 0:4 0:3 1:4 0:4 0:3 1:4 0:4 0:4 0:3 0:4 0:4 "
+    "0:3 0:4 1:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 "
+    "-1:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 1:3 0:4 0:4 0:4 0:3 0:4 0:4 0:3 "
+    "0:4 0:4 0:4 0:3 0:4 0:4 0:3 0:4 0:4 0:4 0:4 0:4 0:4 0:4 0:4 0:4")
+
+
+def _commands(key):
+    return [tuple(int(v) for v in token.split(":")) for token in CMD_TEXT[key].split()]
+
+
+def _step(state, cmd_rot, cmd_pwr):
+    x, y, vx, vy, fuel, rot, pwr = state
+    rot = max(min(max(rot - 15, min(rot + 15, cmd_rot)), 90), -90)
+    pwr = max(pwr - 1, min(pwr + 1, cmd_pwr))
+    if fuel <= 0:
+        fuel = 0
+        pwr = 0
+    fuel -= pwr
+    ax = pwr * math.cos(math.radians(rot + 90))
+    ay = pwr * math.sin(math.radians(rot + 90)) - G
+    x += vx + ax / 2
+    y += vy + ay / 2
+    vx += ax
+    vy += ay
+    return (x, y, vx, vy, fuel, rot, pwr)
+
+
+def _replay(start, commands):
+    state = tuple(float(v) for v in start)
+    rows = []
+    turn = 1
+    for cmd in commands:
+        rows.append([turn] + list(state))
+        state = _step(state, *cmd)
+        turn += 1
+    rows.append([turn] + list(state))
+    return rows
+
+
+def _write_map(path, points, start):
+    with open(path, "w") as f:
+        f.write("%d\n" % len(points))
+        for x, y in points:
+            f.write("%d %d\n" % (x, y))
+        f.write(" ".join(str(v) for v in start) + "\n")
+    return path
+
+
+def _write_rows(path, rows):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["turn", "x", "y", "vx", "vy", "fuel", "rot", "pwr"])
+        w.writerows(rows)
+    return path
+
+
+def _map_file(tmp_path, key):
+    points, start = MAPS[key]
+    return _write_map(os.path.join(str(tmp_path), "map_%s.txt" % key), points, start)
+
+
+def _case(tmp_path, map_key, name, commands, patch=None):
+    rows = _replay(MAPS[map_key][1], commands)
+    if patch is not None:
+        rows = patch(rows)
+    traj = _write_rows(os.path.join(str(tmp_path), "traj_%s.csv" % name), rows)
+    return _map_file(tmp_path, map_key), traj
+
+
+def _number(value):
+    """The value as a plain number, or None when it is not a number at all."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _verdict(result):
+    assert isinstance(result, dict), "audit_run did not return a dict"
+    for key in ("verdict", "turn", "fuel_left"):
+        assert key in result, "audit_run result has no %r" % key
+    turn, fuel = _number(result["turn"]), _number(result["fuel_left"])
+    assert turn is not None and fuel is not None, "audit_run gave turn=%r fuel_left=%r" % (
+        result["turn"], result["fuel_left"])
+    return (result["verdict"], int(turn), fuel)
+
+
+def _soft_ending(rows):
+    rows = [r[:] for r in rows]
+    rows[-1][4] = -38.0
+    return rows
+
+
+def _shifted_west(rows):
+    rows = [r[:] for r in rows]
+    for row in rows[45:]:
+        row[1] -= 200.0
+    return rows
+
+
+def _line_taken_out(rows):
+    rows = [r[:] for r in rows]
+    del rows[2]
+    for k in range(2, len(rows)):
+        rows[k][0] -= 1
+    return rows
+
+
+def _held_descent(rows):
+    rows = [r[:] for r in rows]
+    vx, vy = rows[21][3], rows[21][4]
+    for k in range(22, len(rows)):
+        before = rows[k - 1]
+        rows[k][1] = before[1] + vx
+        rows[k][2] = before[2] + vy
+        rows[k][3] = vx
+        rows[k][4] = vy
+        rows[k][5] = 0.0
+        rows[k][6] = 0.0
+        rows[k][7] = 0.0
+    return rows
+
+
+def test_speeds_that_could_not_have_been(tmp_path):
+    m, t = _case(tmp_path, "d1", "fall", [(0, 3)] * 73)
+    assert _verdict(audit.audit_run(m, t)) == ("CRASH", 73, 684.0)
+    m2, t2 = _case(tmp_path, "d1", "fallsoft", [(0, 3)] * 73, _soft_ending)
+    assert _verdict(audit.audit_run(m2, t2)) == ("BOGUS", 74, 684.0)
+
+
+def test_path_that_could_not_have_been(tmp_path):
+    m, t = _case(tmp_path, "d4", "clipped", _commands("d4_clip"))
+    assert _verdict(audit.audit_run(m, t)) == ("CRASH", 49, 740.0)
+    m2, t2 = _case(tmp_path, "d4", "shifted", _commands("d4_clip"), _shifted_west)
+    assert _verdict(audit.audit_run(m2, t2)) == ("BOGUS", 46, 754.0)
+
+
+def test_a_line_taken_out_of_the_file(tmp_path):
+    m, t = _case(tmp_path, "d1", "whole", _commands("d1_land"))
+    assert _verdict(audit.audit_run(m, t)) == ("LANDED", 90, 589.0)
+    m2, t2 = _case(tmp_path, "d1", "cut", _commands("d1_land"), _line_taken_out)
+    assert _verdict(audit.audit_run(m2, t2)) == ("BOGUS", 3, 900.0)
+
+
+def test_engine_dead_and_still_slowing(tmp_path):
+    runs = [(0, 0)] * 8 + [(0, 4)] * 70
+    m, t = _case(tmp_path, "d7", "empty", runs)
+    assert _verdict(audit.audit_run(m, t)) == ("CRASH", 43, 0.0)
+    m2, t2 = _case(tmp_path, "d7", "coast", runs, _held_descent)
+    assert _verdict(audit.audit_run(m2, t2)) == ("BOGUS", 23, 0.0)
+
+
+def test_recording_from_another_map(tmp_path):
+    home, t = _case(tmp_path, "d1b", "home", [(0, 4)] * 8)
+    assert _verdict(audit.audit_run(home, t)) == ("LANDED", 8, 268.0)
+    elsewhere = _map_file(tmp_path, "d1")
+    assert _verdict(audit.audit_run(elsewhere, t)) == ("BOGUS", 1, 300.0)
+    twin = _map_file(tmp_path, "d1c")
+    assert _verdict(audit.audit_run(twin, t)) == ("BOGUS", 1, 300.0)
