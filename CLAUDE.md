@@ -149,7 +149,11 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   shipped tasks that every gate above had passed). Release blocks unless:
   every decisive check (failed by >= `SIGNAL_HARD_FAIL_RATE` of a model's runs)
   is judged settled by both families with the deciding sentence quoted
-  (`reading_settled`, verification/reading-settled.json); every failing run
+  (`reading_settled`, verification/reading-settled.json) -- settled means the
+  words decide the correct outcome in the tested case: a precision slip or an
+  implementation shortcut is not a second reading, and an input form nothing
+  public shows is settled only by words that say how to treat it (the first
+  wording flagged traps the audit ruled fair); every failing run
   that asked about or chose on the decision it lost is judged settled, else
   `ambiguity_suspect` withholds the genuine certificate
   (verification/genuine-ambiguity.json); every promise the clause map flags
