@@ -931,7 +931,8 @@ WHAT THE GUARDRAIL SAYS IT CHECKS ({check} | {runner})
 ---------------------------------
 {basis}
 
-THE FAILING ASSERTION (from the grader's output)
+THE FAILING ASSERTION (from the grader's output; when the grader printed none, the run's failure detail and the
+guardrail's test source follow it)
 ------------------------------------------------
 {assertion}
 
@@ -961,6 +962,30 @@ def _failing_assertion(rec: dict, structural: bool) -> tuple[str, str]:
     else:
         text = output[-cap:] or str(rec.get("error") or rec.get("reason") or "")
     return text, _VOLATILE.sub("~", head or text)
+
+
+def _genuine_detail(bundle: Path, trial: str, check: str) -> str:
+    """The genuine-failure certificate's detail for this run's failure of this check, when it recorded one."""
+    record = _json(Path(bundle) / "verification/genuine.json", {}) or {}
+    for ep in record.get("episodes") or []:
+        if ep.get("id") == trial:
+            for f in ep.get("failures") or []:
+                if f.get("check") == check and f.get("detail"):
+                    return "\n--- failure detail (verification/genuine.json) ---\n" + str(f["detail"])[:2000]
+    return ""
+
+
+def _guardrail_source(bundle: Path, runner: dict) -> str:
+    """The test files a guardrail runs (its runner's `select`), so a judge can see what failed."""
+    suites, out = Path(bundle) / "tests/suites", []
+    for sel in runner.get("select") or []:
+        name = str(sel).split("::")[0]
+        for path in sorted(suites.rglob(Path(name).name)) if suites.is_dir() else []:
+            if path.is_file():
+                out.append(f"\n--- guardrail test source: {path.relative_to(suites)} ---\n"
+                           + path.read_text(encoding="utf-8", errors="replace")[:policy.GUARDRAIL_ZEROED_EVIDENCE_CHARS])
+                break
+    return "".join(out)
 
 
 def _earned(grade: dict) -> float:
@@ -1001,6 +1026,12 @@ def runs_guardrail_zeroed(bundle: Path, trials: list[dict], *, ask=None) -> list
                 continue
             runner = (checks.get(cid) or {}).get("runner") or {}
             text, stable = _failing_assertion(rec, runner.get("type") in STRUCTURAL)
+            if not _ASSERT_LINE.search(text):
+                # node-test and command checks keep no assertion text in the grade (2026-10-21: two shipped
+                # node guardrails reached the judges as "exit 1" and came back UNCLEAR): give them the
+                # certificate's failure detail for this run and the guardrail's own test source.
+                text = (text + _genuine_detail(bundle, t["trial"], cid) + _guardrail_source(bundle, runner))[
+                    :policy.GUARDRAIL_ZEROED_EVIDENCE_CHARS * 3]
             key = (t["step"], cid, hashlib.sha256(stable.encode()).hexdigest())
             group = groups.setdefault(key, {"step": t["step"], "check": cid, "assertion": text, "trials": []})
             group["trials"].append({"model": t["model"], "trial": t["trial"], "earned": earned})
