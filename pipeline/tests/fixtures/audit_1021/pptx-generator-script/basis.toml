@@ -1,0 +1,135 @@
+# The public basis of every check: what the instruction says, verbatim.
+# A hidden test enforces a stated requirement; this file is where a reviewer
+# finds that requirement without reading test code.
+
+[o_bold_glossary]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "Glossary lines render the highlighted term as strong and still read character for character as on the slide -- including a term tightened up by hand so the yellow ends right against the explanation, and a highlight the user widened by hand onto a neighbouring space or bracket -- and the slide's own headings arrive in the script with no bold at all. The hand edit finds the yellow stretch by the colour a viewer sees, so it widens the highlight of a deck that stores that colour as a theme reference just as it widens one stored as a literal value: executed this session, the shipped alternative writes every amber stretch as a:schemeClr accent1 (with the theme's accent1 set to FBBF24) and every face as +mn-lt, and scores 1.0 on this check."
+runner = "pytest"
+rule_quote = ["жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно.", "текст слайда в .md должен читаться слово в слово как на слайде, ни одного символа не убавить и не прибавить.", "текст бери из собранной колоды: перед тем как делать .md, я иногда правлю слайды руками в powerpoint, и эти правки должны попадать в .md."]
+trap = "t_bold_flanking"
+
+[o_escape_inline]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "Slide text with emphasis marks, code ticks, angle brackets, a bracketed link, a stray backslash or an ampersand sequence copied off a web page still reads exactly as written once rendered, and so do the spaces a line is indented with or left hanging at its end."
+runner = "pytest"
+rule_quote = ["я в tour_content.py пишу что попало — звёздочки, подчёркивания, обратные кавычки, угловые скобки, ссылки в квадратных скобках, строки, которые начинаются с номера или с дефиса, — и всё это в .md должно остаться обычным текстом, а не превращаться в разметку.", "текст слайда в .md должен читаться слово в слово как на слайде, ни одного символа не убавить и не прибавить."]
+trap = "t_escape_class"
+
+[o_escape_linestart]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "A slide line reads in the script exactly as it reads on the slide and stays ordinary text, whatever the line happens to open with -- a dash, a hash, a number of any length followed by a dot or a bracket, or a sign the user never mentioned. Executed in the pinned image: markdown-it 3.0.0 turns '+  тёплый пол в ванной, если хватит денег' into a list item and the '+' and its spaces disappear from the visible text. Asked directly what that line must show in the viewer, both calibration families answered '+  тёплый пол в ванной' -- the reference's reading (determinacy probe, this session; the probe's automatic agreement flag compares the quoted answer form literally)."
+runner = "pytest"
+rule_quote = ["я в tour_content.py пишу что попало — звёздочки, подчёркивания, обратные кавычки, угловые скобки, ссылки в квадратных скобках, строки, которые начинаются с номера или с дефиса, — и всё это в .md должно остаться обычным текстом, а не превращаться в разметку.", "текст слайда в .md должен читаться слово в слово как на слайде, ни одного символа не убавить и не прибавить."]
+trap = "t_escape_head_sign"
+
+[o_linebreak]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "A line break inside one slide line stays a line break and never glues the two sides together, wherever on the slide that line now sits."
+runner = "pytest"
+rule_quote = ["если внутри строки есть перенос, он должен остаться переносом, слова склеивать нельзя.", "текст слайда в .md должен читаться слово в слово как на слайде, ни одного символа не убавить и не прибавить.", "текст бери из собранной колоды: перед тем как делать .md, я иногда правлю слайды руками в powerpoint, и эти правки должны попадать в .md."]
+trap = "t_linebreak_runs"
+
+[o_translation]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "Every slide carries, under its own text and in slide order, the translation written beside that slide in the content file, as the user wrote it -- including a translation whose own lines begin with the very signs the slide text has to be protected from."
+runner = "pytest"
+rule_quote = ["перевод лежит в tour_content.py рядом с текстом слайда — бери его оттуда: под каждым слайдом свой перевод, в том же порядке, что и слайды.", "перевод я пишу сам и уже с разметкой, его трогать не надо, вставляй как есть."]
+trap = "t_ru_source"
+
+[o_match_apostrophe]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "A listed phrase still counts when the slide spells its apostrophe the other way round or separates its words with a non-breaking space, and it counts just the same when it is the user's own word list that carries the non-breaking space and the slide an ordinary one -- while the slide text keeps its own characters and a listed word that only opens a longer word still gets nothing. The hidden deck carries the phrase in both directions, with shorter listed words inside both of them; one of the two tests reads the deck the user's own build command produces, so a script that gets the colours right earns it even when its .md is wrong. Both calibration families, asked directly which stretch of that line must be yellow, answered 'laundry basket' (determinacy probe, this session). The deck half reads the colour a viewer sees, resolving a theme reference the way powerpoint does: executed this session, the alternative builder, which stores the amber as a scheme colour, passes this check."
+runner = "pytest"
+rule_quote = ["подсвечивать надо так: слово целиком, регистр не важен, апостроф в тексте может быть любой — прямой или типографский, для меня это одно и то же слово, а между словами фразы иногда стоит неразрывный пробел (копирую из словаря) — это всё равно та же фраза.", "если одна фраза из списка входит в другую, подсвечиваем длинную.", "сам текст при этом менять нельзя: ни регистр, ни апострофы.", "tour_content.py не трогай, я его сам правлю и дописываю туда новые слайды и новые слова.", "жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно."]
+trap = "t_match_nbsp_list"
+
+[o_match_interlock]
+kind = "objective"
+step = "01-bold-script"
+band = "core"
+basis = "On a line where the identity rule and the reach of a listed entry meet, the long phrase spelt with the other apostrophe is the one highlighted and a listed word that merely opens a longer word stays plain -- on the user's own replies and on the ones he typed later into the content file, where the long phrase is also the one that contains a shorter listed entry. The yellow mask is read off the effective colour of each character (the run's own, the paragraph's, the frame's, the layout's, and a theme reference resolved through the deck's own theme), so a correct matcher that stores the colour differently keeps the check: executed this session, the scheme-colour alternative passes it."
+runner = "pytest"
+rule_quote = ["подсвечивать надо так: слово целиком, регистр не важен, апостроф в тексте может быть любой — прямой или типографский, для меня это одно и то же слово, а между словами фразы иногда стоит неразрывный пробел (копирую из словаря) — это всё равно та же фраза.", "если одна фраза из списка входит в другую, подсвечиваем длинную.", "сам текст при этом менять нельзя: ни регистр, ни апострофы.", "жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно."]
+trap = "t_match_wholeword"
+
+[o_match_scope]
+kind = "objective"
+step = "01-bold-script"
+band = "stretch"
+basis = "Slide headings, the user's own reminders and glossary explanations never get the highlight colour, and the lines the user speaks get it on every kind of slide he speaks from -- the cover and the two list slides as well as the rooms. Both the positive masks and the negative heading and reminder assertions are read from the colour a viewer sees, with theme references and colour transforms resolved the way powerpoint resolves them, so an equivalent builder that stores the amber differently keeps the check: executed this session, the shipped alternative writes every amber stretch as a scheme colour and scores 1.0."
+runner = "pytest"
+rule_quote = ["жёлтым — только то, что я говорю на слайде, и сам термин в словаре.", "заголовки, мои напоминалки себе и объяснения в словаре не подсвечиваем."]
+trap = "t_match_scope"
+
+[o_numbering]
+kind = "objective"
+step = "01-bold-script"
+band = "floor"
+basis = "Room headings are numbered consecutively from 01 in slide order, whatever numbers the content file carries. The assertion reads the whole leading number token of the heading, not a prefix of it: executed this session on the real pipeline, a build whose heading format is '%02d0  ·  %s' shows '010  ·  WELCOME', '020  ·  THE ENTRANCE', ... and is reported as `номер комнаты ... вышло '010', надо '01'`, while the reference's '01  ·  WELCOME' passes."
+runner = "pytest"
+rule_quote = ["номера комнат проставляй сам, подряд: 01, 02, 03 и дальше."]
+trap = "t_numbering_stale"
+
+[o_deck_is_source]
+kind = "objective"
+step = "01-bold-script"
+band = "stretch"
+basis = "Everything the user's hand left on the slide reaches the regenerated script: edited text, words typed into a little table, boxes grouped together (a group inside a group), a field powerpoint dropped into a line -- word for word, with the yellow stretch bold as one piece and a break inside a cell still a break -- and text no longer on the slide does not. Executed this session: the field case fails an exporter that walks only the runs of a paragraph, and the reference and the alternative, which both read the field's cached text, score 1.0."
+runner = "pytest"
+rule_quote = ["текст бери из собранной колоды: перед тем как делать .md, я иногда правлю слайды руками в powerpoint, и эти правки должны попадать в .md.", "текст слайда в .md должен читаться слово в слово как на слайде, ни одного символа не убавить и не прибавить.", "если внутри строки есть перенос, он должен остаться переносом, слова склеивать нельзя.", "жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно."]
+trap = "t_deck_source"
+
+[o_split_runs]
+kind = "objective"
+step = "01-bold-script"
+band = "stretch"
+basis = "Rearranging a slide in powerpoint without touching its text changes nothing in the rendered script: a highlighted stretch cut into pieces, boxes grouped together, and a stretch that is yellow because the paragraph carries the colour all come out exactly as before, bold as one piece with the spaces outside the stars. The hand edit that moves a colour into the paragraph defaults first freezes the effective properties of every character, and it recognises the yellow by the colour a viewer sees rather than by the way the deck writes it: executed this session, the alternative builder stores that colour as a theme reference and still scores 1.0 on this check."
+runner = "pytest"
+rule_quote = ["powerpoint при этом режет строку на куски — от такой нарезки в .md меняться ничего не должно.", "жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно.", "текст бери из собранной колоды: перед тем как делать .md, я иногда правлю слайды руками в powerpoint, и эти правки должны попадать в .md."]
+trap = "t_split_runs"
+
+[o_match_longest]
+kind = "objective"
+step = "01-bold-script"
+band = "floor"
+basis = "When one listed phrase contains another, the longer one is the phrase that gets the colour. The deck half of the expectation is the yellow mask a viewer sees, with a theme-backed colour resolved like any other: executed this session, the scheme-colour alternative passes it, so the check grades the choice of phrase and not the colour's encoding."
+runner = "pytest"
+rule_quote = ["если одна фраза из списка входит в другую, подсвечиваем длинную.", "жирное делай как сейчас, двумя звёздочками, и жирным должен выходить ровно подсвеченный жёлтым кусок без пробелов по краям, а больше ничего из текста слайда жирным быть не должно."]
+trap = "t_match_longest"
+
+[g_deck_look]
+kind = "guardrail"
+step = "01-bold-script"
+band = "core"
+basis = "Slide size, body and reminder font size and name, the glossary line's own size and name, and the highlight colour stay as they are. Size, face and colour are the effective ones: the reader walks the run's own properties, the paragraph defaults, the frame's lstStyle, the matching placeholder in the layout and the master, the master's text styles and the presentation's default text style; it resolves a face written as +mn-lt or +mj-lt through the deck's font scheme and a colour written as srgbClr, hslClr, scrgbClr (linear light, through the sRGB transfer curve), prstClr, sysClr or schemeClr (through the colour scheme and the master's colour map); it computes every drawingml colour transform, so a transform that changes nothing changes nothing here either; and a number in an attribute is read as a number, so sz='01600' and a slide width with a leading zero are the same size and the same slide. Executed this session, one node each: plain FBBF24, <a:hslClr hue=\"2595349\" sat=\"96413\" lum=\"56275\"/>, <a:scrgbClr r=\"96469\" g=\"52100\" b=\"1764\"/>, <a:redMod val=\"100000\"/>, <a:greenMod/><a:blueMod val=\"100000\"/>, <a:tint val=\"100000\"/><a:shade val=\"100000\"/> and <a:alpha val=\"100000\"/> all read FBBF24; brightness -0.5 (<a:lumMod val=\"50000\"/>) reads 8D6603, brightness +0.4 reads FDD97C, <a:redMod val=\"50000\"/> reads 7EBF24, <a:gray/> reads BFBFBF, and a highlight made transparent (<a:alpha val=\"0\"/>) reads as no colour -- so every way of writing the same visible amber keeps this guardrail and every visibly different or invisible highlight loses it. The shipped alternative keeps the same visible typography while writing every face as +mn-lt and the amber as a scheme colour, and the guardrail holds for it."
+runner = "pytest"
+rule_quote = ["вид слайдов не меняй — шрифты, цвета и размеры как есть."]
+
+[g_content_untouched]
+kind = "guardrail"
+step = "01-bold-script"
+band = "core"
+basis = "tour_content.py is the user's file and must come back byte for byte."
+runner = "hash-guard"
+rule_quote = ["tour_content.py не трогай, я его сам правлю и дописываю туда новые слайды и новые слова."]
+
+[g_no_shadow]
+kind = "guardrail"
+step = "01-bold-script"
+band = "core"
+basis = "No file planted in the repository may shadow the libraries the generated artefacts are read with."
+runner = "shadow-guard"
+rule_quote = ["скрипты лежат в /app/repo, запускаю всегда так: python3 build_tour.py && python3 gen_script.py — имена файлов и команды не меняй."]

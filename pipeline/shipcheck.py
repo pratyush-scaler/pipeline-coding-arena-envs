@@ -30,6 +30,17 @@ for it; each detector is the cheapest check that would have caught its case.
                           check no shipped episode passed                         (browser-canvas-010)
     level.name            the ledger's level, the package name and its folder agree
 
+User, 2026-10-21, after the external audit of Batch 3 (22 problems in 11 tasks, every one past
+every gate above):
+
+    guardrail.shadow_conftest  no shadow-guard lists conftest among its modules: it would zero a
+                          correct solution that adds a test helper                (3 shipped tasks)
+    coverage.clause_*     every promise the instruction makes, in any language, is quoted by a
+                          check whose tests can detect its violation, or declared undetermined
+                          (pipeline/clause_map.py; replaces the English-only regexes)
+    runs.guardrail_zeroed a guardrail that zeroed a shipped episode's earned points failed on an
+                          assertion both families judge inside its own sentence   (slide-pptx 4DUqEWP)
+
 Every finding carries its fix ROUTE and the MEASUREMENT the fixed task needs
 (user, 2026-10-07): a fix the agent can see -- image, fixture, deps -- is
 re-screened 5+5 before it ships; a grader-only or hidden-only fix is re-graded
@@ -60,6 +71,8 @@ from . import policy
 SCHEMA = "arena-coding/shipcheck/1"
 RECEIPT = "verification/shipcheck.json"
 WAIVERS = "verification/shipcheck-waivers.json"
+#: Both families' judgements of every guardrail failure that zeroed earned points (runs_guardrail_zeroed).
+GUARDRAIL_RECEIPT = "verification/guardrail-zeroed.json"
 
 #: Debian bookworm's /etc/profile, line 7: the PATH every non-root login shell
 #: starts from (read from the pinned python base, 2026-10-07).
@@ -485,7 +498,11 @@ def _published(text: str, instructions: str) -> bool:
 
 
 def untested_unjustified(bundle: Path) -> list[dict]:
-    """ADVISORY (not in the sweep: a text heuristic, not executed evidence)."""
+    """ADVISORY pre-filter, never in the sweep: an English text heuristic.
+
+    User, 2026-10-21 (external audit): the instructions are Russian, Chinese, Persian and Japanese, so these
+    regexes never matched them. The blocking rule is clause_map's: a promised clause no check quotes counts as
+    declared untested only when an untested surface quotes it AND carries _DETERMINACY_REASON."""
     record = _json(Path(bundle) / "verification/probes.json") or {}
     instructions = "\n".join(p.read_text(encoding="utf-8", errors="replace")
                              for p in sorted(Path(bundle).glob("steps/*/instruction.md")))
@@ -506,22 +523,13 @@ _PRESERVE = re.compile(r"\b(?:leave|unchanged|untouched|as it is|as is|keep (?:i
                        r"for now|byte[- ]identical|not be (?:changed|edited|modified))\b", re.I)
 
 
-def preservation_unguarded(bundle: Path) -> list[dict]:
-    """A fixture file an instruction sentence says to leave alone must be protected by a hash-guard or named
-    by a hidden suite (Arena feedback 2026-10-08, fastapi-backend: 'leave the html for now' and nothing
-    compared frontend/index.html with the original)."""
+def _preservation_sentences(bundle: Path):
+    """(step, sentence, fixture path) for every instruction sentence telling the agent to leave a fixture file
+    alone, in English. Seeds the clause map (clause_map._seeds) so a family that misses one cannot drop it."""
     bundle = Path(bundle)
     manifest = _json(bundle / "tests/fixture-manifest.json", {}) or {}
     manifest = manifest.get("files", manifest) if isinstance(manifest, dict) else {}
     paths = [p for p in manifest if isinstance(p, str)]
-    checks = (_json(bundle / "tests/checks.json", {}) or {}).get("checks") or []
-    guarded = [str(x) for c in checks if (c.get("runner") or {}).get("type") == "hash-guard"
-               for x in (c.get("runner") or {}).get("paths") or []]
-    suites = bundle / "tests/suites"
-    suite_text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in sorted(suites.rglob("*"))
-                           if p.is_file() and p.suffix in (".py", ".js", ".mjs", ".cjs", ".ts", ".go", ".php", ".sh")) \
-        if suites.is_dir() else ""
-    out, seen = [], set()
     for inst in sorted(bundle.glob("steps/*/instruction.md")):
         text = inst.read_text(encoding="utf-8", errors="replace")
         for sentence in re.split(r"(?<=[.!?\n])\s+", text):
@@ -533,13 +541,79 @@ def preservation_unguarded(bundle: Path) -> list[dict]:
                 if "." not in name or len(name) < 5 or (rel.lower() not in low and not re.search(
                         r"(?<![\w.-])" + re.escape(name.lower()) + r"(?![\w-])", low)):
                     continue
-                covered = any(rel == g or rel.startswith(g.rstrip("/") + "/") for g in guarded) \
-                    or rel in suite_text or name in suite_text
-                if not covered and rel not in seen:
-                    seen.add(rel)
-                    out.append(finding("coverage.preservation", rel,
-                                       f"the instruction says to leave it ('{sentence.strip()[:120]}') but no hash-guard "
-                                       "protects it and no hidden suite reads it", route="harden", measure="regrade"))
+                yield inst.parent.name, sentence, rel
+
+
+def preservation_unguarded(bundle: Path) -> list[dict]:
+    """A fixture file an instruction sentence says to leave alone must be protected by a hash-guard or named
+    by a hidden suite (Arena feedback 2026-10-08, fastapi-backend: 'leave the html for now' and nothing
+    compared frontend/index.html with the original).
+
+    A cheap English pre-filter since 2026-10-21 (user, after the external audit), no longer in the blocking
+    sweep: its sentences seed the clause map, whose (b) and (c) decide whether they are enforced."""
+    bundle = Path(bundle)
+    checks = (_json(bundle / "tests/checks.json", {}) or {}).get("checks") or []
+    guarded = [str(x) for c in checks if (c.get("runner") or {}).get("type") == "hash-guard"
+               for x in (c.get("runner") or {}).get("paths") or []]
+    suites = bundle / "tests/suites"
+    suite_text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in sorted(suites.rglob("*"))
+                           if p.is_file() and p.suffix in (".py", ".js", ".mjs", ".cjs", ".ts", ".go", ".php", ".sh")) \
+        if suites.is_dir() else ""
+    out, seen = [], set()
+    for _, sentence, rel in _preservation_sentences(bundle):
+        name = rel.rsplit("/", 1)[-1]
+        covered = any(rel == g or rel.startswith(g.rstrip("/") + "/") for g in guarded) \
+            or rel in suite_text or name in suite_text
+        if not covered and rel not in seen:
+            seen.add(rel)
+            out.append(finding("coverage.preservation", rel,
+                               f"the instruction says to leave it ('{sentence.strip()[:120]}') but no hash-guard "
+                               "protects it and no hidden suite reads it", route="harden", measure="regrade"))
+    return out
+
+
+def clause_coverage(bundle: Path) -> list[dict]:
+    """Every promised clause enforced as a whole or declared undetermined (pipeline/clause_map.py); the map is
+    rebuilt when its receipt is stale for this grading surface."""
+    from . import clause_map
+    return clause_map.clause_findings(bundle)
+
+
+def _conftest_entry(name) -> bool:
+    return str(name).strip().rstrip("/").rsplit("/", 1)[-1] in ("conftest", "conftest.py")
+
+
+def guardrail_shadow_conftest(bundle: Path) -> list[dict]:
+    """A shadow-guard listing conftest among its modules zeroes a correct solution that adds a test helper.
+
+    User, 2026-10-21, after the external audit (3 shipped tasks; a_f1_pptx-generator-script's g_no_shadow lists
+    ['pptx', 'markdown_it', 'tourcheck', 'handwork', 'conftest']). grade.py's shadow-guard derives the module an
+    added .py file defines and counts a hit when that module or its last component is listed (`module_hit`); for
+    an added conftest.py the last component is `conftest`. Its added-conftest exemption applies only
+    `if leaf == "conftest.py" and not module_hit and full not in names`, so a listed `conftest` (every added
+    conftest.py, at any depth) or `<dir>/conftest[.py]` (that one) skips it; the leaf is in SHADOW_FILES and the
+    guardrail fails. exclude_added_conftests already removes every added conftest.py from the copy each check
+    runs on, so none could reach a hidden test. Executed 2026-10-21 with the shipped guard: reference +
+    tests/conftest.py fails it, and passes once 'conftest' is removed (pipeline/tests/test_shipcheck_audit_1021.py).
+    """
+    out = []
+    for c in (_json(Path(bundle) / "tests/checks.json", {}) or {}).get("checks") or []:
+        runner = c.get("runner") or {}
+        if runner.get("type") != "shadow-guard":
+            continue
+        named = [m for m in runner.get("modules") or [] if _conftest_entry(m)]
+        if not named:
+            continue
+        fixed = {**runner, "modules": [m for m in runner.get("modules") or [] if not _conftest_entry(m)]}
+        out.append(finding(
+            "guardrail.shadow_conftest", f"tests/checks.json#{c.get('id')}",
+            f"{c.get('id')} (shadow-guard) lists {', '.join(map(str, named))} among its modules: grade.py then counts "
+            "an added conftest.py it names as a module hit, which skips the added-conftest exemption, and the file "
+            "name is in SHADOW_FILES, so a correct solution that adds a test helper (e.g. tests/conftest.py) fails "
+            "this guardrail and its step scores 0 -- although exclude_added_conftests already removes every added "
+            "conftest.py from each copy a check runs on. Remove the entry from the check's runner.modules and "
+            "re-grade the captured episodes", route="harden", measure="regrade",
+            evidence=[json.dumps({"check_set": [{"id": c.get("id"), "field": "runner", "value": fixed}]})]))
     return out
 
 
@@ -823,6 +897,158 @@ def runs_guardrail_share(bundle: Path, trials: list[dict]) -> list[dict]:
     return out
 
 
+GUARDRAIL_PROMPT = """\
+A coding agent's work was graded by hidden tests. One GUARDRAIL check failed, and a failed guardrail sets the \
+whole step's reward to 0 even though the work earned points on other checks. A guardrail may only enforce the \
+instruction sentence(s) it quotes. Decide whether the FAILING ASSERTION below tests what that sentence promises.
+
+INSTRUCTION
+-----------
+{instruction}
+
+THE GUARDRAIL'S SENTENCE(S), quoted from the instruction
+-------------------------------------------------------
+{rule}
+
+WHAT THE GUARDRAIL SAYS IT CHECKS ({check} | {runner})
+---------------------------------
+{basis}
+
+THE FAILING ASSERTION (from the grader's output)
+------------------------------------------------
+{assertion}
+
+INSIDE means the assertion that failed checks something the sentence promises, so failing it means the work \
+broke that sentence.
+OUTSIDE means the assertion that failed checks something else -- another requirement, a property the sentence \
+never mentions, a helper's precondition -- so the guardrail zeroed the step for a defect outside its sentence.
+
+Reply with at most five sentences of reasoning, then exactly one final line:
+VERDICT: <INSIDE|OUTSIDE|UNCLEAR>"""
+
+#: Parts of a grader's output that differ between runs of the same failing assertion.
+_VOLATILE = re.compile(r"0x[0-9a-fA-F]+|/tmp/\S*|\bin \d+(?:\.\d+)?s\b|pytest-\d+|\bwork-\w+")
+_ASSERT_LINE = re.compile(r"\s*(?:E\s|>\s|FAILED\b|not ok\b|AssertionError|\w*Error:|assert\b)")
+
+
+def _failing_assertion(rec: dict, structural: bool) -> tuple[str, str]:
+    """(what the judges read, the stable text that identifies this failure across runs)."""
+    cap = policy.GUARDRAIL_ZEROED_EVIDENCE_CHARS
+    if structural:
+        reason = str(rec.get("reason") or "")[:cap]
+        return reason, reason
+    output = "\n".join(str(rec.get(k) or "") for k in ("stdout", "stderr")).strip()
+    head = "\n".join(line for line in output.splitlines() if _ASSERT_LINE.match(line))
+    if head:
+        text = head[:cap // 2] + "\n--- output tail ---\n" + output[-(cap // 2):]
+    else:
+        text = output[-cap:] or str(rec.get("error") or rec.get("reason") or "")
+    return text, _VOLATILE.sub("~", head or text)
+
+
+def _earned(grade: dict) -> float:
+    if isinstance(grade.get("earned"), (int, float)):
+        return float(grade["earned"])
+    return sum(float(r.get("weight") or 0) for r in (grade.get("checks") or {}).values()
+               if isinstance(r, dict) and r.get("kind") == "objective" and r.get("passed"))
+
+
+def _guardrail_verdict(reply: str | None) -> str | None:
+    found = re.findall(r"VERDICT:\s*\**\s*(INSIDE|OUTSIDE|UNCLEAR)", reply or "")
+    return found[-1] if found else None
+
+
+def runs_guardrail_zeroed(bundle: Path, trials: list[dict], *, ask=None) -> list[dict]:
+    """Every guardrail failure that zeroed a shipped episode's earned points, judged against its own sentence.
+
+    User, 2026-10-21, after the external audit (class 6): a_f1_python-slide-pptx-generation's g_deck_shape
+    quotes "same 16:9, same white master and theme, the picture still filling the whole slide", yet its Deck()
+    helper asserts one core-properties relationship first; Fable run package__4DUqEWP earned 20 points with a
+    properties-only defect and scored 0. runs_guardrail_share sees only a guardrail most of one model's runs fail.
+    Here both calibration families read the guardrail's rule sentence and the failing assertion: the failure
+    stands only when every family answers INSIDE. OUTSIDE from any family, UNCLEAR, or a family that errs (asked
+    again by the next sweep) blocks. Judgements are kept in GUARDRAIL_RECEIPT, bound to the grading sha.
+    """
+    from . import clause_map
+    from .author.checks import STRUCTURAL
+    bundle = Path(bundle)
+    checks = {c["id"]: c for c in (_json(bundle / "tests/checks.json", {}) or {}).get("checks", []) if c.get("id")}
+    groups: dict[tuple, dict] = {}
+    for t in trials:
+        earned = _earned(t["grade"])
+        if earned <= 0:
+            continue
+        for cid, rec in (t["grade"].get("checks") or {}).items():
+            kind = (checks.get(cid) or {}).get("kind") or (rec.get("kind") if isinstance(rec, dict) else None)
+            if kind != "guardrail" or not isinstance(rec, dict) or rec.get("passed") or rec.get("gated_out"):
+                continue
+            runner = (checks.get(cid) or {}).get("runner") or {}
+            text, stable = _failing_assertion(rec, runner.get("type") in STRUCTURAL)
+            key = (t["step"], cid, hashlib.sha256(stable.encode()).hexdigest())
+            group = groups.setdefault(key, {"step": t["step"], "check": cid, "assertion": text, "trials": []})
+            group["trials"].append({"model": t["model"], "trial": t["trial"], "earned": earned})
+    if not groups:
+        return []
+    ask = ask or clause_map._ask
+    models = clause_map.judges()
+    current = clause_map.grading_sha(bundle)
+    old = _json(bundle / GUARDRAIL_RECEIPT, {}) or {}
+    known = {tuple(r["key"]): r for r in old.get("rows") or [] if r.get("key")} \
+        if old.get("grading_sha256") == current else {}
+    quotes = clause_map.rule_quotes(bundle)
+    texts = clause_map.instructions(bundle)
+    rows = []
+    for key, group in sorted(groups.items()):
+        check = checks.get(group["check"]) or {}
+        answers = {m: a for m, a in ((known.get(key) or {}).get("answers") or {}).items()
+                   if m in models and isinstance(a, dict) and a.get("verdict")}
+        missing = tuple(m for m in models if m not in answers)
+        if missing:
+            prompt = GUARDRAIL_PROMPT.format(
+                instruction=texts.get(group["step"], "(no instruction)").strip(),
+                rule="\n".join(quotes.get(group["check"]) or []) or "(the guardrail quotes no sentence)",
+                check=group["check"], runner=(check.get("runner") or {}).get("type"),
+                basis=str(check.get("basis") or "(none)")[:3000], assertion=group["assertion"])
+            for m, a in clause_map.ask_families(prompt, _guardrail_verdict, models=missing, ask=ask).items():
+                answers[m] = ({"error": a["error"]} if "error" in a else
+                              {"verdict": a["answer"], "reasoning": a["reply"],
+                               **({"judge": a["judge"]} if a.get("judge") else {})})
+        verdicts = [(answers.get(m) or {}).get("verdict") for m in models]
+        verdict = ("outside" if "OUTSIDE" in verdicts else "inside" if verdicts and all(v == "INSIDE" for v in verdicts)
+                   else "unclear" if "UNCLEAR" in verdicts else "unadjudicated")
+        rows.append({"key": list(key), **group, "rule": quotes.get(group["check"]) or [], "answers": answers,
+                     "verdict": verdict})
+    from .artifacts import atomic_json
+    atomic_json(bundle / GUARDRAIL_RECEIPT, {"schema": "arena-coding/guardrail-zeroed/1", "grading_sha256": current,
+                                             "judges": list(models), "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                                             "rows": rows})
+    out = []
+    for row in rows:
+        if row["verdict"] == "inside":
+            continue
+        seen = ", ".join(f"{t['model']}/{t['trial']} earned {t['earned']:g}" for t in row["trials"][:4])
+        head = f"guardrail {row['check']} zeroed {len(row['trials'])} shipped episode(s) that had earned points ({seen})"
+        subject = f"{row['step']}/{row['check']}/{row['key'][2][:12]}"
+        evidence = [row["assertion"][:1500]] + [f"{m}: {a.get('verdict') or a.get('error')}: "
+                                                 f"{str(a.get('reasoning') or '')[-600:]}" for m, a in sorted(row["answers"].items())]
+        if row["verdict"] in ("outside", "unclear"):
+            said = sorted(m for m, a in row["answers"].items() if a.get("verdict") in ("OUTSIDE", "UNCLEAR"))
+            lines = [line.strip() for line in row["assertion"].splitlines() if line.strip()]
+            failed = next((line for line in lines if line.startswith("E ")), lines[0] if lines else "")
+            out.append(finding("runs.guardrail_zeroed", subject,
+                               f"{head} on an assertion {', '.join(said)} judge(s) {row['verdict']} its sentence "
+                               f"{' / '.join(row['rule'])[:200]!r}: {failed[:200]} -- narrow the guardrail's tests to "
+                               "what its sentence promises (a hidden-only repair) and re-grade the captured episodes",
+                               route="harden", measure="regrade", evidence=evidence))
+        else:
+            why = "; ".join(f"{m}: {a.get('error')}" for m, a in sorted(row["answers"].items()) if a.get("error"))
+            out.append(finding("runs.guardrail_zeroed", subject,
+                               f"{head}; not adjudicated by every family ({why[:240]}) -- an unadjudicated guardrail "
+                               "failure blocks until the next sweep asks again", route="regenerate", measure="none",
+                               evidence=evidence))
+    return out
+
+
 def runs_certified(bundle: Path, trials: list[dict]) -> list[dict]:
     genuine = _json(bundle / "verification/genuine.json")
     if genuine is None:
@@ -863,9 +1089,11 @@ def _waived(item: dict, granted: list[dict]) -> dict | None:
 def sweep(bundle: Path, *, runs: Path | None = None, image: bool = False, repro: bool = False) -> dict:
     bundle = Path(bundle)
     found: list[dict] = []
+    # User, 2026-10-21 (external audit): preservation_unguarded left the blocking sweep for clause_coverage,
+    # which reads every language; its sentences now seed the clause map.
     for detector in (grader_current, login_shell, deps_declared, docs_toolchain, fixture_outside_paths,
-                     ledger_omissions, level_name, coverage, critic_empty,
-                     preservation_unguarded, sandbox_refer, step_timeouts, suite_unrooted_scan):
+                     ledger_omissions, level_name, coverage, critic_empty, clause_coverage,
+                     guardrail_shadow_conftest, sandbox_refer, step_timeouts, suite_unrooted_scan):
         found += detector(bundle)
     probe, reproduced = {}, {}
     if image:
@@ -877,7 +1105,8 @@ def sweep(bundle: Path, *, runs: Path | None = None, image: bool = False, repro:
     runs = Path(runs) if runs else (bundle / "runs" if (bundle / "runs/index.json").is_file() else None)
     trials = shipped_trials(runs) if runs else []
     if runs:
-        found += runs_refusals(bundle, trials) + runs_guardrail_share(bundle, trials) + runs_certified(bundle, trials)
+        found += runs_refusals(bundle, trials) + runs_guardrail_share(bundle, trials) \
+            + runs_guardrail_zeroed(bundle, trials) + runs_certified(bundle, trials)
     granted = waivers(bundle)
     for item in found:
         waiver = _waived(item, granted)
@@ -942,6 +1171,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--write", action="store_true", help=f"write {RECEIPT}")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    # The clause map and the guardrail adjudication ask both calibration families (keys.env, 2026-10-21).
+    from .cli import load_keys
+    load_keys(prompt_if_missing=False)
     failed = 0
     for bundle in args.bundles:
         report = sweep(bundle, runs=args.runs, image=args.image, repro=args.repro)

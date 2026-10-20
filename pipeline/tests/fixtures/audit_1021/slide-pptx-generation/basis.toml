@@ -1,0 +1,127 @@
+# The public basis of every check: what the instruction says, verbatim.
+# A hidden test enforces a stated requirement; this file is where a reviewer
+# finds that requirement without reading test code.
+
+[o_package_opens]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Decks a consumer has to be able to open: three slides built through build_deck, a whole study of eleven slides whose pictures repeat and whose kinds are mixed, a deck whose media are not all the same kind, and a deck of captures that came off the instrument rather than out of a library. Each is read back the way an OPC consumer reads it -- no repeated part names, no folder entries, every part covered by the content types with the type its relationship role requires (so a media part's own name has to agree with what the stream declares for it), every XML part well formed, every internal relationship resolving against its source part, the slides in the order they were given, each slide showing its own picture unchanged. And when what is sitting at the output path cannot be read back as a deck at all, a build that has to be refused names the file that is wrong, leaves that file byte for byte as it was -- its permissions included -- and adds nothing to the folder: over a picture that is missing, over two files from the share that carry a picture only part of the way (a capture cut off inside the scan whose own small preview still ends the way a jpeg ends, and a print cut off inside its data with the tail of another file glued on behind it), over a capture the stick wrote with nothing in it at all, and over a capture cut off inside its scan that has the next file's block sitting behind it -- a whole small jpeg with its own end marker, then the first bytes of a png -- so the end marker that is in the file belongs to another picture and the capture's own picture is not all there. determinacy_probe of that last file against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer \"fails naming the file\"; the cut capture with the preview was probed the same way and both answer \"refused\". A build that has everything it needs then replaces what is at the path with a package that reads back cleanly, the whole capture going in as it is. That replacement goes over a copy that stopped part way through the share, which the user settles himself: a file already there that is too broken to get the made date off it does not stop the build, the date just starts fresh -- determinacy_probe of exactly that file is determinate on claude-fable-5-1 and gpt-6-astra, both answering that the build replaces it with a deck that opens. Every call is made in an interpreter of its own, so nothing the repository ships runs in the process that judges these files, and whether a call came back is settled before anything is done with what came back."
+runner = "pytest"
+rule_quote = ["powerpoint says it needs repair and then it drops everything out of the file, and the copy i sent my supervisor had slide 2 showing the picture from slide 1.", "both make_fault_table.py and make_parameters_slide.py have to give me a deck that opens.", "my scope saves jpeg and matlab saves png, both kinds have to work, and a picture has to go into the file exactly as it is, no re-saving and no converting", "the slides have to come out in the order i hand them over.", "if a picture is missing or is not a real picture file i want a clear error that tells me which file it is, not a broken pptx: the deck that was already there has to stay exactly as it was and nothing new left lying around in that folder.", "a file that only has part of the picture in it is no good to me either, if the whole picture isnt in there i want the same error.", "some of what is in that folder came back off the share in bits, so if the file thats already sitting there is too broken for you to get that date off it, dont let that stop the build, just start that date fresh."]
+trap = "t_eoi_in_the_preview"
+
+[o_picture_formats]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Four decks of pictures: one whose files are .png, .PNG, .jpeg and .JPG; one folder of captures where the names the instruments wrote do not all agree with the data in the files and one capture was left filled out to a whole block on the stick; a third built from the captures as the stick and the restore left them (a print with a block of fill behind its last chunk, a capture filled out behind its end marker, a capture whose first segment is the badge its own pipeline stamps on it, an ordinary print); and a fourth off the stick where the names say nothing at all about the data -- a capture written as scope_0042 with no extension in its name, a print written as run_17.bin, the same capture again under copies/scope_0042.JPG and a second nameless capture. In all four the content types declare one default per extension (compared the way OPC compares them), every part of the package has a content type at all, every stored picture ends up with a content type that matches the kind of data it actually holds, the bytes are stored exactly as the file holds them (fill included), the capture handed over under two names is stored once, and every slide shows its own picture. A fifth build goes over the same run: a print is built into one deck, the file at that path is then written again as a capture, and the deck built from it afterwards in that same run has to hold the capture, declared for what it now is. determinacy_probe of the nameless capture against the instruction: claude-fable-5-1 and gpt-6-astra both answer image/jpeg. determinacy_probe of the filled-out print: both answer \"goes in with all 3979 bytes\" (a second run of the same probe had gpt-6-astra agreeing and claude-fable-5-1 returning no answer); the capture whose name disagrees with its data was probed too and both answer image/jpeg. The builds are made in an interpreter of their own and judged from the package this process reads back itself."
+runner = "pytest"
+rule_quote = ["my scope saves jpeg and matlab saves png, both kinds have to work, and a picture has to go into the file exactly as it is, no re-saving and no converting", "which kind each one is has to come out of the picture itself.", "a file that only has part of the picture in it is no good to me either, if the whole picture isnt in there i want the same error.", "the scope and the restored backup turn out some odd files, but as long as the whole picture is in there it goes in as it is.", "both make_fault_table.py and make_parameters_slide.py have to give me a deck that opens."]
+trap = "t_kind_by_name"
+
+[o_picture_binding]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Pictures reach the package as the files they are: in a four slide deck of distinct pictures each slide's reference resolves through its own relationships to a part whose bytes equal the source file, a redrawn picture rebuilt in the same session replaces what the deck held before, a whole but very large picture goes in beside an ordinary one, pictures whose file dates are nonsense still go in, and no source file is touched."
+runner = "pytest"
+rule_quote = ["if the same picture is on more than one slide it has to be stored only once (the last one was 20 mb for 3 slides), two different pictures stay two even when the files happen to have the same name, and every slide has to show its own picture", "my scope saves jpeg and matlab saves png, both kinds have to work, and a picture has to go into the file exactly as it is, no re-saving and no converting", "if a picture is missing or is not a real picture file i want a clear error that tells me which file it is, not a broken pptx: the deck that was already there has to stay exactly as it was and nothing new left lying around in that folder."]
+trap = "t_picture_refused"
+
+[o_media_once]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Decks that repeat pictures across slides: two different pictures that share a file name, one picture reached through two different paths, the same picture under two spellings of its name and under two different extensions, and two figures printed from the same run that came back under one name in two run folders, are the same size, are identical for their first 64 kB and differ only in their last rows. Each distinct picture is stored exactly once, the slides between them link exactly as many distinct package parts as there are distinct pictures (targets resolved to the part they name, however they are spelled), and every slide still shows the picture it was given."
+runner = "pytest"
+rule_quote = ["if the same picture is on more than one slide it has to be stored only once (the last one was 20 mb for 3 slides), two different pictures stay two even when the files happen to have the same name, and every slide has to show its own picture"]
+trap = "t_identity_by_name"
+
+[o_heading_text]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Headings carrying maths, units and padding come back out of the parsed slide parts as the exact strings they were given, and so do headings typed with the shapes markup itself uses -- an ampersand spelled out, a less-than spelled out, a numeric character reference -- which have to read back character for character out of the slide and out of the deck title rather than as the markup they look like."
+runner = "pytest"
+rule_quote = ["the heading has to come back out of the file exactly the way i typed it, i put units and maths in my headings and right now the file breaks on that.", "i need the heading on each slide to be real text in the file that i can edit in powerpoint."]
+trap = "t_escape_order"
+
+[o_doc_props]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "The deck's title is exactly the first slide's heading, character for character including any padding and anything that is not a plain letter, and the slide count in the properties is the real number of slides: for a deck built fresh, for a deck whose first heading was typed with padding, and for the same deck built again over itself with different slides."
+runner = "pytest"
+rule_quote = ["the info pane in powerpoint has to show the real number of slides and the heading of the first slide as the title, right now it says 1 slide and some old title.", "the heading has to come back out of the file exactly the way i typed it, i put units and maths in my headings and right now the file breaks on that."]
+trap = "t_title_tidy"
+
+[o_build_failure]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Builds whose picture is missing, is a directory, is a text file, or holds only the first part of a jpeg or of a png each raise an error naming that path; a build carrying both a whole very large picture and a half saved one names the half saved one; and in every case the deck already at the output path is byte for byte unchanged and no new file is left in the folder."
+runner = "pytest"
+rule_quote = ["if a picture is missing or is not a real picture file i want a clear error that tells me which file it is, not a broken pptx: the deck that was already there has to stay exactly as it was and nothing new left lying around in that folder.", "my scope saves jpeg and matlab saves png, both kinds have to work, and a picture has to go into the file exactly as it is, no re-saving and no converting"]
+trap = "t_half_a_picture"
+
+[o_text_only_slide]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "stretch"
+basis = "In a deck whose middle slide has no picture and whose outer slides share one picture, the middle slide keeps its heading and shows no picture, the outer slides both still show that picture, and it is stored once; every slide of that deck, the heading only one included, still hangs off the same layout, master and theme the rest of the deck uses, so a slide with nothing to point at is not left unattached; and a deck whose slides are all headings and no pictures at all still opens, with every heading on its own slide and no picture anywhere in it. determinacy_probe of the heading only slide's relationship against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer that it still has to carry the slideLayout relationship."
+runner = "pytest"
+rule_quote = ["not every slide has a picture, some of them are just the heading", "if the same picture is on more than one slide it has to be stored only once (the last one was 20 mb for 3 slides), two different pictures stay two even when the files happen to have the same name, and every slide has to show its own picture", "both make_fault_table.py and make_parameters_slide.py have to give me a deck that opens."]
+trap = "t_absent_picture"
+
+[o_scripts]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "stretch"
+basis = "Both scripts are run the way the user runs them and the deck each hands back is read: it opens, holds its own slides with their own pictures in the right order, the two tables are not swapped, the properties carry the first heading as the title and the real slide count. One script is run again over the deck it left in the folder, which has to keep the date that deck recorded for when it was made. And each is run the way its own signature allows and the user types it -- one with the folder as a plain string that does not exist yet, one with nothing handed to it at all, falling back on the folder it defaults to -- and both still have to build a deck and hand back the path it went to. determinacy_probe of those two calls against the instruction is determinate: claude-fable-5-1 and gpt-6-astra both answer that they still have to build a deck and hand back its path."
+runner = "pytest"
+rule_quote = ["both make_fault_table.py and make_parameters_slide.py have to give me a deck that opens.", "i run them as main(out_dir) and use the path they hand back, and from my notebook i call build_deck(slides, path) with Slide(heading, picture), so keep all of that working the way it is now.", "the date in there that says when the deck was made has to stay the day it was first made, only the changed date moves when i build it again.", "the info pane in powerpoint has to show the real number of slides and the heading of the first slide as the title, right now it says 1 slide and some old title."]
+trap = "t_sibling_writer"
+
+[o_file_mode]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "stretch"
+basis = "Rebuilding over a deck that is mode 664 leaves the file mode 664, rebuilding over a deck that is mode 640 leaves it 640, and rebuilding over a file at that path that cannot be read back as a deck at all leaves that file's mode alone too, while the contents change. That last file is a copy that stopped part way through the share, and whether a build goes through over it is settled by the user's fallback -- too broken to get the made date off it does not stop the build -- which determinacy_probe returns determinate on both claude-fable-5-1 and gpt-6-astra (\"replaces it with a deck that opens\"); the mode it has to be left on is settled by the permissions sentence alone."
+runner = "pytest"
+rule_quote = ["that deck sits in the shared folder with 664 on it so the others can read it, and last time i had to chmod it back after a rebuild, it has to keep the permissions it already had.", "some of what is in that folder came back off the share in bits, so if the file thats already sitting there is too broken for you to get that date off it, dont let that stop the build, just start that date fresh."]
+trap = "t_mode_preservation"
+
+[o_old_dates]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "stretch"
+basis = "Pictures whose file timestamps are nonsense in either direction, from before the zip epoch and from long after this build, still end up in the deck with their own bytes on their own slides, and the files on disk are not re-saved to get them there."
+runner = "pytest"
+rule_quote = ["some of my pictures came back off a restored backup so the file dates on them are nonsense, that must not stop them going in.", "if the same picture is on more than one slide it has to be stored only once (the last one was 20 mb for 3 slides), two different pictures stay two even when the files happen to have the same name, and every slide has to show its own picture"]
+trap = "t_zip_timestamp"
+
+[o_created_date]
+kind = "objective"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "What a rebuild takes from the deck that is already at the path: the made date stays exactly as that deck recorded it, whatever shape it was written in, the changed date moves off whatever the deck carried in the past and in the future, and a deck that came back damaged is still replaced by one that opens and shows each slide's own picture with dates the pane can read. That last case is the user's own fallback rather than an unstated policy: when the file sitting at the path is too broken to get that date off it, the build is not to stop and the made date starts fresh, so a writer that keeps every readable made date and starts a fresh one only where none can be read passes, and one that refuses to build over such a file does not. determinacy_probe of both damaged shapes against the instruction is determinate: for a copy that stopped part way through the share and for a deck still a zip whose properties member came back with a bad block, claude-fable-5-1 and gpt-6-astra both answer that the build replaces it with a deck that opens and carries both dates."
+runner = "pytest"
+rule_quote = ["the date in there that says when the deck was made has to stay the day it was first made, only the changed date moves when i build it again.", "my ppt is still not opening. powerpoint says it needs repair and then it drops everything out of the file, and the copy i sent my supervisor had slide 2 showing the picture from slide 1.", "if a picture is missing or is not a real picture file i want a clear error that tells me which file it is, not a broken pptx: the deck that was already there has to stay exactly as it was and nothing new left lying around in that folder.", "some of what is in that folder came back off the share in bits, so if the file thats already sitting there is too broken for you to get that date off it, dont let that stop the build, just start that date fresh."]
+trap = "t_created_carry"
+
+[g_deck_shape]
+kind = "guardrail"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "A built deck is still 16:9, every slide still uses one layout that uses the master that uses the theme, and every picture still covers the whole slide from the corner once the shape tree's group transforms are composed. A picture that carries no place of its own is measured where the layout, and then the master, put the placeholder it fills, so a writer that lets a picture placeholder inherit its bounds is read the same way a viewer reads it; a picture this reading cannot place at all is left out rather than held against the deck. The master's background is read the way a viewer resolves it (through the colour map, the theme and the colour transforms in the order they are written) and is held to white only when it can be read at all: any fill, colour element or transform the reading does not implement comes back undecided and is not held against the build, so no way of writing white can cost a correct fix."
+runner = "pytest"
+rule_quote = ["dont change anything else about the deck: same 16:9, same white master and theme, the picture still filling the whole slide."]
+
+[g_modules_intact]
+kind = "guardrail"
+step = "01-pptx-that-opens"
+band = "core"
+basis = "Nothing planted in the repository shadows the modules the checks import."
+runner = "shadow-guard"
+rule_quote = ["i run them as main(out_dir) and use the path they hand back, and from my notebook i call build_deck(slides, path) with Slide(heading, picture), so keep all of that working the way it is now."]

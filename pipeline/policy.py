@@ -969,3 +969,19 @@ ARENA_REPRO_WORKSPACE = "arena-coding-3"
 #: Ship gate: True refuses to publish a zip whose receipt is missing, stale (zip bytes changed) or not oracle 1.0 /
 #: NOP 0.0 on the pinned harness at the pinned resources.
 ARENA_REPRO_REQUIRED = True
+
+
+# --- 2026-10-21 audit: shipcheck guardrails and clause coverage ---
+#: Characters of a failing guardrail's grader output (its assertion lines, then the output tail) that both
+#: calibration families read when they judge whether the assertion tests the guardrail's own sentence
+#: (shipcheck.runs_guardrail_zeroed). User, 2026-10-21, after the external audit: slide-pptx's g_deck_shape
+#: ("same 16:9, same white master and theme") zeroed Fable run package__4DUqEWP, which had earned 20 points, on a
+#: core-properties assertion its sentence never mentions; that pytest record's whole output is 3,205 characters,
+#: so 6,000 shows a full failure of that size while keeping a runaway log out of the prompt.
+GUARDRAIL_ZEROED_EVIDENCE_CHARS = 6000
+#: Characters of one step's hidden suites the clause-map judges read when they decide whether the checks that
+#: quote a clause can detect a violation of the whole clause (pipeline/clause_map.py, layer c); the files those
+#: checks run come first. User, 2026-10-21, after the external audit (a "keep fonts, colours and sizes" guardrail
+#: that checks one colour; "keep the classes and styles" quoted by a shadow-guard). The coverage critic shows up to
+#: 260,000 (coverage_critic.SUITE_TOTAL_CAP); the judges answer one yes/no per clause, so a little less.
+CLAUSE_MAP_SUITE_CHARS = 200_000
