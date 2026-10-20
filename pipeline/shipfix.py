@@ -518,6 +518,18 @@ def release(version: Path) -> dict:
         record["ready"] = False
         path.write_text(json.dumps(record, indent=1, default=str))
         return record
+    # 2026-10-21 (external audit): a hidden check rewarding one reading of a point the instruction does not settle
+    # (coverage.unsettled, route instruction) is also stopped before the 10 x 2 calibration. Its own step, not the
+    # critic gate: a hidden-only round cannot settle an instruction, so it goes to a full release-repair round.
+    unsettled = [f for f in shipcheck.coverage(version) if f.get("check") == "coverage.unsettled"]
+    if unsettled:
+        record["steps"]["unsettled_gate"] = {"ok": False, "result": {
+            "unsettled": [f.get("subject") for f in unsettled],
+            "next": "state each rule in the user's voice or drop the assertion: `harden <version> --apply "
+                    "--release-repair` (full round), then release that version"}}
+        record["ready"] = False
+        path.write_text(json.dumps(record, indent=1, default=str))
+        return record
     primary, secondary = policy.resolve_calibration_models()
     reviewer = review_model(version)
     qualified = step("qualify", lambda: {k: v for k, v in release_mod.qualify(

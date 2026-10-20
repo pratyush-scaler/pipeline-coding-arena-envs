@@ -438,8 +438,10 @@ def _evaluate(bundle: Path, replay: bool = True) -> dict:
         # Fail closed: a rejected campaign is not dropped in favour of another,
         # a retired model is refused, and one frozen campaign per model means a
         # better re-run cannot replace a worse one.
-        problems.extend(f"rejected campaign {Path(p).name}: {issues[0]}"
-                        for p, issues in evidence.get("rejected_campaigns", {}).items())
+        # Every issue of a rejected campaign, not only its first (2026-10-21: a reading_settled problem listed
+        # after another issue reached only evidence.rejected_campaigns and no release-repair round saw it).
+        problems.extend(f"rejected campaign {Path(p).name}: {issue}"
+                        for p, issues in evidence.get("rejected_campaigns", {}).items() for issue in issues)
         problems.extend(policy.calibration_problems(models))
         if len(reports) != len(models):
             problems.append("more than one campaign for a model; select one frozen campaign per model")

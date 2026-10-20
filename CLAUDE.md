@@ -140,6 +140,28 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   advisory -- listed under the delivered package's untested surfaces, never
   blocking -- when any family says the instruction does not clearly settle
   it or every family calls it contrived. A judge that errs demotes nothing.
+  2026-10-21: a final whose instruction or suites changed since its source run
+  also gets a fresh bounded search, and an unsettled point a hidden check DOES
+  assert blocks with route instruction (`coverage.unsettled`,
+  `CRITIC_GAP_RULE = "realistic_asserted"`); unasserted ones stay advisory.
+- **Every gate tests the designer's reading; these test the reading itself**
+  (user, 2026-10-21, after an external audit found 22 grading defects in 11
+  shipped tasks that every gate above had passed). Release blocks unless:
+  every decisive check (failed by >= `SIGNAL_HARD_FAIL_RATE` of a model's runs)
+  is judged settled by both families with the deciding sentence quoted
+  (`reading_settled`, verification/reading-settled.json); every failing run
+  that asked about or chose on the decision it lost is judged settled, else
+  `ambiguity_suspect` withholds the genuine certificate
+  (verification/genuine-ambiguity.json); every promise in the instruction, in
+  its own language, is enforced by a check that can detect a violation of the
+  whole clause, or untested with a determinacy reason (`pipeline/clause_map.py`,
+  verification/clause-map.json); every calibration run a guardrail zeroed is
+  adjudicated inside that guardrail's sentence (verification/guardrail-zeroed.json);
+  the pass audit finds no passing calibration solution that demonstrably breaks a
+  published clause (release step `pass-audit`); checks failing in lockstep count
+  as one decision and no one decision carries more than
+  `SIGNAL_SINGLE_DECISION_SHARE_MAX` of the lost reward. FAILURES.md names the
+  assertion that actually failed. An erring judge never passes anything.
 - **F0 ships** (user, 2026-10-05 and 2026-10-07). No pipeline or package text
   may say otherwise; `policy.SPEC_F0_ALLOWED` is True, folder `F0-inspired/`.
 - **Use the pipeline and `keys.env` for task creation** (user, 2026-09-30).

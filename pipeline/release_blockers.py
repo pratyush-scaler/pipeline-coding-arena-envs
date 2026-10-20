@@ -147,8 +147,11 @@ def _signal(version: Path) -> list[dict]:
     out = [{"id": f"SIG {n}", "source": "learning signal of the measured pilot", "finding": str(p)[:600],
             "release_checks": "release's hardness step reads the 10 x 2 calibration: at most 50% of the objective "
                               "weight may be passed by every run of both models and at least 3 independent hard "
-                              "decisions (checks failed by >= 30% of a model's runs, one per trap) must fail -- "
-                              "regrade_episodes on the captured episodes shows what the current tests would score",
+                              "decisions (checks failed by >= 30% of a model's runs, one per trap) must fail; checks "
+                              "that pass and fail together in every run count as ONE decision, and no one decision may "
+                              f"carry more than {policy.SIGNAL_SINGLE_DECISION_SHARE_MAX:.0%} of the reward the "
+                              "calibration lost -- regrade_episodes on the captured episodes shows what the current "
+                              "tests would score",
             "agent_surface": False}
            for n, p in enumerate(screen.get("signal_problems") or [], 1) if "runs are flat" not in str(p)]
     bar = policy.STEP_PASS_RATE_MAX
@@ -181,7 +184,10 @@ def _release(version: Path) -> list[dict]:
             for n, p in enumerate(result.get("problems") or ["failures not certified as genuine"], 1):
                 out.append({"id": f"GEN {n}", "source": "failure certification", "finding": str(p)[:1200],
                             "release_checks": "release certifies that every model failure is a real mistake, not a "
-                                              "grader artefact", "agent_surface": False})
+                                              "grader artefact",
+                            # 2026-10-21: an ambiguity-suspect failure is fixed in the instruction (or by dropping the
+                            # assertion), which a hidden-only round cannot do.
+                            "agent_surface": "ambiguity_suspect" in str(p)})
         elif name == "qualify":
             for n, e in enumerate(result.get("errors") or [], 1):
                 e = str(e)
@@ -193,7 +199,9 @@ def _release(version: Path) -> list[dict]:
                                         "unavailable", "Connection", "could not be completed")):
                     continue        # infrastructure loss is re-run, not repaired
                 out.append({"id": f"QUAL {n}", "source": "qualify", "finding": e[:1200],
-                            "release_checks": "qualify repeats this check", "agent_surface": False})
+                            "release_checks": "qualify repeats this check",
+                            # 2026-10-21: an unsettled decisive reading is settled in the instruction (full round).
+                            "agent_surface": "reading_settled" in e})
     return out
 
 
