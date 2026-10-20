@@ -1339,8 +1339,16 @@ def _plain(text: str) -> str:
     return _re.sub(r"\s+", " ", text).strip().casefold()
 
 
+#: Where one sentence of a quote ends and the next begins: Latin, Persian/Arabic and CJK terminators.
+_SENTENCE_END = _re.compile(r"(?<=[.!?;؟؛])\s+|(?<=[。！？；])")
+
+
 def quote_found(quote: str, text: str) -> bool:
-    """Every quoted piece of `quote` (split on ellipses; pieces in quotation marks taken one by one) is in `text`."""
+    """Every quoted piece of `quote` (split on ellipses; pieces in quotation marks taken one by one) is in `text`.
+
+    A piece that is not is still found when every one of its sentences is: judges join non-adjacent sentences of
+    the instruction without an ellipsis (2026-10-21, a_f0_next-js-club-management: three Astra answers quoted two
+    paragraphs with one sentence left out, and an answered YES was recorded as an error that blocks release)."""
     if not quote or _plain(quote) in ("", "none", "n/a"):
         return False
     marked = _re.findall(r'"([^"]{8,})"|“([^”]{8,})”|«([^»]{8,})»|「([^」]{8,})」', quote)
@@ -1348,7 +1356,14 @@ def quote_found(quote: str, text: str) -> bool:
     parts = [_plain(p).strip(" '\"`.,;:") for piece in pieces for p in _re.split(r"\.\.\.|…", piece)]
     parts = [p for p in parts if len(p) >= 8]
     haystack = _plain(text)
-    return bool(parts) and all(p in haystack for p in parts)
+
+    def found(part: str) -> bool:
+        if part in haystack:
+            return True
+        sentences = [s.strip(" '\"`.,;:") for s in _SENTENCE_END.split(part)]
+        sentences = [s for s in sentences if s]
+        return sum(len(s) >= 8 for s in sentences) > 1 and all(s in haystack for s in sentences)
+    return bool(parts) and all(found(p) for p in parts)
 
 
 def final_line(text: str, key: str) -> str | None:

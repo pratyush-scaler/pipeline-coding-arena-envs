@@ -382,6 +382,18 @@ class SettledReadingObligation(unittest.TestCase):
         self.assertFalse(attribution.quote_found("NONE", text))
         self.assertFalse(attribution.quote_found('"positions must follow the physics"', text))
 
+    def test_non_adjacent_sentences_joined_without_an_ellipsis_are_found(self):
+        text = ("کد را همان‌طور که مشتری تایپ کرده قبول کن. خط تیره جزو خود کد است. "
+                "مبلغ تخفیف اگر اعشار داشت رو به پایین به تومان گرد می‌شود؛ تخفیف از مبلغ کالاها بیشتر نمی‌شود.")
+        joined = "کد را همان‌طور که مشتری تایپ کرده قبول کن. مبلغ تخفیف اگر اعشار داشت رو به پایین به تومان گرد می‌شود؛"
+        self.assertTrue(attribution.quote_found(joined, text))
+        self.assertTrue(attribution.quote_found("Keep the name. Round every amount down to the cent.",
+                                                "Keep the name. Totals are shown in euros. Round every amount down to the cent."))
+        # every sentence must still be verbatim: one invented sentence fails the whole quote
+        self.assertFalse(attribution.quote_found("Keep the name. Round every amount to the nearest cent.",
+                                                 "Keep the name. Round every amount down to the cent."))
+        self.assertFalse(attribution.quote_found("A single sentence that is not there.", "Keep the name."))
+
 
 if __name__ == "__main__":
     unittest.main()
