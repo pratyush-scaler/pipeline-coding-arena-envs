@@ -981,8 +981,13 @@ def _guardrail_weakened(old: dict, new: dict) -> str | None:
     rest_b = {k: v for k, v in rb.items() if k not in ("modules", "paths", "select", "allow", "allowlist")}
     if rest_a != rest_b:
         return "runner settings changed"
+    # 2026-10-21: a shadow-guard entry grader.data refuses (policy.SHADOW_GUARD_REFUSED_MODULES: `conftest` zeroes a
+    # correct solution that adds a test helper) may be dropped -- dropping it repairs the guardrail, never weakens it.
+    refused = set(policy.SHADOW_GUARD_REFUSED_MODULES)
     for key in ("modules", "paths", "select"):
-        if not set(ra.get(key) or []) <= set(rb.get(key) or []):
+        kept = {m for m in ra.get(key) or [] if key != "modules"
+                or str(m).strip().rstrip("/").rsplit("/", 1)[-1].removesuffix(".py") not in refused}
+        if not kept <= set(rb.get(key) or []):
             return f"runner {key} lost entries"
     for key in ("allow", "allowlist"):
         if not set(rb.get(key) or []) <= set(ra.get(key) or []):

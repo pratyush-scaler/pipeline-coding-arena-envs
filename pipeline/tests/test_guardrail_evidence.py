@@ -37,5 +37,18 @@ class NodeGuardrailEvidence(unittest.TestCase):
         self.assertIsNone(shipcheck._ASSERT_LINE.search(text))
 
 
+
+class DroppingARefusedShadowModuleIsARepair(unittest.TestCase):
+
+    def test_conftest_may_leave_a_shadow_guard_other_entries_may_not(self):
+        from pipeline import harden
+        old = {"id": "g_no_shadow", "kind": "guardrail", "weight": 0,
+               "runner": {"type": "shadow-guard", "modules": ["pptx", "tourcheck", "conftest"]}}
+        fixed = {**old, "runner": {"type": "shadow-guard", "modules": ["pptx", "tourcheck"]}}
+        weakened = {**old, "runner": {"type": "shadow-guard", "modules": ["pptx", "conftest"]}}
+        self.assertIsNone(harden._guardrail_weakened(old, fixed))
+        self.assertEqual(harden._guardrail_weakened(old, weakened), "runner modules lost entries")
+
+
 if __name__ == "__main__":
     unittest.main()
