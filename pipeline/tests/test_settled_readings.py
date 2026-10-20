@@ -358,6 +358,43 @@ class SettledReadingObligation(unittest.TestCase):
                       "neither the instruction nor the repository ever shows is decided only when"):
             self.assertIn(words, attribution.READING_PROMPT)
 
+    def _split(self, arbiter):
+        """Fable calls the reading undetermined, Astra settled; `arbiter` is the arbiter's SETTLED word (or a raise)."""
+        answers = {"claude-fable-5-1": ("UNDETERMINED", "NONE"), "gpt-6-astra": ("YES", f'"{DECIDING}: BOGUS"'),
+                   policy.READING_ARBITER: (arbiter, f'"{DECIDING}: BOGUS"' if arbiter == "YES" else "NONE")}
+        calls = []
+
+        def ask(model, prompt, effort="high", max_tokens=0):
+            calls.append(model)
+            if arbiter == "raise" and model == policy.READING_ARBITER:
+                raise RuntimeError("HTTP 529 overloaded")
+            settled, quote = answers[model]
+            return f"Reasoning.\nSETTLED: {settled}\nQUOTE: {quote}\nSECOND_READING: NONE\nRUNS_TOOK_IT: NO"
+        return ask, calls
+
+    def test_a_split_is_decided_by_the_arbiter(self):
+        ask, calls = self._split("YES")
+        self.assertEqual(attribution.reading_problems(self.bundle, self.report, ask=ask), [])
+        self.assertIn(policy.READING_ARBITER, calls)
+        entry = json.loads((self.bundle / attribution.READINGS).read_text())["checks"][f"{STEP}/o_bogus_after"]
+        self.assertEqual((entry["verdict"], entry["arbiter"]["outcome"]), ("settled", "settled"))
+
+    def test_an_arbiter_that_agrees_with_the_unsettled_family_blocks(self):
+        ask, _ = self._split("UNDETERMINED")
+        issues = attribution.reading_problems(self.bundle, self.report, ask=ask)
+        self.assertEqual(len(issues), 1, issues)
+        self.assertIn(f"arbiter {policy.READING_ARBITER} agrees", issues[0])
+
+    def test_an_erring_arbiter_decides_nothing(self):
+        ask, _ = self._split("raise")
+        issues = attribution.reading_problems(self.bundle, self.report, ask=ask)
+        self.assertIn("never passes", issues[0])
+
+    def test_agreeing_families_need_no_arbiter(self):
+        judges = Judges(reading="UNDETERMINED")
+        attribution.reading_problems(self.bundle, self.report, ask=judges)
+        self.assertNotIn(policy.READING_ARBITER, {m for m, _ in judges.calls})
+
     def test_a_refusing_judge_with_no_quote_never_passes(self):
         judges = Judges(reading="YES", reading_quote="NONE")
         issues = attribution.reading_problems(self.bundle, self.report, ask=judges)

@@ -1024,6 +1024,12 @@ AMBIGUITY_MAX_ITEMS = 12
 #: published sentences, its hidden test source cut to READING_TEST_CHARS, and this many failing runs, each cut to
 #: READING_RUN_CHARS (failing assertion, the run's own questions and closing words, its code change).
 READING_SAMPLE_RUNS = 3
+#: When the calibration families split on a decisive check's reading (one settled, one not), this model reads the
+#: same prompt and its answer decides (2026-10-21). On the delivered packages the split was almost always Fable
+#: alone calling a check unsettled, sometimes against a sentence that decides it (a time "read however it is
+#: written" called unsettled for a dot-written time); one split vote then blocked a release after 20 episodes.
+#: An erring arbiter decides nothing: the reading stays unestablished and is asked again.
+READING_ARBITER = "claude-opus-5-5"
 READING_RUN_CHARS = 6000
 READING_TEST_CHARS = 16000
 

@@ -1738,6 +1738,24 @@ def judge_reading(instruction: str, answers: dict[str, dict]) -> tuple[str, dict
     return verdict, per
 
 
+def _arbitrate(instruction: str, prompt: str, *, ask=None) -> tuple[str, dict]:
+    """("settled" | "unsettled" | "error", the arbiter's row) for a reading the families split on."""
+    from . import hack_triage
+    ask = ask or hack_triage._ask
+    model, problems = policy.READING_ARBITER, []
+    for effort in ("high", "medium"):
+        try:
+            reply = ask(model, prompt, effort=effort, max_tokens=hack_triage.JUDGE_MAX_TOKENS) or ""
+        except Exception as exc:                           # noqa: BLE001 -- an arbiter that errs decides nothing
+            problems.append(f"{effort}: {type(exc).__name__}: {str(exc)[:160]}")
+            continue
+        if _reading_answered(reply):
+            verdict, per = judge_reading(instruction, {model: {"text": reply}})
+            return verdict, {"model": model, **per[model]}
+        problems.append(f"{effort}: no final lines")
+    return "error", {"model": model, "outcome": "error", "error": "; ".join(problems)[:400] or "no reply"}
+
+
 _READING_LOCKS: dict[str, object] = {}
 
 
@@ -1788,7 +1806,11 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
                 sentences="\n".join(f"- {q}" for q in published.get(cid) or []) or "(none published)",
                 tests=_test_source(bundle, checks.get(cid, {})), runs=_failing_runs(bundle, report, step, cid))
             verdict, per = judge_reading(instruction, ask_families(prompt, _reading_answered, ask=ask))
-            return key, {"verdict": verdict, "judges": per}
+            arbiter = None
+            if {r.get("outcome") for r in per.values()} == {"settled", "unsettled"}:
+                # A split decides nothing on its own: the arbiter reads the same prompt (policy.READING_ARBITER).
+                verdict, arbiter = _arbitrate(instruction, prompt, ask=ask)
+            return key, {"verdict": verdict, "judges": per, **({"arbiter": arbiter} if arbiter else {})}
 
         wanted = [key for key in decisive if (entries.get(f"{key[0]}/{key[1]}") or {}).get("verdict")
                   not in ("settled", "unsettled")]
@@ -1814,12 +1836,15 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
         if entry.get("verdict") == "unsettled":
             why = "; ".join(f"{m.split('/')[-1]} answers {r.get('settled')}" + (
                 f", second reading -- {r['second_reading']}" if verdict_word(r.get("second_reading")) not in ("", "NONE")
-                else "") for m, r in (entry.get("judges") or {}).items() if r.get("outcome") == "unsettled")
+                else "") for m, r in (entry.get("judges") or {}).items() if r.get("outcome") == "unsettled") + (
+                f"; arbiter {entry['arbiter'].get('model')} agrees" if (entry.get("arbiter") or {}).get("outcome")
+                == "unsettled" else "")
             out.append(f"{lead} the instruction does not settle what it rewards (reading_settled; {why}). Route to "
                        f"the instruction: state the rule in the user's voice, or remove the assertion ({tests})")
         else:
-            why = entry.get("why") or "; ".join(f"{m.split('/')[-1]}: {r.get('error')}"
-                                                for m, r in (entry.get("judges") or {}).items() if r.get("error"))
+            why = entry.get("why") or "; ".join(f"{m.split('/')[-1]}: {r.get('error')}" for m, r in [
+                *(entry.get("judges") or {}).items(), *((("arbiter", entry["arbiter"]),) if entry.get("arbiter") else ())]
+                if r.get("error"))
             out.append(f"{lead} its reading is not established (reading_settled: {why}) -- an unanswered judgement "
                        "never passes; it is asked again on the next read")
     return out
