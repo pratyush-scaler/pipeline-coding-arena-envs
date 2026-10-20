@@ -110,6 +110,10 @@ def _grader_data(ctx: GateContext):
     checks = doc["checks"]
     for p in checks_mod.weight_problems(checks, steps):
         findings.append(Finding(B, "weight-budget", p, "tests/checks.json"))
+    # User, 2026-10-21 (external audit, class 6): a shadow-guard naming `conftest` zeroes a correct fix
+    # that adds tests/conftest.py; the neutral_additions control executes the same case.
+    for p in controls_mod.shadow_conftest_problems(checks):
+        findings.append(Finding(B, "shadow-conftest", p, "tests/checks.json"))
     rubric = strict_json(ctx.path("tests/rubric.json").read_text())
     if rubric != checks_mod.rubric(checks, steps):
         findings.append(Finding(B, "rubric-drift", "tests/rubric.json does not match checks.json", "tests/rubric.json"))

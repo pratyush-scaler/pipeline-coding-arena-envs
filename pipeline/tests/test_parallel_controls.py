@@ -27,7 +27,7 @@ class ParallelControls(unittest.TestCase):
         mutant = self.mutants.get(label.removeprefix("mutant-")) if label.startswith("mutant-") else None
         record = {"valid": True, "steps": {}}
         for step in self.steps:
-            correct = label.startswith("golden-") or label in ("alternative", "benign_test")
+            correct = label.startswith("golden-") or label in ("alternative", "benign_test", "neutral_additions")
             if mutant:
                 mutant_step = mutant.get("step") or next(
                     c["step"] for c in self.spec["checks"] if c["id"] in mutant["fails"])
@@ -89,7 +89,8 @@ class ParallelControls(unittest.TestCase):
         self.assertEqual(peak, 2)
         self.assertEqual(len(seen), len(set(seen)))
         # + prefix_only and skip_prior for every step after the first (Spec Appendix A)
-        self.assertEqual(len(seen), 3 + len(self.mutants) + 8 + 2 * (len(self.steps) - 1))
+        # + neutral_additions (2026-10-21 audit)
+        self.assertEqual(len(seen), 3 + len(self.mutants) + 9 + 2 * (len(self.steps) - 1))
         self.assertEqual(parallel["artifact_sha256"], identity(self.bundle))
 
     def test_second_checkpoint_mutants_keep_only_prior_reference_steps(self):

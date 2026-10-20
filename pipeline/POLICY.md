@@ -87,6 +87,8 @@ The following controls are authoritative only during phase 3 validation:
 | destructive (sources deleted) | 0 | `EXPECT_ZERO` |
 | test_tamper on the UNTOUCHED fixture | 0, no objective passes | `TEST_TAMPER_MUST_NOT_MOVE_OBJECTIVES` |
 | early_exit (every source file exits 0 before running, untouched fixture) | 0, no objective passes; compiled toolchains record it as an untested surface | `MANDATORY_PROBES` |
+| neutral_additions (the reference on every step plus a local conftest.py, one passing test in the repo's runner, NOTES.md, an empty `__pycache__/`) | every check as the reference reads it; a moved check is an error, a tree-guard's published file budget an advisory | `NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE`, `NEUTRAL_ADDITIONS_EXEMPT_RUNNERS` |
+| shadow-guard modules (static, `grader.data`) | never a module whose last path component is `conftest` | `SHADOW_GUARD_REFUSED_MODULES` |
 
 The grader is data: `tests/checks.json` names runner, selected tests, weight,
 band and the verbatim instruction sentence each check enforces

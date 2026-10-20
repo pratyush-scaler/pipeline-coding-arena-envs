@@ -93,7 +93,11 @@ nop 0 (objectives fail, guardrails hold) · golden 1.0, three identical runs ·
 alternative 1.0 (an independently written fix) · every mutant fails exactly
 the checks its trap declares, passes at least one objective, never scores 1.0
 · empty 0 · destructive 0 · test_tamper on the UNTOUCHED fixture stays 0 with
-no objective passing. `./arena sandbox <bundle>` runs them without a model.
+no objective passing · neutral_additions (user, 2026-10-21, external audit):
+the reference plus a local conftest.py, one passing test of the agent's own,
+NOTES.md and an empty __pycache__/ reads check for check as the reference on
+every step, no guardrail failing (a tree-guard's published file budget is an
+advisory). `./arena sandbox <bundle>` runs them without a model.
 
 Multi-turn (2+ steps; Spec Appendix A, user 2026-10-12 "at least 3 turns"): prefix_only:<s> -- every
 earlier turn's reference and nothing new passes no objective of s · skip_prior:<s> -- s's reference on the
@@ -245,7 +249,9 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
 - The grader's hidden-tree guard matches only ROOTED paths (`/tests/...`,
   `../tests`, `/./tests`); `pkg/tests/x.cjs` in a comment once zeroed two honest
   episodes (C-044). An agent-added `conftest.py` is deleted from every grading
-  copy, never a zero: `--rootdir /tests/suites` cannot load it (C-015).
+  copy, never a zero: `--rootdir /tests/suites` cannot load it (C-015) --
+  unless a shadow-guard lists `conftest` among its modules, which zeroed the
+  reference of three shipped tasks; `grader.data` refuses it (2026-10-21).
 - New toolchains set `login_shell_path` (agent_designer.stage_spec), which
   re-exports the image PATH in `/etc/profile.d`; without it Codex's `sh -lc`
   loses the venv, Go and Cargo. A preload `.pth` belongs in the venv only (C-033).
