@@ -1,0 +1,246 @@
+{
+  "checks": [
+    {
+      "band": "core",
+      "basis": "periodOptions holds exactly that class's slots in grid order; a period outside the class's grid is refused with the no-such-period problem and nothing is stored; a period inside it is added with that grid's times; and a lesson the editor has just added makes that class and that teacher busy for the next add of the same sitting while a slot it does not cover still goes in.",
+      "id": "o_refuse_period",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_period_refuse.js",
+          "test_period_options.js",
+          "test_sequence.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 6
+    },
+    {
+      "band": "stretch",
+      "basis": "A grade 12 lesson gets the Monday bell times on Monday and the ordinary ones on other days, a class listed under a grid the repository's data never shows still gets that grid's own times on every day, a lesson recorded only by class, day and period is busy for exactly the stretch its class keeps that morning, and a lesson that starts as an imported block ends or ends as the class's next lesson starts is accepted while the genuine overlaps beside them are refused with nothing stored.",
+      "id": "o_grid_times",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_day_times.js",
+          "test_other_grid.js",
+          "test_grid_monday_span.js",
+          "test_abut.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 14
+    },
+    {
+      "band": "core",
+      "basis": "A double ends when the period that follows it in that class's day ends: across a break, across a slot the grid lists out of the order the day runs it, and never from the period that class finishes the day on.",
+      "id": "o_double_end",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_double_end.js",
+          "test_double_order.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 10
+    },
+    {
+      "band": "stretch",
+      "basis": "Asking for a double on the last slot of a class's day is refused with the no-next-period problem and stores nothing.",
+      "id": "o_double_last",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_double_last.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 4
+    },
+    {
+      "band": "core",
+      "basis": "A class is busy for as long as its lesson really runs that day: a period its timetable already covers is refused as class-busy with nothing stored, a double running on into one is refused too, and the time that lesson does not cover -- including the same period on another day -- is accepted with that day's times.",
+      "id": "o_class_busy",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_class_busy.js",
+          "test_class_busy_rows.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 11
+    },
+    {
+      "band": "core",
+      "basis": "A teacher already teaching another class whose times overlap is refused as teacher-busy and nothing is stored -- across two different bell grids, and for the teacher the other lesson is written for -- while a slot that does not overlap is accepted.",
+      "id": "o_teacher_busy",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_teacher_busy.js",
+          "test_teacher_rows.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 9
+    },
+    {
+      "band": "core",
+      "basis": "The teacher's imported week blocks an overlapping lesson and is left untouched by a refusal; everything the export files under that person counts as that person's week however it writes the name out; touching ends on all three sources are accepted while genuine overlaps are refused.",
+      "id": "o_ta_busy",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_ta_busy.js",
+          "test_touching.js",
+          "test_import_rows.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 10
+    },
+    {
+      "band": "core",
+      "basis": "A typed name resolves to the teacher its Chinese part names, in the class timetables and in the imported week alike however that export spells the name out, and two teachers whose Chinese names differ are never treated as one.",
+      "id": "o_identity",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_identity.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 10
+    },
+    {
+      "band": "core",
+      "basis": "An accepted lesson appears in the own week of each teacher it is written for, at the clock times the class timetable gives it -- a double for the whole of what it runs -- the rest of the week is untouched, and when a lesson written for two teachers is refused because one of them is busy nothing is stored and the other teacher's week is exactly as it was, in either order.",
+      "id": "o_mirror",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_mirror.js",
+          "test_cotaught.js",
+          "test_mirror_double.js",
+          "test_rollback.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 9
+    },
+    {
+      "band": "core",
+      "basis": "An alternate-week entry blocks in the weeks its parity names and in no others, with the week taken from the date on the form; with no date given it counts; and that holds for every entry the export files in her week, whichever way that row writes down the time it runs.",
+      "id": "o_week_parity",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_week_parity.js",
+          "test_week_even.js",
+          "test_own_week_shape.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 12
+    },
+    {
+      "band": "stretch",
+      "basis": "A typed value that is not a day on the calendar is refused with the bad-date problem and stores nothing; a real date, including a leap day, is accepted.",
+      "id": "o_bad_date",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_bad_date.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 2
+    },
+    {
+      "band": "stretch",
+      "basis": "The parity a date resolves to is the same whatever time zone the process runs in, west or east of Greenwich.",
+      "id": "o_week_zone",
+      "kind": "objective",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_zone.js",
+          "test_zone_east.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 3
+    },
+    {
+      "band": "core",
+      "basis": "An ordinary grid A add still reaches the class timetable and the teacher's own week, and an occupied period is still refused with nothing stored.",
+      "id": "g_preserved",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "select": [
+          "test_preserved.js"
+        ],
+        "type": "node-test"
+      },
+      "step": "01-editor-every-class",
+      "weight": 0
+    },
+    {
+      "band": "core",
+      "basis": "Nothing planted in the tree may shadow the engine module the editor and the checks load.",
+      "id": "g_no_shadow",
+      "kind": "guardrail",
+      "requires": [],
+      "runner": {
+        "modules": [
+          "app/engine.js"
+        ],
+        "type": "shadow-guard"
+      },
+      "step": "01-editor-every-class",
+      "weight": 0
+    }
+  ],
+  "deliverables": [
+    {
+      "kind": "file",
+      "path": "app/engine.js",
+      "step": "01-editor-every-class"
+    }
+  ],
+  "schema": "arena-coding/checks/1",
+  "toolchain": {
+    "deps_root": "/opt/deps",
+    "env": {},
+    "name": "node",
+    "vendored": [
+      "node_modules"
+    ]
+  }
+}

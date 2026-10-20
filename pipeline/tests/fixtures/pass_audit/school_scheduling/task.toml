@@ -1,0 +1,54 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+
+[[artifacts]]
+source = "/app/repo"
+exclude = [".cache", ".pytest_cache", "__pycache__", "node_modules"]
+
+[[artifacts]]
+source = "/app/deliverables"
+
+[task]
+name = "arena/a_f0_school-scheduling-spa"
+version = "1.0.0"
+description = "A single-file school timetable app whose Teacher Schedule Editor was bolted on against the eight-period grid: it crashes for grade 12 classes, never checks whether anyone is free, and mirrors lessons into teachers' own weeks at the wrong clock times. Make the editor honour every class's own bell grid, real clock overlaps across the class timetables and the imported teacher weeks, Chinese-name teacher identity and the alternate-week duties that the date on the form should settle."
+keywords = ["scheduling", "timetable", "intervals", "iso-week", "unicode", "javascript", "node"]
+
+[metadata]
+faithfulness_level = "F0"
+pipeline = "arena-coding"
+source_trace = "01a0d2b9-c866-7d2c-87c2-2ea78b370866"
+source_seeds = [2]
+source_tier = 4
+target_level = "F2"
+language = "javascript"
+toolchain = "node"
+difficulty_explanation = """
+hard
+"""
+
+[environment]
+os = "linux"
+network_mode = "no-network"
+build_timeout_sec = 1800.0
+cpus = 2
+memory_mb = 4096
+
+[agent]
+timeout_sec = 10800.0
+network_mode = "no-network"
+user = "agent"
+
+[verifier]
+timeout_sec = 1800.0
+network_mode = "no-network"
+environment_mode = "separate"
+
+[verifier.environment]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-editor-every-class"
+[steps.verifier]
+timeout_sec = 2160.0
+env = { ARENA_STEP = "01-editor-every-class" }

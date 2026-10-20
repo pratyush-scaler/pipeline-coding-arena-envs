@@ -14,6 +14,10 @@ round's `release_check` tool re-executes the release's own critic proposals on t
 -- the closed-and-verified rule release applies -- so the round sees each gap close before it
 submits. A creation component keeps the round working until that check is clean (or its turn
 budget runs out, recorded), the way the hardness gate does.
+
+User, 2026-10-21 (external audit): the pass audit's gaps (PASS -- a real calibration run passed a check while
+breaking its sentence) and unsettled sentences a check grades (UNSETTLED, from the critic or the pass audit) are
+blocker classes too; each is owed a resolution-ledger line before the round may submit.
 """
 from __future__ import annotations
 
@@ -51,18 +55,75 @@ def critic_source(version: Path) -> tuple[Path, dict] | None:
 def _critic(version: Path) -> list[dict]:
     from . import shipcheck
     receipt = _load(Path(version) / "verification/coverage-critic.json")
-    survived = receipt.get("mode") == "verify"
+    # A verify run's gaps survived a closing round; in a "verify+search" run (2026-10-21) only the carried ones did.
+    fresh = {f"{step}#{r.get('index')}" for step, entry in (receipt.get("steps") or {}).items()
+             for r in (entry or {}).get("proposals") or [] if isinstance(r, dict) and r.get("fresh")}
     out = []
     for gap in shipcheck.coverage(Path(version)):
+        if gap.get("check") == "coverage.unsettled":
+            out.append({"id": f"UNSETTLED {gap.get('subject')}", "source": "ship critic (an unsettled sentence a check grades)",
+                        "finding": str(gap.get("detail"))[:1500],
+                        "evidence": " ".join(str(e) for e in gap.get("evidence") or [])[:1500],
+                        "release_checks": "release judges the gap again with both calibration families once the step's "
+                                          "instruction changed, and re-reads which checks quote the sentence; it blocks "
+                                          "while a check grades a sentence a family says does not settle the point",
+                        "agent_surface": True})
+            continue
         if gap.get("check") != "coverage.gap":
             continue
         out.append({"id": f"CRIT {gap.get('subject')}", "source": "ship critic",
                     "finding": f"the hidden suite {gap.get('detail')}",
                     "evidence": " ".join(str(e) for e in gap.get("evidence") or [])[:1500],
-                    "survived_a_round": survived,
+                    "survived_a_round": str(receipt.get("mode")).startswith("verify") and gap.get("subject") not in fresh,
                     "release_checks": "release re-executes this exact wrong implementation (the edits) on your "
                                       "version and blocks while it scores 1.0 -- release_check runs the same "
                                       "re-execution on your draft",
+                    "agent_surface": False})
+    return out
+
+
+def _passes(version: Path) -> list[dict]:
+    """The pass audit's open gaps (coverage_critic.pass_audit, user 2026-10-21): a real calibration run passed a check
+    while breaking the sentence it enforces, shown by an executed demonstration."""
+    from . import coverage_critic
+    from .artifacts import identity
+    record = _load(Path(version) / coverage_critic.PASS_RECEIPT)
+    try:
+        current = identity(Path(version))
+    except (OSError, ValueError):
+        current = None
+    if not record or record.get("artifact_sha256") != current:
+        return []
+    found = {f["subject"]: f for f in coverage_critic.pass_findings(record)}
+    out = []
+    for g in record.get("gaps") or []:
+        subject = f"{g.get('step')}#{g.get('id')}"
+        f = found.get(subject) or {}
+        diff = ""
+        try:
+            diff = Path(str(g.get("patch"))).read_text()[:4000] if g.get("patch") else ""
+        except OSError:
+            pass
+        evidence = (f"the demonstration ({g.get('file')}, select {g.get('select')}), executed: the reference passes it, "
+                    f"this run fails it ({(g.get('failure') or {}).get('kind')}):\n{str(g.get('content') or '')[:4000]}"
+                    + (f"\nthe run's change ({g.get('patch')}):\n{diff}" if diff else ""))
+        if g.get("route") == "instruction":
+            out.append({"id": f"UNSETTLED {subject}", "source": "pass audit (an unsettled sentence a check grades)",
+                        "finding": str(f.get("detail"))[:2400], "evidence": evidence,
+                        "release_checks": "release judges the demonstration again with both calibration families once "
+                                          "the step's instruction changed, and re-reads which checks quote the deciding "
+                                          "sentence; it blocks while a check grades a sentence a family says does not "
+                                          "settle the point",
+                        "agent_surface": True})
+            continue
+        out.append({"id": f"PASS {subject}", "source": f"pass audit ({g.get('model')} {g.get('trial')} passed "
+                                                       f"{g.get('check')})",
+                    "finding": str(f.get("detail"))[:2400], "evidence": evidence,
+                    "survived_a_round": bool(g.get("carried_from")),
+                    "release_checks": "release re-grades this calibration run's captured tree with your version's grader "
+                                      "and blocks while it still earns every check and test it passed there (one it "
+                                      "fails that did not exist counts) -- regrade_episodes shows what your tests make "
+                                      "of the captured episodes",
                     "agent_surface": False})
     return out
 
@@ -110,7 +171,8 @@ def _release(version: Path) -> list[dict]:
         result = step.get("result") if isinstance(step.get("result"), dict) else {}
         if name == "shipcheck":
             for n, f in enumerate(result.get("findings") or [], 1):
-                if isinstance(f, dict) and f.get("check") != "coverage.gap":
+                # The critic's gaps are collected from its own receipt (_critic), the unsettled ones too.
+                if isinstance(f, dict) and f.get("check") not in ("coverage.gap", "coverage.unsettled"):
                     out.append({"id": f"SHIP {n}", "source": f"shipcheck {f.get('check')}",
                                 "finding": f"{f.get('subject')}: {f.get('detail')}"[:1200],
                                 "release_checks": "the packaging sweep runs the same detector and holds the zip",
@@ -125,6 +187,8 @@ def _release(version: Path) -> list[dict]:
                 e = str(e)
                 if e.startswith("semantic review") or "native-calibrations.json" in e or "task name claims faithfulness" in e:
                     continue        # the review is collected from its own record; calibration never ran
+                if e.startswith("pass audit"):
+                    continue        # its gaps are collected from its receipt (_passes); an unverified one is re-run
                 if any(k in e for k in ("OpenAI", "HTTP", "timed out", "Timeout", "rate limit", "could not be verified",
                                         "unavailable", "Connection", "could not be completed")):
                     continue        # infrastructure loss is re-run, not repaired
@@ -194,8 +258,8 @@ def _hacks(version: Path) -> list[dict]:
 
 def collect(version: Path) -> list[dict]:
     version = Path(version)
-    return (_critic(version) + _review(version) + _signal(version) + _release(version) + _build(version)
-            + _hacks(version) + _attempts(version))
+    return (_critic(version) + _passes(version) + _review(version) + _signal(version) + _release(version)
+            + _build(version) + _hacks(version) + _attempts(version))
 
 
 def needs_full_round(blockers: list[dict]) -> bool:
@@ -274,6 +338,14 @@ def requirement(spec: dict, bundle: Path) -> list[str]:
             missing.append(f"RELEASE CHECK: pre_review raised {f['id']} ({f['reason'][:160]}) -- write a solution_notes "
                            f"ledger line '{f['id']}: FIXED -- <case>: before/after' or '{f['id']}: REFUTED -- <executed "
                            "evidence>'; a later review not repeating it is not a fix")
+    # The pass audit's blockers (2026-10-21) have no in-round re-check: the run they name is re-graded by release.
+    # Each needs its ledger line, so a round cannot submit past one it never addressed.
+    owed = [{"id": b["id"], "reason": str(b.get("finding"))[:160]} for b in context.get("blockers") or []
+            if str(b.get("id", "")).startswith(("PASS ", "UNSETTLED "))]
+    for f in unresolved(owed, spec.get("solution_notes")):
+        missing.append(f"RELEASE CHECK: {f['id']} ({f['reason']}) -- write a solution_notes ledger line "
+                       f"'{f['id']}: FIXED -- <the hidden case or the sentence>: before/after' or '{f['id']}: REFUTED -- "
+                       "<executed evidence>'")
     return missing
 
 
@@ -319,6 +391,19 @@ THE ORDER OF WORK
      does not settle it, record it under quality.untested_surfaces with the probe instead.
      Then run release_check: it re-executes the release's own proposals on your draft, exactly as
      release will. Do not submit while it lists an open CRIT.
+  2b. PASS (the pass audit): a REAL calibration run passed a check while breaking the sentence that
+     check enforces. The demonstration shown is executed evidence -- the reference passes it, that run
+     fails it on an assertion. Add it as a hidden case (into the check whose sentence it enforces, or a
+     new objective check quoting that sentence) and add the run's change (the patch named) as an
+     m_partial_ mutant that fails exactly that check while the reference and the alternative stay at
+     1.0. Release re-grades that very run on your version and blocks while it still earns every check it
+     passed. regrade_episodes shows what your tests make of the captured episodes.
+  2c. UNSETTLED (critic or pass audit): a calibration family says the instruction does not settle the
+     point, yet a check grades the sentence -- the grader rewards one reading. Either state the rule in
+     the user's own voice and register in the instruction (no headings, no lists) so the sentence settles
+     it -- and then add the hidden case the point needs, as for CRIT/PASS -- or drop that assertion from
+     the check, and the sentence from its rule_quote, so both readings earn the same. This is a full
+     round: the agent sees the instruction.
   3. REV (the reviewer qualify runs): follow THE REPAIR PROTOCOL below -- reproduce, fix the root
      cause in the reference AND the alternative, sweep the same class, regression-gate. A check the
      reviewer calls over-strict is loosened only as far as the published sentence allows; a weak

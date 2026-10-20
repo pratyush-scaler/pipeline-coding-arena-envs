@@ -1,0 +1,54 @@
+schema_version = "1.4"
+multi_step_reward_strategy = "mean"
+
+[[artifacts]]
+source = "/app/repo"
+exclude = [".cache", ".pytest_cache", "__pycache__"]
+
+[[artifacts]]
+source = "/app/deliverables"
+
+[task]
+name = "arena/a_f1_python-pdf-tooling"
+version = "1.0.0"
+description = "A Persian multiple-choice exam is edited through a JSON text-layer dump. The tool appends a new section but still leaves the geography question numbers dash-first, leaves the bonus-question note in the text and places the answer options on hard-coded column edges. Fix the numbering, the deletion and the option spread without disturbing anything else."
+keywords = ["persian", "rtl", "unicode", "layout", "text-repair", "pdf-dump"]
+
+[metadata]
+faithfulness_level = "F1"
+pipeline = "arena-coding"
+source_trace = "01a0c4ff-fd85-73a8-8d03-8d577c809d6f"
+source_seeds = [0]
+source_tier = 3
+target_level = "F1"
+language = "python"
+toolchain = "python"
+difficulty_explanation = """
+hard
+"""
+
+[environment]
+os = "linux"
+network_mode = "no-network"
+build_timeout_sec = 1800.0
+cpus = 2
+memory_mb = 4096
+
+[agent]
+timeout_sec = 10800.0
+network_mode = "no-network"
+user = "agent"
+
+[verifier]
+timeout_sec = 1800.0
+network_mode = "no-network"
+environment_mode = "separate"
+
+[verifier.environment]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-exam-dump-repair"
+[steps.verifier]
+timeout_sec = 2280.0
+env = { ARENA_STEP = "01-exam-dump-repair" }
