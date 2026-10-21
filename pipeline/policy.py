@@ -1077,3 +1077,6 @@ PASS_AUDIT_SOLUTIONS_PER_CHECK = 3
 #: Demonstrations (one new hidden test each, executed on the reference and on every passing solution) the critic may
 #: write per audited solution.
 PASS_AUDIT_DEMONSTRATIONS = 3
+#: Solutions the pass audit reads at once. Three ran scraper v8's 12 critic reads in four waves and the audit took 85
+#: minutes of a release (2026-10-21); the designer rounds share the same model's rate limit, so not more than this.
+PASS_AUDIT_WORKERS = 6

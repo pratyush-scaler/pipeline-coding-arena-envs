@@ -1742,7 +1742,7 @@ def _audit_step(bundle: Path, step: str, pool: list[dict], result: dict, *, mode
         (result["gaps"] if _route(bundle, gap) else result["advisory"]).append(gap)
 
 
-def pass_audit(bundle: Path, *, model: str | None = None, ask=None, judge=None, workers: int = 3,
+def pass_audit(bundle: Path, *, model: str | None = None, ask=None, judge=None, workers: int | None = None,
                record_dir: Path | None = None, campaigns: list[dict] | None = None) -> dict:
     """Audit the calibration solutions that passed each objective check (see the notes above `PASS_SCHEMA`).
 
@@ -1755,6 +1755,7 @@ def pass_audit(bundle: Path, *, model: str | None = None, ask=None, judge=None, 
     from . import policy
     from .artifacts import identity
     from .author.transport import MODEL
+    workers = policy.PASS_AUDIT_WORKERS if workers is None else workers
     bundle = Path(bundle).resolve()
     model = model or MODEL
     ask = ask or _ask
