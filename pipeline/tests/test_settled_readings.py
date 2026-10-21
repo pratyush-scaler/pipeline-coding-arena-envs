@@ -390,6 +390,17 @@ class SettledReadingObligation(unittest.TestCase):
         issues = attribution.reading_problems(self.bundle, self.report, ask=ask)
         self.assertIn("never passes", issues[0])
 
+    def test_a_split_recorded_before_the_arbiter_existed_asks_only_the_arbiter(self):
+        ask, calls = self._split("YES")
+        with patch.object(attribution, "_arbitrate", return_value=("unsettled", {"outcome": "unsettled"})):
+            attribution.reading_problems(self.bundle, self.report, ask=ask)
+        doc = json.loads((self.bundle / attribution.READINGS).read_text())
+        doc["checks"][f"{STEP}/o_bogus_after"].pop("arbiter")                 # as an older release recorded it
+        (self.bundle / attribution.READINGS).write_text(json.dumps(doc))
+        calls.clear()
+        self.assertEqual(attribution.reading_problems(self.bundle, self.report, ask=ask), [])
+        self.assertEqual(calls, [policy.READING_ARBITER])
+
     def test_agreeing_families_need_no_arbiter(self):
         judges = Judges(reading="UNDETERMINED")
         attribution.reading_problems(self.bundle, self.report, ask=judges)

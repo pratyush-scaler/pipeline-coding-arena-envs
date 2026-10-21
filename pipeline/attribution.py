@@ -1738,6 +1738,11 @@ def judge_reading(instruction: str, answers: dict[str, dict]) -> tuple[str, dict
     return verdict, per
 
 
+def _families_split(per) -> bool:
+    """The families answered and disagree: one settled, one unsettled."""
+    return isinstance(per, dict) and {r.get("outcome") for r in per.values()} == {"settled", "unsettled"}
+
+
 def _arbitrate(instruction: str, prompt: str, *, ask=None) -> tuple[str, dict]:
     """("settled" | "unsettled" | "error", the arbiter's row) for a reading the families split on."""
     from . import hack_triage
@@ -1805,15 +1810,23 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
                 instruction=instruction, basis=str(checks.get(cid, {}).get("basis") or "(none given)"),
                 sentences="\n".join(f"- {q}" for q in published.get(cid) or []) or "(none published)",
                 tests=_test_source(bundle, checks.get(cid, {})), runs=_failing_runs(bundle, report, step, cid))
+            recorded = (entries.get(f"{step}/{cid}") or {}).get("judges") or {}
+            if _families_split(recorded):
+                # Judged before the arbiter existed: the families' answers stand, only the arbiter is asked.
+                verdict, arbiter = _arbitrate(instruction, prompt, ask=ask)
+                return key, {"verdict": verdict, "judges": recorded, "arbiter": arbiter}
             verdict, per = judge_reading(instruction, ask_families(prompt, _reading_answered, ask=ask))
             arbiter = None
-            if {r.get("outcome") for r in per.values()} == {"settled", "unsettled"}:
+            if _families_split(per):
                 # A split decides nothing on its own: the arbiter reads the same prompt (policy.READING_ARBITER).
                 verdict, arbiter = _arbitrate(instruction, prompt, ask=ask)
             return key, {"verdict": verdict, "judges": per, **({"arbiter": arbiter} if arbiter else {})}
 
-        wanted = [key for key in decisive if (entries.get(f"{key[0]}/{key[1]}") or {}).get("verdict")
-                  not in ("settled", "unsettled")]
+        def pending(key):
+            entry = entries.get(f"{key[0]}/{key[1]}") or {}
+            return entry.get("verdict") not in ("settled", "unsettled") or (
+                _families_split(entry.get("judges")) and not entry.get("arbiter"))
+        wanted = [key for key in decisive if pending(key)]
         if wanted:
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=4) as pool:
