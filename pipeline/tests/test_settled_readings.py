@@ -510,6 +510,38 @@ class SettledReadingObligation(unittest.TestCase):
         self.assertTrue(attribution.quote_found("লাইনের প্রথম শব্দটা হুবহু SAFE_PREFIXES এর একটা নাম। লাইনটা খালি হলে চলবে না।",
                                                 bengali))
 
+    def test_a_slash_or_dash_inside_the_instruction_is_not_a_join(self):
+        # python-ai-agent v14: "integer / number" is the instruction's own text, not two quoted pieces
+        chinese = ("注解里的名字指着什么，按它在那个模块里实际绑着的东西算，名字长什么样不作数。模型照这份 schema 填好参数发回来，"
+                   "执行之前按我们广告出去的那个类型把值掰回来：integer / number 收到文本就按十进制数字解析；boolean 只认 true 和 false。")
+        self.assertTrue(attribution.quote_found(
+            "注解里的名字指着什么，按它在那个模块里实际绑着的东西算，名字长什么样不作数。 integer / number 收到文本就按十进制数字解析；", chinese))
+        self.assertFalse(attribution.quote_found(
+            "注解里的名字指着什么，按它在那个模块里实际绑着的东西算，名字长什么样不作数。 integer / number 收到文本就四舍五入；", chinese))
+        # pdf-tooling v14: Fable joins two paragraphs with a spaced dash, and the second holds a dash of its own
+        persian = ("نویسه‌های نامرئی‌ای که به شماره چسبیدن جزو شماره نیستن و نباید تو خروجی بمونن. شماره‌ها هم پشت سر هم می‌رن. "
+                   "مورد سوم، اون خطی که نوشته فلان سؤال‌ها امتیازی‌ان رو پاک کن، هر جور که نوشته شده — فاصله و نیم‌فاصله "
+                   "فرق داشته باشه بازم همون حرفه.")
+        self.assertTrue(attribution.quote_found(
+            "نویسه‌های نامرئی‌ای که به شماره چسبیدن جزو شماره نیستن و نباید تو خروجی بمونن. — مورد سوم، اون خطی که نوشته "
+            "فلان سؤال‌ها امتیازی‌ان رو پاک کن، هر جور که نوشته شده — فاصله و نیم‌فاصله فرق داشته باشه بازم همون حرفه.", persian))
+        self.assertFalse(attribution.quote_found(
+            "نویسه‌های نامرئی‌ای که به شماره چسبیدن جزو شماره نیستن و نباید تو خروجی بمونن. — مورد سوم، هر خطی رو پاک کن.",
+            persian))
+
+    def test_a_recorded_judgement_is_reread_with_the_current_matcher(self):
+        instruction = "Keep the name. Round every amount down to the cent."
+        known = {"relevant": True, "settled": False, "at": 1.0, "judges": {
+            "a": {"relevant": "NO", "settled": "YES", "quote": "Keep the name. — Round every amount down to the cent.",
+                  "quote_found": False},
+            "b": {"relevant": "YES", "settled": "YES", "quote": "Round every amount down to the cent.", "quote_found": True}}}
+        out = genuine.refreshed(known, instruction)
+        self.assertTrue(out["settled"])
+        self.assertTrue(out["judges"]["a"]["quote_found"])
+        # an invented sentence stays not found, and the failure stays unsettled
+        known["judges"]["a"]["quote"] = "Keep the name. Round every amount to the nearest cent."
+        self.assertFalse(genuine.refreshed(known, instruction)["settled"])
+
 
 if __name__ == "__main__":
     unittest.main()

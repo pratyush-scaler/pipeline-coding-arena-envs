@@ -1355,18 +1355,27 @@ def quote_found(quote: str, text: str) -> bool:
         return False
     marked = _re.findall(r'"([^"]{8,})"|“([^”]{8,})”|«([^»]{8,})»|「([^」]{8,})」', quote)
     pieces = [next(s for s in groups if s) for groups in marked] or [quote]
-    # Ellipses, a spaced slash and a spaced bar all join non-adjacent pieces (Fable writes "... at most. / the ...").
-    parts = [_plain(p).strip(" '\"`.,;:") for piece in pieces for p in _re.split(r"\.\.\.|…|\s[/|]\s", piece)]
-    parts = [p for p in parts if len(p) >= 8]
     haystack = _plain(text)
 
     def found(part: str) -> bool:
         if part in haystack:
             return True
-        sentences = [s.strip(" '\"`.,;:") for s in _SENTENCE_END.split(part)]
+        sentences = [s.strip(" '\"`.,;:—–") for s in _SENTENCE_END.split(part)]
         sentences = [s for s in sentences if s]
         return sum(len(s) >= 8 for s in sentences) > 1 and all(s in haystack for s in sentences)
-    return bool(parts) and all(found(p) for p in parts)
+
+    def piece_found(piece: str) -> bool:
+        # A piece found whole is not split: "integer / number" or "نوشته شده — فاصله" in the instruction itself is one
+        # sentence, not a join (2026-10-21, python-ai-agent and pdf-tooling v14 held back on a YES whose sentence was
+        # verbatim). Otherwise ellipses, a spaced slash or bar and a spaced dash join non-adjacent pieces (Fable
+        # writes "... at most. / the ..." and "... بمونن. — مورد سوم ...").
+        whole = _plain(piece).strip(" '\"`.,;:")
+        if len(whole) >= 8 and found(whole):
+            return True
+        parts = [_plain(p).strip(" '\"`.,;:") for p in _re.split(r"\.\.\.|…|\s[/|—–]\s", piece)]
+        parts = [p for p in parts if len(p) >= 8]
+        return bool(parts) and all(found(p) for p in parts)
+    return all(piece_found(p) for p in pieces)
 
 
 def final_line(text: str, key: str) -> str | None:

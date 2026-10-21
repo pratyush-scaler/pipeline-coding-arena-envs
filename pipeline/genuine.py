@@ -452,6 +452,28 @@ def judge_ambiguity(instruction: str, answers: dict[str, dict]) -> dict:
     return {"relevant": relevant, "settled": settled, "judges": per}
 
 
+def refreshed(known: dict, instruction: str) -> dict:
+    """A recorded judgement re-read with today's quote matcher. Whether a deciding sentence is in the instruction is the
+    matcher's finding, not the judge's answer, so a receipt judged under an older matcher is not held to its misses
+    (2026-10-21, python-ai-agent v14: 65 of the 67 sentences its receipt recorded as not found are verbatim). The
+    answers themselves are kept; an arbiter's ruling stands only while the families still split."""
+    from .attribution import quote_found
+
+    def reread(answer: dict) -> dict:
+        if "error" in answer or not answer.get("quote"):
+            return answer
+        return {**answer, "quote_found": quote_found(answer["quote"], instruction)}
+    per = {m: reread(a) for m, a in (known.get("judges") or {}).items()}
+    out = {**known, "judges": per, "relevant": any(a.get("relevant") != "NO" for a in per.values()),
+           "settled": bool(per) and all(a.get("settled") == "YES" and a.get("quote_found") for a in per.values())}
+    arbiter = known.get("arbiter") or {}
+    if {_flags(a) for a in per.values()} == {True, False} and arbiter and "error" not in arbiter:
+        arbiter = reread(arbiter)
+        out.update(arbiter=arbiter, relevant=arbiter.get("relevant") != "NO",
+                   settled=arbiter.get("settled") == "YES" and bool(arbiter.get("quote_found")))
+    return out
+
+
 def _flags(answer: dict) -> bool | None:
     """One family's answer: True when the point is relevant and not settled, False when it clears, None when it erred."""
     if "error" in answer:
@@ -558,9 +580,13 @@ def ambiguity(bundle: Path, rows: list[dict], steps: dict[tuple, dict], *, ask=N
 
     def judge(key):
         known = doc["judgements"].get(key)
-        if known and not any("error" in a for a in (known.get("judges") or {}).values()):
-            return key, known
         prompt, instruction = prompts[key]
+        if known and not any("error" in a for a in (known.get("judges") or {}).values()):
+            known = refreshed(known, instruction)
+            ruled = known.get("arbiter") and "error" not in known["arbiter"]
+            if {_flags(a) for a in known["judges"].values()} == {True, False} and not ruled:
+                return key, {**arbitrated(instruction, prompt, known, ask=ask), "at": time.time()}
+            return key, known
         judged = judge_ambiguity(instruction, ask_families(prompt, _judged, ask=ask))
         return key, {**arbitrated(instruction, prompt, judged, ask=ask), "at": time.time()}
 
