@@ -280,6 +280,50 @@ def _report(folder: Path, failed=6, passed=4) -> dict:
                           "failed_output": {"o_bogus_after": "E   AssertionError: a line taken out of the file"}}]}
 
 
+class AmbiguityArbiter(unittest.TestCase):
+    """genuine.arbitrated: a failure one family flags and the other clears goes to policy.READING_ARBITER."""
+
+    INSTRUCTION = "Every slide shows its own picture."
+
+    def _judged(self, fable, astra):
+        return {"relevant": True, "settled": False, "judges": {"claude-fable-5-1": fable, "gpt-6-astra": astra}}
+
+    def _ask(self, relevant, settled):
+        calls = []
+
+        def ask(model, prompt, effort="high", max_tokens=0):
+            calls.append(model)
+            quote = '"Every slide shows its own picture."' if settled == "YES" else "NONE"
+            return f"Reasoning.\nRELEVANT: {relevant}\nSETTLED: {settled}\nQUOTE: {quote}"
+        return ask, calls
+
+    FLAG = {"relevant": "YES", "settled": "UNDETERMINED", "quote_found": False}
+    CLEAR = {"relevant": "NO", "settled": "UNDETERMINED", "quote_found": False}
+
+    def test_a_split_is_decided_by_the_arbiter(self):
+        ask, calls = self._ask("NO", "UNDETERMINED")
+        out = genuine.arbitrated(self.INSTRUCTION, "prompt", self._judged(self.FLAG, self.CLEAR), ask=ask)
+        self.assertEqual(calls, [policy.READING_ARBITER])
+        self.assertFalse(out["relevant"])
+        self.assertEqual(out["arbiter"]["model"], policy.READING_ARBITER)
+
+    def test_an_arbiter_that_flags_keeps_the_failure_suspect(self):
+        ask, _ = self._ask("YES", "UNDETERMINED")
+        out = genuine.arbitrated(self.INSTRUCTION, "prompt", self._judged(self.FLAG, self.CLEAR), ask=ask)
+        self.assertTrue(out["relevant"] and not out["settled"])
+
+    def test_agreement_and_errors_never_reach_the_arbiter(self):
+        ask, calls = self._ask("NO", "YES")
+        for judged in (self._judged(self.FLAG, self.FLAG), self._judged(self.CLEAR, self.CLEAR),
+                       self._judged(self.FLAG, {"error": "HTTP 529"})):
+            self.assertIs(genuine.arbitrated(self.INSTRUCTION, "prompt", judged, ask=ask), judged)
+        self.assertEqual(calls, [])
+
+    def test_the_question_is_a_reading_not_an_implementation_plan(self):
+        self.assertIn("A plan for how to implement the work", genuine.AMBIGUITY_PROMPT)
+        self.assertIn("is not a reading and is NOT relevant", genuine.AMBIGUITY_PROMPT)
+
+
 class SettledReadingObligation(unittest.TestCase):
     """attribution.reading_problems: every decisive check needs a reading both families call settled."""
 

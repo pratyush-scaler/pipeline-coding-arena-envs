@@ -359,12 +359,15 @@ WHAT THE RUN ASKED OR CHOSE (its own words)
 -------------------------------------------
 {items}
 
-Answer two questions.
-1. RELEVANT: Does any of these questions or choices concern the behaviour this check grades -- would acting on the \
-other answer change whether the check passes? YES or NO.
-2. SETTLED: Does the instruction itself settle that point, so that every careful developer would act the same way \
-without asking? YES, NO, or UNDETERMINED (reasonable readings differ). If YES, quote the deciding sentence(s) \
-verbatim from the instruction.
+Answer two questions. They are about WHAT the instruction asks for, not about how the developer went about it.
+1. RELEVANT: Does any of these questions or choices concern a reading of the instruction that decides this check -- \
+what the correct behaviour is in the case it grades, so that acting on the other answer would change whether it \
+passes? A plan for how to implement the work (which files or functions to change, how to structure or validate the \
+code) is not a reading and is NOT relevant. YES or NO.
+2. SETTLED: Do the instruction's words decide that point -- the correct behaviour in the case the check grades? \
+YES, NO (nothing in the instruction decides it), or UNDETERMINED (its words support two different correct \
+outcomes). A precision or parsing slip, or a habit of the existing code that a stated rule overrides, is not a \
+reading. If YES, quote the deciding sentence(s) verbatim from the instruction.
 
 Reply with your reasoning in at most five sentences, then exactly these final lines:
 RELEVANT: <YES|NO>
@@ -449,6 +452,35 @@ def judge_ambiguity(instruction: str, answers: dict[str, dict]) -> dict:
     return {"relevant": relevant, "settled": settled, "judges": per}
 
 
+def _flags(answer: dict) -> bool | None:
+    """One family's answer: True when the point is relevant and not settled, False when it clears, None when it erred."""
+    if "error" in answer:
+        return None
+    return answer.get("relevant") != "NO" and not (answer.get("settled") == "YES" and answer.get("quote_found"))
+
+
+def arbitrated(instruction: str, prompt: str, judged: dict, *, ask=None) -> dict:
+    """`judged` (judge_ambiguity's result), decided by policy.READING_ARBITER when the families split -- one flags the
+    failure, the other clears it (2026-10-21: Astra's plan narration "I'll route both scripts through the shared
+    writer" flagged on one family's word held slide-pptx v10 back). An erring arbiter decides nothing."""
+    from . import hack_triage, policy
+    flags = {_flags(a) for a in judged["judges"].values()}
+    if flags != {True, False}:
+        return judged
+    ask = ask or hack_triage._ask
+    for effort in ("high", "medium"):
+        try:
+            reply = ask(policy.READING_ARBITER, prompt, effort=effort, max_tokens=hack_triage.JUDGE_MAX_TOKENS) or ""
+        except Exception as exc:                           # noqa: BLE001 -- an arbiter that errs decides nothing
+            judged = {**judged, "arbiter": {"model": policy.READING_ARBITER, "error": f"{type(exc).__name__}: {exc}"[:300]}}
+            continue
+        if _judged(reply):
+            row = judge_ambiguity(instruction, {policy.READING_ARBITER: {"text": reply}})
+            return {**judged, "relevant": row["relevant"], "settled": row["settled"],
+                    "arbiter": {"model": policy.READING_ARBITER, **row["judges"][policy.READING_ARBITER]}}
+    return judged
+
+
 def ambiguity(bundle: Path, rows: list[dict], steps: dict[tuple, dict], *, ask=None, write: bool = True) -> list[str]:
     """Mark every failure whose run asked or chose on the graded decision `ambiguity_suspect` unless both families
     say the instruction settles it; the problems that keep the certificate from being certified.
@@ -529,7 +561,8 @@ def ambiguity(bundle: Path, rows: list[dict], steps: dict[tuple, dict], *, ask=N
         if known and not any("error" in a for a in (known.get("judges") or {}).values()):
             return key, known
         prompt, instruction = prompts[key]
-        return key, {**judge_ambiguity(instruction, ask_families(prompt, _judged, ask=ask)), "at": time.time()}
+        judged = judge_ambiguity(instruction, ask_families(prompt, _judged, ask=ask))
+        return key, {**arbitrated(instruction, prompt, judged, ask=ask), "at": time.time()}
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         doc["judgements"].update(dict(pool.map(judge, sorted(prompts))))
