@@ -340,6 +340,42 @@ for name in sorted(os.listdir(root)):
 print(made)
 '''
 
+#: The native (Harbor) interpreter a snapshot runs campaigns with. The link farm
+#: would point `.venv-harbor` at ROOT's, which live runs hold at ROOT's pin; a
+#: snapshot whose requirements-native.lock differs (2026-10-22: Harbor 0.22.0 ->
+#: 0.24.0) gets a venv of its own, installed from its lock with hashes and keyed
+#: by the lock's digest under ROOT/.staged, so ROOT's interpreter is never
+#: reinstalled under a live run and snapshots with the same pin share one venv.
+NATIVE_VENV = r'''
+import fcntl, hashlib, os, shutil, subprocess, sys
+from pathlib import Path
+root, dest, uv = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+lock, link = dest / "requirements-native.lock", dest / ".venv-harbor"
+digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+live = root / "requirements-native.lock"
+if live.is_file() and hashlib.sha256(live.read_bytes()).hexdigest() == digest:
+    print("shared")
+    raise SystemExit(0)
+venv = root / ".staged" / ("venv-harbor-" + digest[:16])
+marker = venv / ".arena-lock-sha256"
+with open(str(venv) + ".lock", "w") as guard:
+    fcntl.flock(guard, fcntl.LOCK_EX)
+    if not (marker.is_file() and marker.read_text().strip() == digest):
+        shutil.rmtree(venv, ignore_errors=True)
+        subprocess.run([uv, "venv", "--python", "3.13", str(venv)], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([uv, "pip", "install", "--quiet", "--python", str(venv / "bin/python"),
+                        "--require-hashes", "-r", str(lock)], check=True)
+        subprocess.run([str(venv / "bin/python"), "-c", "import harbor, litellm"], check=True)
+        marker.write_text(digest + "\n")
+if link.is_symlink() and os.readlink(link) != str(venv):
+    link.unlink()
+elif link.exists() and not link.is_symlink():
+    raise SystemExit(str(link) + " is not a link")
+if not link.is_symlink():
+    link.symlink_to(venv)
+print(venv)
+'''
+
 
 def stage_code(ws: str) -> Path:
     """This checkout's code as a snapshot at ROOT/.staged/<sha>, beside live runs.
@@ -354,7 +390,8 @@ def stage_code(ws: str) -> Path:
     paths resolve through the links to ROOT. The snapshot hashes to the same
     policy identity the live checkout will have once the same code is synced.
     Pass task-tree paths as ABSOLUTE paths: a tree created after staging has no
-    link in the snapshot.
+    link in the snapshot. The native interpreter is ROOT's too unless the
+    snapshot pins another requirements-native.lock (`NATIVE_VENV`).
     """
     sha = coder_mod._tree_sha(CODE_PATHS)
     dest = ROOT / STAGED / sha[:16]
@@ -368,6 +405,8 @@ def stage_code(ws: str) -> Path:
             rsync(ws, f"{local}/", f"{dest / rel}/", push=True, delete=True, filters=filters, timeout=1800)
         else:
             rsync(ws, str(local), str(dest / rel), push=True, timeout=600)
+    coder_mod.ssh(ws, 'export PATH="$HOME/.local/bin:$PATH" && '
+                      f'python3 -c {q(NATIVE_VENV)} {q(ROOT)} {q(dest)} "$(command -v uv)"', timeout=1800)
     names = ",".join(Path(rel).parts[0] for rel in CODE_PATHS)
     coder_mod.ssh(ws, f"python3 -c {q(LINK_FARM)} {q(ROOT)} {q(dest)} {q(names)}", timeout=120)
     coder_mod.ssh(ws, f"echo {q(sha)} > {q(dest / '.arena-code-sha')}", timeout=120)

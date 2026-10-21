@@ -203,6 +203,55 @@ class Staged(unittest.TestCase):
                                     "pipeline,rulesets,CLAUDE.md,arena"], check=True, capture_output=True, text=True)
             self.assertEqual(again.stdout.strip(), "0")
 
+    def _native_venv(self, root, dest, uv):
+        return subprocess.run([sys.executable, "-c", coder_run.NATIVE_VENV, str(root), str(dest), str(uv)],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_a_snapshot_pinning_another_harbor_gets_its_own_native_venv(self):
+        """2026-10-22 (Harbor 0.22.0 -> 0.24.0): the link farm pointed every snapshot's
+        .venv-harbor at ROOT's, which live runs hold at the old pin."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root"
+            dest = root / coder_run.STAGED / "abc"
+            dest.mkdir(parents=True)
+            (root / ".venv-harbor").mkdir()
+            (root / "requirements-native.lock").write_text("harbor==0.22.0\n")
+            calls = Path(tmp) / "calls.txt"
+            uv = Path(tmp) / "uv"
+            uv.write_text("#!" + sys.executable + "\n"
+                          "import os, sys\n"
+                          f"open({str(calls)!r}, 'a').write(' '.join(sys.argv[1:3]) + '\\n')\n"
+                          "if sys.argv[1] == 'venv':\n"
+                          "    os.makedirs(os.path.join(sys.argv[-1], 'bin'))\n"
+                          "    py = os.path.join(sys.argv[-1], 'bin', 'python')\n"
+                          "    open(py, 'w').write('#!/bin/sh\\nexit 0\\n'); os.chmod(py, 0o755)\n")
+            uv.chmod(0o755)
+            # Same pin as the live checkout: nothing installed, the link farm links ROOT's.
+            (dest / "requirements-native.lock").write_text("harbor==0.22.0\n")
+            self.assertEqual(self._native_venv(root, dest, uv), "shared")
+            self.assertFalse(calls.exists())
+            self.assertFalse((dest / ".venv-harbor").is_symlink())
+            # Another pin: its own venv, keyed by the lock, never ROOT's.
+            (dest / "requirements-native.lock").write_text("harbor==0.24.0\n")
+            (dest / ".venv-harbor").symlink_to(root / ".venv-harbor")   # an older staging's link
+            venv = Path(self._native_venv(root, dest, uv))
+            self.assertEqual(venv.parent, root / coder_run.STAGED)
+            self.assertTrue(venv.name.startswith("venv-harbor-"))
+            self.assertEqual(os.readlink(dest / ".venv-harbor"), str(venv))
+            self.assertEqual(calls.read_text().split("\n")[:2], ["venv --python", "pip install"])
+            self.assertTrue((venv / ".arena-lock-sha256").is_file())
+            self.assertEqual(sorted(p.name for p in (root / ".venv-harbor").iterdir()), [])
+            # A second snapshot with the same pin reuses it: no second install.
+            other = root / coder_run.STAGED / "def"
+            other.mkdir()
+            (other / "requirements-native.lock").write_text("harbor==0.24.0\n")
+            self.assertEqual(Path(self._native_venv(root, other, uv)), venv)
+            self.assertEqual(len(calls.read_text().splitlines()), 2)
+            # The link farm then leaves the snapshot's own link alone.
+            subprocess.run([sys.executable, "-c", coder_run.LINK_FARM, str(root), str(other), "pipeline"],
+                           check=True, capture_output=True)
+            self.assertEqual(os.readlink(other / ".venv-harbor"), str(venv))
+
     def test_a_staged_launch_runs_from_the_snapshot_and_writes_to_root_artifacts(self):
         sent = {}
 

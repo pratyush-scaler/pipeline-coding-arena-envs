@@ -1842,7 +1842,7 @@ class HarborReceiptMustSerialise(unittest.TestCase):
 
 
 class TasksCheckIsAnAgentTrialNotALint(unittest.TestCase):
-    """`harbor check` in 0.22.0 runs an LLM agent against a rubric.
+    """`harbor check` (0.22.0, 0.24.0) runs an LLM agent against a rubric.
 
     Two settings were wrong on the assumption it was a static validator, and
     both surfaced as task defects rather than harness limits:

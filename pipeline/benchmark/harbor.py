@@ -23,7 +23,10 @@ from .. import policy
 from ..author.cli_process import _run_process
 from .support import copy_tree, digest, fingerprint, redact, write_json, task_paths
 
-EXPECTED_VERSIONS = {"harbor": "0.22.0", "litellm": "1.99.0"}
+#: The calibration harness (Arena weekly sync, 2026-10-22: "Calibrate on Harbor 0.24").
+#: Campaigns before then ran on 0.22.0 and keep that runtime in their runtime.json.
+#: Harbor 0.24.0 still accepts litellm>=1.92.0, so the LiteLLM pin is unchanged.
+EXPECTED_VERSIONS = {"harbor": "0.24.0", "litellm": "1.99.0"}
 PROTOCOL = "arena-harbor-harness/4-step-history"
 PROTOCOL_NOTE = ("Calibration models in their assigned in-container harnesses (user, 2026-09-26): "
                  "Fable 5.1 in Claude Code, GPT 6 Astra in Codex, pinned CLI versions baked into "
@@ -365,8 +368,8 @@ def job_config(snapshot: Path, output: Path, *, model: str | None, agent: str,
             "n_attempts": rollouts, "n_concurrent_trials": workers, "quiet": True,
             "retry": {"max_retries": 0}, "environment": {"type": "docker", "delete": True,
                 "import_path": provider_for(agent),
-                # Harbor 0.22 clears the typed overlay field for separate verifiers,
-                # but preserves these documented environment constructor kwargs.
+                # Harbor (0.22 and 0.24) clears the typed overlay field for separate
+                # verifiers, but preserves these documented environment constructor kwargs.
                 "kwargs": {"extra_docker_compose": [str(output / LIFECYCLE_FILENAME)]}},
             "verifier": {"import_path": HISTORY_VERIFIER, "kwargs": {"skip_tests_upload": True}},
             "agents": [settings], "tasks": [{"path": str(snapshot)}]}
@@ -930,7 +933,7 @@ def run_campaign(bundle: Path, output: Path, model: str | None = None, *,
         report["status"] = "running"
         write_json(output / "report.json", report)
         env = _child_environment(agent, resolved_model)
-        # Harbor 0.22 accepts module:Class, not filesystem import paths. The
+        # Harbor accepts module:Class, not filesystem import paths. The
         # console script otherwise cannot resolve this controller-owned hook.
         env["PYTHONPATH"] = history["pythonpath"]
         command = [runtime["binary"], "run", "--config", str(output / "harbor-job.json")]

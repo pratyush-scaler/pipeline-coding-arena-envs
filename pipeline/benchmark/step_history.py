@@ -138,7 +138,7 @@ def build_history(task: dict, current_step: str | None, trial_root: Path, output
         raw_manifest = _regular(manifest_path)
         manifest = _json(raw_manifest)
         declarations = [_declaration(value) for value in [*task.get("artifacts", []), *step.get("artifacts", [])]]
-        # Pinned Harbor 0.22 prepends its convention publish dir, then records
+        # Pinned Harbor (0.22 and 0.24) prepends its convention publish dir, then records
         # one collection attempt per declaration in the same main-service pass.
         if not isinstance(manifest, list) or len(manifest) != len(declarations) + 1:
             raise HistoryEvidenceError("Prior capture manifest differs from the declared artifact set")

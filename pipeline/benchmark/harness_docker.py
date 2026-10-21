@@ -1,4 +1,4 @@
-"""Docker provider for the calibration harnesses (Claude Code, Codex) on Harbor 0.22.
+"""Docker provider for the calibration harnesses (Claude Code, Codex) on Harbor 0.24.
 
 User, 2026-09-26: Fable 5.1 runs in Claude Code and GPT 6 Astra in Codex. Both
 run INSIDE the task container, so -- unlike Terminus-2, which drove an offline

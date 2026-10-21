@@ -1,4 +1,4 @@
-"""Unbounded turn loop for pinned Harbor 0.22.0 Terminus-2.
+"""Unbounded turn loop for pinned Harbor 0.24.0 Terminus-2.
 
 The upstream Apache-2.0-licensed method is retained verbatim except its finite range
 is replaced by itertools.count. A parity test checks this against the installed
@@ -57,7 +57,7 @@ class UnlimitedTerminus2(Terminus2):
                 self.logger.debug("Session has ended, breaking out of agent loop")
                 return
 
-            if original_instruction and self._enable_summarize:
+            if original_instruction and self.options.enable_summarize:
                 proactive_summary_result = await self._check_proactive_summarization(
                     chat,
                     original_instruction,
@@ -118,7 +118,7 @@ class UnlimitedTerminus2(Terminus2):
             if self._pending_handoff_prompt:
                 # If linear_history mode is enabled, split trajectory immediately WITHOUT adding handoff step
                 # The handoff step will be added to the continuation trajectory during the split
-                if self._linear_history:
+                if (self.options.trajectory_config or {}).get("linear_history", False):
                     self._split_trajectory_on_summarization(
                         self._pending_handoff_prompt
                     )
@@ -135,7 +135,7 @@ class UnlimitedTerminus2(Terminus2):
                 self._pending_handoff_prompt = None
 
             # Create message content from analysis and plan, or use raw response if raw_content is enabled
-            if self._save_raw_content_in_trajectory:
+            if (self.options.trajectory_config or {}).get("raw_content", False):
                 # Use the raw LLM response content for SFT data export
                 message_content = llm_response.content
             else:
@@ -234,7 +234,7 @@ class UnlimitedTerminus2(Terminus2):
             tool_calls: list[ToolCall] | None = None
             observation_results: list[ObservationResult] = []
 
-            if not self._save_raw_content_in_trajectory:
+            if not (self.options.trajectory_config or {}).get("raw_content", False):
                 # Only create tool_calls when NOT in raw_content mode
                 tool_calls_list: list[ToolCall] = []
 

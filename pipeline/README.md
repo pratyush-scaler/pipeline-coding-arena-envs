@@ -53,7 +53,7 @@ to decide.
 
 Docker powers optional authoring probes and required executed validation;
 draft creation and submission require no Docker or validation. Harbor
-(`.venv-harbor`, pinned 0.22.0) is used for `benchmark`,
+(`.venv-harbor`, pinned 0.24.0 since 2026-10-22; 0.22.0 before) is used for `benchmark`,
 `screen` and `qualify`; the Coder pool for egress-controlled campaigns.
 
 The [extreme-task workflow](../analysis/HARDENING-WORKFLOW-2026-09-30.md)

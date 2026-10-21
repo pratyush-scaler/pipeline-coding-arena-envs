@@ -6,8 +6,9 @@ named constant in [`pipeline/policy.py`](policy.py) — prose does not hold
 numbers, it names the constant that does. `EveryPolicyConstantIsRead` fails the
 build on a constant nothing reads.
 
-What is being accepted: a Harbor 0.22 package (`schema_version = "1.4"`,
-`[[steps]]`, separate offline verifier) in which the agent starts inside a
+What is being accepted: a Harbor package (`schema_version = "1.4"`,
+`[[steps]]`, separate offline verifier; calibrated on Harbor 0.24 since
+2026-10-22, 0.22 before) in which the agent starts inside a
 repository lifted from an Arena session (`/app/repo`) and the verifier executes
 HIDDEN TESTS against what the agent left behind. The one truth source is an
 executed test. Nothing here scores a document, a wording or a layout.

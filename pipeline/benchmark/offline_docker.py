@@ -1,4 +1,4 @@
-"""Static offline Docker provider for Harbor 0.22, including Docker Desktop.
+"""Static offline Docker provider for Harbor 0.24, including Docker Desktop.
 
 Only no-network policies are admitted. A final controller-owned Compose overlay
 removes every network/port and Docker inspect verifies the effective namespace.

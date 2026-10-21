@@ -17,7 +17,7 @@ The command has been renamed twice across Harbor versions:
 
     harbor tasks-check <dir>     the spelling in the spec
     harbor tasks check <dir>     removed, with a message pointing at the next
-    harbor check <dir>           0.22.0
+    harbor check <dir>           0.22.0, 0.24.0
 
 so this resolves the spelling rather than hard-coding one, and records which
 one answered. A version that supports none of them is `unverified`, never a
@@ -37,7 +37,7 @@ from pathlib import Path
 #: wins, and its spelling is recorded in the receipt.
 SPELLINGS = (("check",), ("tasks", "check"), ("tasks-check",))
 
-#: `harbor check` in 0.22.0 is NOT a static validator: it is an LLM agent trial
+#: `harbor check` (0.22.0, 0.24.0) is NOT a static validator: it is an LLM agent trial
 #: against a rubric, so it takes minutes, not seconds. 300s was set on the
 #: assumption it was a lint and timed out the smallest bundle in this batch.
 #: Measured: a 4KB-instruction task exceeded 280s without finishing.
