@@ -503,6 +503,10 @@ def release(version: Path) -> dict:
         if not isinstance(critic, dict) or critic.get("artifact_sha256") != identity(version):
             result = coverage_critic.ship_critic(version, record_dir=version / "verification")
             out["critic"] = {"gaps": len(result["gaps"]), "mode": result.get("mode", "search")}
+        else:
+            # The receipt is this version's; its judgements are held to the current rules (a split recorded
+            # before the arbiter is judged again, 2026-10-21).
+            coverage_critic.readjudicate(version)
         return out
 
     step("revalidate", revalidate)

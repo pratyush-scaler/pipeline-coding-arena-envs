@@ -48,7 +48,31 @@ class GapArbiter(unittest.TestCase):
                "doubted": ["claude-fable-5-1"], "unsettled": True, "instruction_sha256": "d"}
         self.assertFalse(cc._reusable(old, "d"))
         self.assertTrue(cc._reusable({**old, "arbiter": {"published": "NO"}}, "d"))
+        legacy = {k: v for k, v in old.items() if k not in ("doubted", "unsettled")}       # an older record's shape
+        legacy["why"] = "the instruction does not clearly settle it (claude-fable-5-1)"
+        self.assertFalse(cc._reusable(legacy, "d"))
 
+
+class ReceiptReadjudicated(unittest.TestCase):
+
+    def test_a_pre_arbiter_split_in_a_reused_receipt_is_judged_again(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            b = Path(tmp)
+            (b / "steps/01-atlas").mkdir(parents=True)
+            (b / "verification").mkdir()
+            (b / "steps/01-atlas/instruction.md").write_text(INSTRUCTION)
+            split = {"answers": {"claude-fable-5-1": {"published": "UNDETERMINED"}, "gpt-6-astra": {"published": "YES"}},
+                     "doubted": ["claude-fable-5-1"], "unsettled": True, "blocking": False,
+                     "instruction_sha256": cc._digest(b / "steps/01-atlas/instruction.md")}
+            (b / cc.RECEIPT).write_text(json.dumps({"gaps": [{**GAP, "index": 5, "judgement": split}]}))
+            calls = []
+            receipt = cc.readjudicate(b, ask=asker("YES", calls))
+        self.assertIn(policy.READING_ARBITER, calls)
+        self.assertTrue(receipt["gaps"][0]["blocking"])
+        self.assertNotIn("asserted_by", receipt["gaps"][0])
 
 if __name__ == "__main__":
     unittest.main()

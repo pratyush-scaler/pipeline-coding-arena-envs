@@ -785,9 +785,8 @@ def _reusable(judgement: dict, digest: str | None) -> bool:
     round that states an unsettled rule must be judged on the new wording). One recorded before 2026-10-21 has no
     instruction hash: it still holds, unless it doubted the sentence -- a doubt now decides whether the gap blocks
     on the instruction, so it is asked once more, against the instruction as it stands, and then holds."""
-    answers = (judgement.get("answers") or {}).values()
-    if (judgement.get("doubted") and not judgement.get("arbiter")
-            and any(isinstance(a, dict) and a.get("published") == "YES" for a in answers)):
+    said = {a.get("published") for a in (judgement.get("answers") or {}).values() if isinstance(a, dict)}
+    if "YES" in said and said & {"NO", "UNDETERMINED"} and not judgement.get("arbiter"):
         return False            # a split judged before the arbiter existed (2026-10-21) is judged again
     if judgement.get("instruction_sha256"):
         return judgement["instruction_sha256"] == digest
@@ -836,6 +835,23 @@ def asserting_checks(bundle: Path, step: str | None, quotes: list) -> list[str]:
                 out.append(cid)
                 break
     return sorted(out)
+
+
+def readjudicate(bundle: Path, *, ask=None) -> dict | None:
+    """Judge again, on the current rules, the gaps of the receipt a release reuses for this version: a judgement the
+    rules no longer accept (a split recorded before the arbiter existed, 2026-10-21: node-rest-dashboard v11 kept
+    stopping at the unsettled gate on its pre-arbiter receipt) is asked again; every other one holds."""
+    from .artifacts import atomic_json
+    path = Path(bundle) / RECEIPT
+    try:
+        receipt = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(receipt, dict) or not receipt.get("gaps"):
+        return receipt
+    adjudicate(Path(bundle), receipt, prior={"gaps": [dict(g) for g in receipt["gaps"]]}, ask=ask)
+    atomic_json(path, receipt)
+    return receipt
 
 
 def adjudicate(bundle: Path, result: dict, *, prior: dict | None = None, ask=None, workers: int = 4,
