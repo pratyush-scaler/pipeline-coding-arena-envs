@@ -47,6 +47,41 @@ def problems(candidate: dict, registry: Path) -> list[str]:
     return errors
 
 
+def _lineage(bundle: Path) -> Path:
+    """The lineage root of a bundle: `<lineage>/hardened/vN` belongs to `<lineage>`."""
+    bundle = Path(bundle).resolve()
+    return bundle.parent.parent if bundle.parent.name == "hardened" else bundle
+
+
+def supersede(bundle: Path, reason: str, registry: Path | None = None) -> list[dict]:
+    """Retire, explicitly and on the record, the catalog entries released from EARLIER versions of this bundle's own
+    lineage, so this version can replace them (what `problems` asks for: "retire/supersede it explicitly").
+
+    Only the same lineage is touched: an entry from any other bundle -- a related task of the same session included
+    -- stays and still blocks. Each retired entry moves to `<registry>/retired/` carrying the reason, the successor
+    and when (2026-10-21: every audit repair of a shipped task stopped at qualify on its own earlier release).
+    """
+    import time
+    if not str(reason or "").strip():
+        raise ValueError("a supersede needs a reason")
+    root = registry or registry_root()
+    lineage, candidate = _lineage(bundle), signature(bundle)
+    retired = []
+    with bundle_lock(root):
+        for path in sorted(root.glob("*.json")):
+            entry = strict_json(path.read_text())
+            if entry.get("artifact_sha256") == candidate["artifact_sha256"] or not entry.get("bundle"):
+                continue
+            if _lineage(Path(entry["bundle"])) != lineage or not related(candidate, entry):
+                continue
+            record = {"reason": reason.strip(), "superseded_by": str(Path(bundle).resolve()),
+                      "superseded_by_artifact": candidate["artifact_sha256"], "at": time.time()}
+            atomic_json(root / "retired" / path.name, {**entry, "retired": record})
+            path.unlink()
+            retired.append({"artifact_sha256": entry["artifact_sha256"], "bundle": entry["bundle"], **record})
+    return retired
+
+
 def review_context(bundle: Path, workspace: Path | None = None) -> dict:
     """Retrieve source-related and textually similar peers for the critic."""
     import re
@@ -146,3 +181,20 @@ def register(bundle: Path, release: dict, registry: Path | None = None) -> list[
                 **candidate, "policy_sha256": release["policy_sha256"],
                 "release_receipt": str(bundle / "verification/release.json")})
         return errors
+
+
+def main(argv: list[str] | None = None) -> int:
+    """python -m pipeline.corpus supersede <bundle> --reason "<why>": retire the lineage's earlier releases."""
+    import argparse
+    import json
+    ap = argparse.ArgumentParser(prog="pipeline.corpus")
+    ap.add_argument("action", choices=("supersede",))
+    ap.add_argument("bundle", type=Path)
+    ap.add_argument("--reason", required=True)
+    ns = ap.parse_args(argv)
+    print(json.dumps(supersede(ns.bundle, ns.reason), indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
