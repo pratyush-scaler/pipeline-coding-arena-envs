@@ -184,6 +184,11 @@ class ArenaFormatExport(unittest.TestCase):
         _write(self.pkg / "authoring/blob.bin", b"\xff\xfe" + str(Path.home()).encode())
         self.assertTrue(arena_format.anonymity_problems(self.pkg))
 
+    def test_omissions_are_grouped_and_never_lifted_trees_skipped(self):
+        omitted = ["node_modules", "kit/a.png", "kit/b.png", "kit/c.png", "/home/user/notes.txt"]
+        got = arena_format._grouped(omitted, "absent", "provenance/source-scope.json")
+        self.assertEqual([(d["path"], d.get("count")) for d in got], [("home/user/notes.txt", None), ("kit/", 3)])
+
     def test_provenance_and_declarations(self):
         scope = json.loads((self.pkg / "provenance/source-scope.json").read_text())
         self.assertEqual(scope["steps"][0]["user_message"], 3)

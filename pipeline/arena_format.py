@@ -856,6 +856,30 @@ def export_provenance(src: Path, pkg: Path, steps: list[str]) -> None:
 
 # ----------------------------------------------------------------------------------------------- declarations
 
+#: Vendored or generated trees are never lifted (they are reinstalled at image build); a session naming them is
+#: not a missing file.
+NEVER_LIFTED = {"node_modules", ".next", ".git", "__pycache__", ".cache", ".pytest_cache", ".venv", "venv"}
+
+
+def _grouped(items, why: str, full_list: str) -> list[dict]:
+    """One `broken` declaration per top-level folder (a single file keeps its own path), with a count and examples."""
+    groups: dict[str, set] = {}
+    for item in items:
+        path = str(item.get("path") if isinstance(item, dict) else item).strip().lstrip("/")
+        if not path or path.split("/")[0] in NEVER_LIFTED:
+            continue
+        groups.setdefault(path.split("/")[0] if "/" in path else path, set()).add(path)
+    out = []
+    for head, paths in sorted(groups.items()):
+        if len(paths) == 1:
+            out.append({"kind": "broken", "path": next(iter(paths)), "reason": why})
+        else:
+            examples = ", ".join(sorted(paths)[:3])
+            out.append({"kind": "broken", "path": f"{head}/", "count": len(paths),
+                        "reason": f"{len(paths)} files {why} (e.g. {examples}); every path is listed in {full_list}"})
+    return out
+
+
 def declarations(pkg: Path) -> list[dict]:
     out = []
     cfg = task_config(pkg)
@@ -915,15 +939,12 @@ def declarations(pkg: Path) -> list[dict]:
         out.append({"kind": "vendored", "path": f"environment/repo/{d}", "reason": "third-party code shipped in the fixture"})
     ledger = (_read_json(pkg / "provenance/ledger.json", {}) or {}).get("pipeline") \
         or _read_json(pkg / "provenance/ledger.json", {}) or {}
-    for item in ledger.get("recovery_omissions") or []:
-        out.append({"kind": "broken", "path": str(item.get("path") if isinstance(item, dict) else item),
-                    "reason": "named by the source session but not recoverable; omitted from the fixture"})
+    out += _grouped(ledger.get("recovery_omissions") or [], "named by the source session but not recoverable, so "
+                    "absent from the fixture", "provenance/source-scope.json (recovery_omissions)")
     faith = ledger.get("faithfulness") or {}
     for key, why in (("extraction_exclusions", "excluded from the fixture at extraction"),
                      ("host_paths", "a host path the fixture reads that is not shipped")):
-        for item in faith.get(key) or []:
-            out.append({"kind": "broken", "path": str(item.get("path") if isinstance(item, dict) else item),
-                        "reason": why})
+        out += _grouped(faith.get(key) or [], why, f"provenance/ledger.json (pipeline.faithfulness.{key})")
     for rel, path in _files(pkg):
         if rel.startswith(("calibration/", "verification/")) or path.is_symlink():
             continue
