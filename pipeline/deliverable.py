@@ -302,11 +302,15 @@ def task_record(bundle: Path) -> dict:
                 f"\"{str(g.get('clause'))[:200]}\" -- {str(g.get('violation'))[:240]}")
     # Pass-audit demonstrations where a wrong calibration solution still passes (policy.LENIENCY_FINDINGS_BLOCK).
     passed = read("verification/pass-audit.json") or {}
-    for g in passed.get("gaps") or [] if not policy.LENIENCY_FINDINGS_BLOCK else []:
-        if isinstance(g, dict) and g.get("route") != "instruction":
+    for g in passed.get("gaps") or []:
+        if not isinstance(g, dict):
+            continue
+        unclear = g.get("route") == "instruction"
+        if (not unclear and not policy.LENIENCY_FINDINGS_BLOCK) or (unclear and not policy.UNSETTLED_ASSERTION_BLOCK):
             record["untested_surfaces"].append(
-                f"Pass audit, advisory (a lenient grader): a calibration solution passed {g.get('check')} while "
-                f"violating \"{str(g.get('clause'))[:200]}\" -- on {str(g.get('input'))[:200]}")
+                f"Pass audit, advisory ({'the instruction does not clearly settle it' if unclear else 'a lenient grader'})"
+                f": a calibration solution passed {g.get('check')} while violating \"{str(g.get('clause'))[:200]}\" "
+                f"-- on {str(g.get('input'))[:200]}")
     return record
 
 

@@ -980,7 +980,8 @@ def findings(result: dict) -> list[dict]:
                     f"{unsettled_text(g.get('judgement') or {}, g['asserted_by'], g.get('clause'))} -- a wrong version "
                     f"{_what(result, g)} while violating it: {str(g.get('violation'))[:200]}",
                     route="instruction", measure="screen", evidence=[json.dumps(g.get("edits"))[:1500]])
-            for g in result.get("gaps") or [] if g.get("blocking", True) is False and g.get("asserted_by")]
+            for g in result.get("gaps") or [] if g.get("blocking", True) is False and g.get("asserted_by")
+            and policy.UNSETTLED_ASSERTION_BLOCK]       # a clarity advisory (policy, 2026-10-21)
     return out
 
 
@@ -1829,6 +1830,8 @@ def pass_findings(record: dict) -> list[dict]:
     for g in record.get("gaps") or []:
         subject = f"{g.get('step')}#{g.get('id')}"
         evidence = [str(g.get("content") or "")[:1500]] + ([str(g["patch"])] if g.get("patch") else [])
+        if g.get("route") == "instruction" and not policy.UNSETTLED_ASSERTION_BLOCK:
+            continue                                     # a clarity advisory (policy, 2026-10-21)
         if g.get("route") == "instruction":
             out.append(finding("pass.unsettled", subject,
                                f"{unsettled_text(g.get('judgement') or {}, g.get('asserted_by') or [], g.get('clause'))}"

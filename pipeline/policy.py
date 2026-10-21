@@ -1072,6 +1072,12 @@ SIGNAL_MIN_INDEPENDENT_HARD_BLOCK = 2
 #: still blocks: an unsettled point a check grades (coverage.unsettled, pass.unsettled), an unsettled decisive
 #: reading, ambiguity_suspect failures, the semantic review's validity findings, controls and guardrails.
 LENIENCY_FINDINGS_BLOCK = False
+#: Same instruction, read on python-ai-agent v14 (2026-10-21 ~10:45 IST): an unsettled point the coverage critic or
+#: the pass audit constructs (coverage.unsettled, pass.unsettled) comes with a wrong version that still scores the
+#: check -- so no reading of that point is penalised and no correct solution loses on it; what makes it "asserted" is
+#: only that a check quotes a nearby sentence. It is an advisory about the instruction's clarity, listed with the
+#: package. Grading that IS unfair still blocks where runs lose on it: reading_settled and ambiguity_suspect.
+UNSETTLED_ASSERTION_BLOCK = False
 
 # --- 2026-10-21 audit: coverage critic and pass audit ---
 #: Counter-implementations the fresh search may propose per CHANGED step of a closed-and-verified final (user,
