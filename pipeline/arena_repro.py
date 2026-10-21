@@ -33,9 +33,17 @@ CONCURRENCY = 4
 
 
 def receipt_path(zip_path: Path) -> Path:
-    """Receipts sit beside the zips, in their own folder, never inside the zip (the zip's bytes are what is bound)."""
+    """Receipts sit beside the zips, in their own folder. A legacy zip's receipt is bound to the zip's bytes; an
+    Arena-format zip's (pipeline/arena_format.py) also to its tree digest, so attaching the receipt inside the zip's
+    verification/ -- outside the digest -- keeps it valid."""
     zip_path = Path(zip_path)
     return zip_path.parent / "arena-repro" / f"{zip_path.name}.json"
+
+
+def evidence_path(zip_path: Path) -> Path:
+    """The oracle and NOP trials pulled back from the workspace: <evidence>/<agent>/<trial>/."""
+    zip_path = Path(zip_path)
+    return zip_path.parent / "arena-repro" / "evidence" / zip_path.name
 
 
 def sha256(path: Path) -> str:
@@ -62,7 +70,10 @@ def receipt_problems(zip_path: Path) -> list[str]:
     if doc.get("schema") != SCHEMA:
         problems.append(f"receipt schema {doc.get('schema')!r} is not {SCHEMA!r}")
     if doc.get("zip_sha256") != sha256(zip_path):
-        problems.append("receipt is for other bytes: the zip changed after it was reproduced")
+        from . import arena_format
+        tree = arena_format.zip_tree_sha256(zip_path) if doc.get("tree_sha256") else None
+        if not tree or tree != doc.get("tree_sha256"):
+            problems.append("receipt is for other bytes: the zip changed after it was reproduced")
     harness = doc.get("harness") or {}
     if harness.get("version") != policy.ARENA_HARBOR_VERSION or harness.get("commit") != policy.ARENA_HARBOR_COMMIT:
         problems.append(f"reproduced on Harbor {harness.get('version')} @ {str(harness.get('commit'))[:12]}, "
@@ -80,9 +91,13 @@ def receipt_problems(zip_path: Path) -> list[str]:
 
 def gate(zips: list[Path]) -> list[str]:
     """The ship gate every publishing tool calls: every reason any of `zips` may not ship ([] = all may)."""
-    if not policy.ARENA_REPRO_REQUIRED:
-        return []
-    return [problem for z in zips for problem in receipt_problems(Path(z))]
+    found = []
+    if policy.ARENA_REPRO_REQUIRED:
+        found += [problem for z in zips for problem in receipt_problems(Path(z))]
+    if policy.ARENA_FORMAT_REQUIRED:
+        from . import arena_format
+        found += [problem for z in zips for problem in arena_format.zip_problems(Path(z))]
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -149,10 +164,11 @@ print("@@" + json.dumps(rows))
 
 
 def _task_names(zip_path: Path) -> set[str]:
-    """The task folder name(s) inside a delivered zip (`<level-folder>/<task>/task.toml`)."""
+    """The task folder name(s) inside a delivered zip: `<env-id>/task.toml` (Arena's format) or the legacy
+    `<level-folder>/<task>/task.toml`."""
     import zipfile
     with zipfile.ZipFile(zip_path) as archive:
-        return {Path(n).parent.name for n in archive.namelist() if n.endswith("/task.toml") and n.count("/") == 2}
+        return {Path(n).parent.name for n in archive.namelist() if n.endswith("/task.toml") and n.count("/") in (1, 2)}
 
 
 def reproduce(zips: list[Path], *, timeout: float = 4 * 3600) -> dict[str, dict]:
@@ -164,23 +180,34 @@ def reproduce(zips: list[Path], *, timeout: float = 4 * 3600) -> dict[str, dict]
     work = f"{REMOTE_ROOT}/runs/{stamp}"
     _ssh(f"find {REMOTE_ROOT}/runs -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {{}} + 2>/dev/null; "
          f"mkdir -p {work}/zips {work}/tasks", timeout=300)
-    digests, names = {}, {}
+    from . import arena_format
+    import tempfile
+    digests, names, uploaded = {}, {}, {}
+    slim_dir = Path(tempfile.mkdtemp(prefix="arena-repro-slim-"))
     for z in zips:
         digests[z] = sha256(z)
         names[z] = _task_names(z)
-        coder_run.rsync(policy.ARENA_REPRO_WORKSPACE, str(z), f"{work}/zips/{z.name}", push=True, timeout=1800)
+        # An Arena-format zip goes up without its evidence layers (calibration/, verification/): they are outside
+        # the tree digest the receipt binds, and they are most of the bytes.
+        source = arena_format.slim_zip(z, slim_dir) if arena_format.zip_tree_sha256(z) else z
+        uploaded[z] = sha256(source)
+        coder_run.rsync(policy.ARENA_REPRO_WORKSPACE, str(source), f"{work}/zips/{z.name}", push=True, timeout=1800)
     py = f"{REMOTE_HARBOR}/.venv/bin/python"
     unpack = (f"cd {work} && for z in zips/*.zip; do n=$(basename \"$z\" .zip); "
               f"{py} -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \"$z\" x/$n; "
-              f"for t in x/$n/*/*/task.toml; do mv \"$(dirname \"$t\")\" tasks/; done; done; "
+              f"for t in x/$n/*/task.toml x/$n/*/*/task.toml; do [ -f \"$t\" ] && mv \"$(dirname \"$t\")\" tasks/; "
+              f"done; done; "
               f"sha256sum zips/*.zip")
     _, listing = _ssh(unpack, timeout=1800)
     remote_sha = {Path(line.split()[-1]).name: line.split()[0] for line in listing.splitlines()
                   if len(line.split()) == 2 and line.split()[-1].endswith(".zip")}
     cpus, memory = policy.ARENA_REPRO_RESOURCES["cpus"], policy.ARENA_REPRO_RESOURCES["memory_mb"]
 
+    attempts = {"oracle": policy.ARENA_REPRO_ORACLE_ATTEMPTS, "nop": 1}
+
     def job(agent: str) -> str:
         return (f"cd {work} && {REMOTE_HARBOR}/.venv/bin/harbor run --path {work}/tasks --agent {agent} "
+                f"--n-attempts {attempts[agent]} "
                 f"--env docker --force-build --n-concurrent {CONCURRENCY} --jobs-dir {work}/jobs-{agent} "
                 f"--override-cpus {cpus} --override-memory-mb {memory} > {work}/{agent}.log 2>&1 < /dev/null")
 
@@ -191,30 +218,49 @@ def reproduce(zips: list[Path], *, timeout: float = 4 * 3600) -> dict[str, dict]
     receipts = {}
     for z in zips:
         task_rows = [rows[n] for n in names[z] if n in rows]
-        doc = {"schema": SCHEMA, "zip": z.name, "zip_sha256": digests[z],
-               "remote_zip_sha256": remote_sha.get(z.name), "tasks": sorted(names[z]),
+        doc = {"schema": SCHEMA, "zip": z.name, "zip_sha256": digests[z], "tree_sha256": arena_format.zip_tree_sha256(z),
+               "remote_zip_sha256": remote_sha.get(z.name), "uploaded_sha256": uploaded[z], "tasks": sorted(names[z]),
                "harness": {"name": "harbor", "version": harness["version"], "commit": harness["commit"],
                            "environment": "docker", "force_build": True},
                "resources": dict(policy.ARENA_REPRO_RESOURCES), "workspace": policy.ARENA_REPRO_WORKSPACE,
                "run_dir": work, "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
-        if remote_sha.get(z.name) != digests[z]:
-            doc["transfer_problem"] = "the workspace copy's sha256 differs from the local zip"
+        if remote_sha.get(z.name) != uploaded[z]:
+            doc["transfer_problem"] = "the workspace copy's sha256 differs from the uploaded zip"
         for agent in ("oracle", "nop"):
             trials = [t for r in task_rows for t in r.get(agent, [])]
-            if len(trials) != len(names[z]) or not trials:
-                doc[agent] = {"reward": None, "exception": f"{len(trials)} trial(s) for {len(names[z])} task(s)"}
+            if len(trials) != len(names[z]) * attempts[agent] or not trials:
+                doc[agent] = {"reward": None, "exception": f"{len(trials)} trial(s) for {len(names[z])} task(s) "
+                                                           f"x {attempts[agent]} attempt(s)"}
                 continue
             rewards = {t["reward"] for t in trials}
             excs = [t["exception"] for t in trials if t["exception"]]
             doc[agent] = {"reward": rewards.pop() if len(rewards) == 1 else None,
+                          "rewards": [t["reward"] for t in trials],
                           "exception": excs[0] if excs else None, "trials": [t["trial"] for t in trials]}
         if doc.get("transfer_problem"):
             doc["oracle"] = dict(doc.get("oracle") or {}, exception=doc["transfer_problem"])
+        if doc["tree_sha256"]:
+            # Arena's format carries its own proof: pull the trials back and attach receipt + evidence to the zip
+            evidence = evidence_path(z)
+            for agent in ("oracle", "nop"):
+                for trial in (doc.get(agent) or {}).get("trials") or []:
+                    target = evidence / agent / Path(trial).name
+                    target.mkdir(parents=True, exist_ok=True)
+                    try:
+                        coder_run.rsync(policy.ARENA_REPRO_WORKSPACE, f"{trial}/", f"{target}/", push=False,
+                                        timeout=1800, compress=True)
+                    except Exception as exc:  # noqa: BLE001 -- the receipt still stands; the attach records the gap
+                        doc.setdefault("evidence_problems", []).append(f"{agent} {Path(trial).name}: {exc}")
         path = receipt_path(z)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(doc, indent=1))
         tmp.replace(path)
+        if doc["tree_sha256"] and not receipt_problems(z):
+            arena_format.attach(z, doc, evidence_path(z))
+            doc["attached_zip_sha256"] = sha256(z)
+            tmp.write_text(json.dumps(doc, indent=1))
+            tmp.replace(path)
         receipts[z.name] = doc
     return receipts
 

@@ -27,7 +27,10 @@ class ReproGate(unittest.TestCase):
     def test_passing_receipt_ships(self):
         self.receipt()
         self.assertEqual(arena_repro.receipt_problems(self.zip), [])
-        self.assertEqual(arena_repro.gate([self.zip]), [])
+        with mock.patch.object(policy, "ARENA_FORMAT_REQUIRED", False):
+            self.assertEqual(arena_repro.gate([self.zip]), [])
+        # Arena's format (2026-10-22) is a gate of its own: a legacy layout no longer ships
+        self.assertIn("one folder <env-id>/", " ".join(arena_repro.gate([self.zip])))
 
     def test_missing_receipt_refuses(self):
         self.assertIn("no Arena reproduction receipt", " ".join(arena_repro.receipt_problems(self.zip)))
@@ -56,7 +59,8 @@ class ReproGate(unittest.TestCase):
         self.assertIn("reproduced at", " ".join(arena_repro.receipt_problems(self.zip)))
 
     def test_gate_switch(self):
-        with mock.patch.object(policy, "ARENA_REPRO_REQUIRED", False):
+        with mock.patch.object(policy, "ARENA_REPRO_REQUIRED", False), \
+                mock.patch.object(policy, "ARENA_FORMAT_REQUIRED", False):
             self.assertEqual(arena_repro.gate([self.zip]), [])
         self.assertTrue(arena_repro.gate([self.zip]))
 

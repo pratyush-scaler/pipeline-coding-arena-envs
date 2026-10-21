@@ -986,6 +986,19 @@ ARENA_REPRO_WORKSPACE = "arena-coding-3"
 #: Ship gate: True refuses to publish a zip whose receipt is missing, stale (zip bytes changed) or not oracle 1.0 /
 #: NOP 0.0 on the pinned harness at the pinned resources.
 ARENA_REPRO_REQUIRED = True
+#: Oracle runs per zip in the reproduction (user, 2026-10-22, Arena's receipt asks for "repeatable"): every attempt
+#: must score 1.0, and verification/receipt.json records them all.
+ARENA_REPRO_ORACLE_ATTEMPTS = 2
+
+#: Arena's package format (Scaler x Arena weekly, 2026-10-22, "Formatting Changes - P0"; pipeline/arena_format.py):
+#: packaging writes `<env-id>@<version>.zip` in Arena's layout, and the ship gate refuses a zip that is not in it
+#: or whose verification/receipt.json is missing or bound to another tree.
+ARENA_FORMAT_REQUIRED = True
+#: declarations.json lists a package file at or above this size as `large` (calibration/ and verification/ aside).
+ARENA_LARGE_FILE_BYTES = 1024 * 1024
+#: Names scrubbed from every shipped record besides the operator's home path and login, which arena_format
+#: derives from the machine (Arena: "no author or supplier names"; the 2026-10-22 review found /Users/... paths).
+ARENA_ANONYMIZE_NAMES: tuple = ()
 
 # --- 2026-10-21 audit: guardrail misfires (controls, gates, check_draft) ---
 

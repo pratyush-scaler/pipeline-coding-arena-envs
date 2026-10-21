@@ -2,9 +2,8 @@
 
 1. spec audit on each task's workspace (spec_audit.py) -> spec-audit.json, SPEC-AUDIT.md
 2. package on each workspace (package_remote.py): deliver + runs/ + REWARD-HACKING.md + privacy rescan
-3. pull the delivered tree, zip each task as <short_name>_<date>.zip (layout <level dir>/<short name>/...),
-   and for a multi-step task also one zip per step (<short_name>_step-<NN>_<date>.zip: the whole package
-   with only that step's steps/ folder)
+3. pull the delivered tree and zip each task in Arena's format as <env-id>@<version>.zip (one folder
+   <env-id>/ inside; pipeline/arena_format.py), a multi-step task as one package
 4. INDEX.md / index.json
 
 usage: package_ready.py <tasks.json>     tasks: [{ws, bundle, name, fable_campaign}]
@@ -145,14 +144,26 @@ def main():
                 continue
             out_root = local / "out"
             dest = out_root / d["destination"]
-            for old in OUT.glob(f"{d['short_name']}_*.zip"):
-                old.unlink()
-            zips = []
-            zname = f"{d['short_name']}_{DATE}.zip"
-            with zipfile.ZipFile(OUT / zname, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in sorted(dest.rglob("*")):
-                    z.write(f, f.relative_to(out_root).as_posix())
-            zips.append(zname)
+            # A task delivered before is replaced: its package carries the next minor version, recorded in the
+            # delivery receipt (task bank CONTRIBUTING step 2; 2026-10-21, the audit repairs).
+            if d["name"] in index["tasks"]:
+                from pipeline.deliver import bump_version
+                d["version"] = bump_version(dest)
+            # Arena's format (Scaler x Arena weekly, 2026-10-22, "Formatting Changes - P0"): one
+            # <env-id>@<version>.zip in Arena's layout. The reproduction run (pipeline.arena_repro) attaches
+            # verification/receipt.json and the oracle evidence; a package the exporter refuses is held.
+            from pipeline import arena_format
+            try:
+                zname = arena_format.package(dest, OUT, work=local).name
+            except Exception as exc:  # noqa: BLE001 -- hold the task with the reason, package the rest
+                why = f"Arena format export failed: {type(exc).__name__}: {exc}"[:600]
+                index["held"][d["name"]] = {"why": why, "level": d.get("level"), "at": time.strftime("%Y-%m-%d %H:%M")}
+                print(f"{d['name']}: HELD -- {why}")
+                continue
+            for old in [*OUT.glob(f"{d['short_name']}_*.zip"), *OUT.glob(f"{d['short_name']}@*.zip")]:
+                if old.name != zname:
+                    old.unlink()
+            zips = [zname]
             # A multi-turn task ships as ONE package (Spec Appendix A: the turns share one environment and
             # TURNS.md); per-step zips kept a task.toml declaring every step and Harbor refused them.
             if False:
@@ -169,6 +180,7 @@ def main():
             cal = a.get("calibration") or {}
             index["tasks"][d["name"]] = {
                 "zip": zname, "step_zips": zips[1:], "short_name": d["short_name"], "level": d["level"], "steps": d["steps"],
+                "version": (d.get("version") or {}).get("assigned"),
                 "destination": d["destination"], "workspace": ws, "source": next(t["bundle"] for t in ts if t["name"] == d["name"]),
                 "fable_10": {k: (cal.get("fable") or {}).get(k) for k in ("pass", "scored", "pass_at_1", "pass_at_4", "mean_reward")},
                 "astra_5": {k: (cal.get("astra") or {}).get(k) for k in ("pass", "scored", "pass_at_1", "pass_at_4", "mean_reward")},
