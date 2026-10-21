@@ -1060,6 +1060,18 @@ CLAUSE_MAP_SUITE_CHARS = 200_000
 #: csv-log-analysis 0.67); 0.7 would pass pdf-tooling and csv-log, 0.5 would refuse 14 of 29. 0.6 still leaves the
 #: heaviest decision nearly twice an even share of the SIGNAL_MIN_INDEPENDENT_HARD decisions a usable signal needs.
 SIGNAL_SINGLE_DECISION_SHARE_MAX = 0.6
+#: User, 2026-10-21 ~10:05 IST ("How could it be so strict?? Ignore the small minor issues which are not a blocker"):
+#: the shape of the learning signal blocks only at the extremes the external audit named (one decision carrying
+#: almost all of the lost reward, a single independent decision). Between these and the aims above
+#: (SIGNAL_SINGLE_DECISION_SHARE_MAX, SIGNAL_MIN_INDEPENDENT_HARD) it is an advisory, listed with the package.
+SIGNAL_SINGLE_DECISION_SHARE_BLOCK = 0.9
+SIGNAL_MIN_INDEPENDENT_HARD_BLOCK = 2
+#: Same instruction (user, 2026-10-21 ~10:05 IST): a grader that is too LENIENT -- an executed coverage-critic gap,
+#: a pass-audit demonstration where a wrong solution still passes -- never fails a correct solution, so it is an
+#: advisory listed under the delivered package's untested surfaces, not a refusal. What can fail a correct solution
+#: still blocks: an unsettled point a check grades (coverage.unsettled, pass.unsettled), an unsettled decisive
+#: reading, ambiguity_suspect failures, the semantic review's validity findings, controls and guardrails.
+LENIENCY_FINDINGS_BLOCK = False
 
 # --- 2026-10-21 audit: coverage critic and pass audit ---
 #: Counter-implementations the fresh search may propose per CHANGED step of a closed-and-verified final (user,

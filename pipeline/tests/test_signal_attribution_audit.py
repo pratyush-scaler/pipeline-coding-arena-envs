@@ -49,7 +49,11 @@ class LockstepCollapse(unittest.TestCase):
         self.assertEqual(group["weight"], 41.0)
         self.assertEqual(group["fail_rate"], {"anthropic/claude-fable-5-1": 1.0, "openai/gpt-6-astra": 0.6})
         found = learning_signal.problems(s)
-        self.assertTrue(any(p.startswith("signal: 2 independent hard decision(s)") for p in found), found)
+        # 93% on one decision is past policy.SIGNAL_SINGLE_DECISION_SHARE_BLOCK: the audit's c-game-bot still blocks;
+        # two independent decisions (aimed at 3) is an advisory since 2026-10-21 ~10:05 IST.
+        self.assertTrue(any("carries 93%" in p for p in found), found)
+        self.assertTrue(any(p.startswith("signal advisory: 2 independent hard decision(s)")
+                            for p in learning_signal.advisories(s)))
 
     def test_lockstep_needs_every_run_identical(self):
         # One Astra run where o_clip alone passes splits the group: the three left still move together.
@@ -121,9 +125,12 @@ class SingleDecisionCap(unittest.TestCase):
 
     def test_the_cap_is_policy(self):
         s = signal_of(CANVAS)
-        orig = policy.SIGNAL_SINGLE_DECISION_SHARE_MAX
+        for name in ("SIGNAL_SINGLE_DECISION_SHARE_MAX", "SIGNAL_SINGLE_DECISION_SHARE_BLOCK"):
+            self.addCleanup(setattr, policy, name, getattr(policy, name))
         policy.SIGNAL_SINGLE_DECISION_SHARE_MAX = 0.2
-        self.addCleanup(setattr, policy, "SIGNAL_SINGLE_DECISION_SHARE_MAX", orig)
+        self.assertEqual(self.cap_problems(s), [])                     # between the aim and the block: advisory
+        self.assertTrue(any("carries" in a for a in learning_signal.advisories(s)))
+        policy.SIGNAL_SINGLE_DECISION_SHARE_BLOCK = 0.2
         self.assertEqual(len(self.cap_problems(s)), 1)
 
     def test_a_gated_check_loses_nothing_to_its_own_decision(self):

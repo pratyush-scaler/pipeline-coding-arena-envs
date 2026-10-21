@@ -142,6 +142,15 @@ def _review(version: Path) -> list[dict]:
     return out
 
 
+def _current_signal_problems(screen: dict) -> list:
+    """The pilot's signal problems on the current rules: re-derived from its recorded signal where it has one, so a
+    rule relaxed since (policy.SIGNAL_*_BLOCK, 2026-10-21) no longer reads as a blocker."""
+    from . import learning_signal
+    if isinstance(screen.get("signal"), dict):
+        return learning_signal.problems(screen["signal"])
+    return list(screen.get("signal_problems") or [])
+
+
 def _signal(version: Path) -> list[dict]:
     screen = _load(Path(version) / "verification/screen.json")
     out = [{"id": f"SIG {n}", "source": "learning signal of the measured pilot", "finding": str(p)[:600],
@@ -153,7 +162,7 @@ def _signal(version: Path) -> list[dict]:
                               "calibration lost -- regrade_episodes on the captured episodes shows what the current "
                               "tests would score",
             "agent_surface": False}
-           for n, p in enumerate(screen.get("signal_problems") or [], 1) if "runs are flat" not in str(p)]
+           for n, p in enumerate(_current_signal_problems(screen), 1) if "runs are flat" not in str(p)]
     bar = policy.STEP_PASS_RATE_MAX
     for model, steps in (screen.get("step_pass_rates") or {}).items():
         for step, rate in (steps or {}).items():

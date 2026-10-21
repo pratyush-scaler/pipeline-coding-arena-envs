@@ -173,6 +173,19 @@ class RealisticOnly(unittest.TestCase):
         self.assertEqual(cc.advisory(unjudged), [])
 
 
+def setUpModule():
+    # These tests pin the gap machinery in its blocking setting; the advisory default since 2026-10-21 ~10:05 IST
+    # (policy.LENIENCY_FINDINGS_BLOCK = False) is tested in test_leniency_advisory.py.
+    from pipeline import policy
+    global _LENIENCY
+    _LENIENCY, policy.LENIENCY_FINDINGS_BLOCK = policy.LENIENCY_FINDINGS_BLOCK, True
+
+
+def tearDownModule():
+    from pipeline import policy
+    policy.LENIENCY_FINDINGS_BLOCK = _LENIENCY
+
+
 if __name__ == "__main__":
     unittest.main()
 

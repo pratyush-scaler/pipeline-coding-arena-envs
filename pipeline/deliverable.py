@@ -296,6 +296,17 @@ def task_record(bundle: Path) -> dict:
             record["untested_surfaces"].append(
                 f"Coverage critic, advisory ({(g.get('judgement') or {}).get('why')}): a wrong implementation scores "
                 f"1.0 while violating \"{str(g.get('clause'))[:200]}\" -- {str(g.get('violation'))[:240]}")
+        elif isinstance(g, dict) and not policy.LENIENCY_FINDINGS_BLOCK:
+            record["untested_surfaces"].append(
+                f"Coverage critic, advisory (a lenient grader): a wrong implementation scores 1.0 while violating "
+                f"\"{str(g.get('clause'))[:200]}\" -- {str(g.get('violation'))[:240]}")
+    # Pass-audit demonstrations where a wrong calibration solution still passes (policy.LENIENCY_FINDINGS_BLOCK).
+    passed = read("verification/pass-audit.json") or {}
+    for g in passed.get("gaps") or [] if not policy.LENIENCY_FINDINGS_BLOCK else []:
+        if isinstance(g, dict) and g.get("route") != "instruction":
+            record["untested_surfaces"].append(
+                f"Pass audit, advisory (a lenient grader): a calibration solution passed {g.get('check')} while "
+                f"violating \"{str(g.get('clause'))[:200]}\" -- on {str(g.get('input'))[:200]}")
     return record
 
 

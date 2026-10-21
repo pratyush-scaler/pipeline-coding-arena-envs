@@ -248,19 +248,30 @@ def problems(s: dict) -> list[str]:
     if s.get("free_weight_share") is not None and s["free_weight_share"] > policy.SIGNAL_FREE_WEIGHT_MAX:
         out.append(f"signal: {s['free_weight_share']:.0%} of the objective weight is passed by every run of both models "
                    f"(at most {policy.SIGNAL_FREE_WEIGHT_MAX:.0%}): good and bad solutions score alike")
-    if s.get("independent_hard", 0) < policy.SIGNAL_MIN_INDEPENDENT_HARD:
-        out.append(f"signal: {s.get('independent_hard', 0)} independent hard decision(s) (checks failed by >= "
-                   f"{policy.SIGNAL_HARD_FAIL_RATE:.0%} of a model's runs, one per trap, and checks that pass and fail "
-                   f"together in every run count once); at least {policy.SIGNAL_MIN_INDEPENDENT_HARD} needed so partial "
-                   "progress earns partial reward")
+    # Below SIGNAL_MIN_INDEPENDENT_HARD_BLOCK / above SIGNAL_SINGLE_DECISION_SHARE_BLOCK it refuses; between those and
+    # the aims it is an advisory (user, 2026-10-21 ~10:05 IST: "Ignore the small minor issues which are not a blocker").
+    if s.get("independent_hard", 0) < policy.SIGNAL_MIN_INDEPENDENT_HARD_BLOCK:
+        out.append(_independent_text(s))
     # User, 2026-10-21: c-game-bot lost 93% of its reward on one decision, static-html-mindmap 100% on one fold.
     share = s.get("single_decision_share")
-    if share is not None and share > policy.SIGNAL_SINGLE_DECISION_SHARE_MAX:
-        one = s.get("single_decision") or {}
-        names = ", ".join(ref.rpartition("/")[2] for ref in one.get("checks") or []) or one.get("decision")
-        out.append(f"signal: one decision ({names}) carries {share:.0%} of all the reward the calibration lost (at most "
-                   f"{policy.SIGNAL_SINGLE_DECISION_SHARE_MAX:.0%}): one reading of one decision sets almost every score")
+    if share is not None and share > policy.SIGNAL_SINGLE_DECISION_SHARE_BLOCK:
+        out.append(_share_text(s))
     return out
+
+
+def _independent_text(s: dict, prefix: str = "signal") -> str:
+    return (f"{prefix}: {s.get('independent_hard', 0)} independent hard decision(s) (checks failed by >= "
+            f"{policy.SIGNAL_HARD_FAIL_RATE:.0%} of a model's runs, one per trap, and checks that pass and fail "
+            f"together in every run count once); at least {policy.SIGNAL_MIN_INDEPENDENT_HARD} needed so partial "
+            "progress earns partial reward")
+
+
+def _share_text(s: dict, prefix: str = "signal") -> str:
+    one = s.get("single_decision") or {}
+    names = ", ".join(ref.rpartition("/")[2] for ref in one.get("checks") or []) or one.get("decision")
+    return (f"{prefix}: one decision ({names}) carries {s['single_decision_share']:.0%} of all the reward the calibration "
+            f"lost (at most {policy.SIGNAL_SINGLE_DECISION_SHARE_MAX:.0%}): one reading of one decision sets almost "
+            "every score")
 
 
 def advisories(s: dict) -> list[str]:
@@ -268,6 +279,11 @@ def advisories(s: dict) -> list[str]:
     run (validation session 2026-10-13, c-011-quant: 10/10 Astra repos identical on 300 fuzz frames), so a spread
     floor would refuse a task whose grader is sound; only fresh episodes can show spread there."""
     out = []
+    if policy.SIGNAL_MIN_INDEPENDENT_HARD_BLOCK <= s.get("independent_hard", 0) < policy.SIGNAL_MIN_INDEPENDENT_HARD:
+        out.append(_independent_text(s, "signal advisory"))
+    share = s.get("single_decision_share")
+    if share is not None and policy.SIGNAL_SINGLE_DECISION_SHARE_MAX < share <= policy.SIGNAL_SINGLE_DECISION_SHARE_BLOCK:
+        out.append(_share_text(s, "signal advisory"))
     for model, sp in (s.get("spread") or {}).items():
         if sp.get("stdev") is not None and sp["stdev"] < policy.SIGNAL_REWARD_SPREAD_MIN:
             out.append(f"signal advisory: {model.split('/')[-1]} runs are flat (rewards {sp['min']}-{sp['max']}, stdev "

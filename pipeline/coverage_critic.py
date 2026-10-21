@@ -970,10 +970,12 @@ def findings(result: dict) -> list[dict]:
     """The BLOCKING gaps (a gap without a judgement blocks), and the demoted ones a hidden check grades the
     sentence of (`coverage.unsettled`, route "instruction", 2026-10-21)."""
     from .shipcheck import finding
+    from . import policy
     out = [finding("coverage.gap", f"{g['step']}#{g['index']}",
                    f"{_what(result, g)} while violating: {str(g.get('clause'))[:200]} -- {str(g.get('violation'))[:200]}",
                    route="hidden", measure="regrade", evidence=[json.dumps(g.get("edits"))[:1500]])
-           for g in result.get("gaps") or [] if g.get("blocking", True) is not False]
+           for g in result.get("gaps") or [] if g.get("blocking", True) is not False
+           and policy.LENIENCY_FINDINGS_BLOCK]           # a lenient grader is an advisory (policy, 2026-10-21)
     out += [finding("coverage.unsettled", f"{g['step']}#{g['index']}",
                     f"{unsettled_text(g.get('judgement') or {}, g['asserted_by'], g.get('clause'))} -- a wrong version "
                     f"{_what(result, g)} while violating it: {str(g.get('violation'))[:200]}",
@@ -985,8 +987,14 @@ def findings(result: dict) -> list[dict]:
 def advisory(result: dict) -> list[dict]:
     """Gaps the judges demoted on a sentence no check grades: recorded and listed in the delivered package,
     never blocking."""
+    from . import policy
     from .shipcheck import finding
-    return [finding("coverage.gap_advisory", f"{g['step']}#{g['index']}",
+    lenient = [] if policy.LENIENCY_FINDINGS_BLOCK else [
+        finding("coverage.gap_advisory", f"{g['step']}#{g['index']}",
+                f"advisory (a lenient grader, policy.LENIENCY_FINDINGS_BLOCK): {_what(result, g)} while violating: "
+                f"{str(g.get('clause'))[:200]} -- {str(g.get('violation'))[:200]}", route="none", measure="none")
+        for g in result.get("gaps") or [] if g.get("blocking", True) is not False]
+    return lenient + [finding("coverage.gap_advisory", f"{g['step']}#{g['index']}",
                     f"advisory ({(g.get('judgement') or {}).get('why')}): {_what(result, g)} while violating: "
                     f"{str(g.get('clause'))[:200]} -- {str(g.get('violation'))[:200]}",
                     route="none", measure="none", evidence=[json.dumps(g.get("edits"))[:1500]])
@@ -1813,7 +1821,9 @@ def _pass_text(g: dict) -> str:
 
 
 def pass_findings(record: dict) -> list[dict]:
-    """The pass audit's open gaps: `pass.gap` (route "hidden") or `pass.unsettled` (route "instruction")."""
+    """The pass audit's open gaps: `pass.gap` (route "hidden", only while policy.LENIENCY_FINDINGS_BLOCK) or
+    `pass.unsettled` (route "instruction")."""
+    from . import policy
     from .shipcheck import finding
     out = []
     for g in record.get("gaps") or []:
@@ -1823,7 +1833,7 @@ def pass_findings(record: dict) -> list[dict]:
             out.append(finding("pass.unsettled", subject,
                                f"{unsettled_text(g.get('judgement') or {}, g.get('asserted_by') or [], g.get('clause'))}"
                                f" -- {_pass_text(g)}", route="instruction", measure="screen", evidence=evidence))
-        else:
+        elif policy.LENIENCY_FINDINGS_BLOCK:            # a wrong solution passing is an advisory (policy, 2026-10-21)
             out.append(finding("pass.gap", subject, _pass_text(g), route="hidden", measure="regrade",
                                evidence=evidence))
     return out
