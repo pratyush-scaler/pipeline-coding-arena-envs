@@ -175,8 +175,31 @@ class ArenaFormatExport(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         metrics_doc = json.loads((self.pkg / "calibration/metrics.json").read_text())
         self.assertEqual(metrics_doc["models"]["claude-fable-5-1"]["pass_at_1"], 0.0)
-        self.assertIn("version_note", metrics_doc)
+        self.assertIn("version_note", metrics_doc)          # the one run measured the pre-patch package
+        self.assertFalse(metrics_doc["headline_measures_shipped"])
         self.assertFalse((self.pkg / "calibration/campaigns/claude-fable-5-1/calibration-abc/package").exists())
+
+    def test_headline_counts_only_runs_on_the_exact_package(self):
+        src = self.src
+        exact = src / "runs/claude-fable-5-1/calibration-exact"
+        shutil.copytree(src / "runs/claude-fable-5-1/calibration-abc", exact)
+        shutil.rmtree(exact / "package")
+        for rel in ("tests", "environment", "steps"):
+            shutil.copytree(src / rel, exact / "package" / rel)
+        shutil.copy2(src / "task.toml", exact / "package/task.toml")
+        index = json.loads((src / "runs/index.json").read_text())
+        trial = dict(index["campaigns"][0]["trials"][0], reward=1.0)
+        index["campaigns"].append({"label": "claude-fable-5-1", "path": "runs/claude-fable-5-1/calibration-exact",
+                                   "trials": [trial]})
+        (src / "runs/index.json").write_text(json.dumps(index))
+        pkg = arena_format.export(src, self.tmp / "out2")
+        doc = json.loads((pkg / "calibration/metrics.json").read_text())
+        self.assertTrue(doc["headline_measures_shipped"])
+        self.assertEqual(doc["models"]["claude-fable-5-1"]["runs"], 1)
+        self.assertEqual(doc["models"]["claude-fable-5-1"]["pass_at_1"], 1.0)
+        self.assertEqual(doc["earlier_models"]["claude-fable-5-1"]["pass_at_1"], 0.0)
+        self.assertNotIn("version_note", doc)
+        self.assertIn("Before the last patch", (pkg / "README.md").read_text())
 
     def test_operator_paths_are_scrubbed(self):
         self.assertNotIn(str(Path.home()), (self.pkg / "verification/delivery.json").read_text())

@@ -77,7 +77,8 @@ DIFF_EXCLUDED = (".cache", ".pytest_cache", "__pycache__", ".next", "node_module
 RESTORE_MARK = "# arena-format: hidden data lives in tests/expected/<step>/data; the grader reads it in /tests/suites/data"
 RESTORE_LINE = ('RUN set -e; for d in /tests/expected/*/data; do [ -d "$d" ] || continue; '
                 'mkdir -p /tests/suites/data; cp -a "$d/." /tests/suites/data/; done')
-RUNS_COLUMNS = ("model", "role", "harness", "harness_version", "harbor_version", "campaign", "run_id", "step",
+RUNS_COLUMNS = ("model", "role", "harness", "harness_version", "harbor_version", "campaign", "measures_shipped",
+                "run_id", "step",
                 "step_index", "step_reward", "step_passed", "run_reward", "run_passed", "exception", "gate_failed",
                 "checks_passed", "checks_failed", "failed_checks", "agent_started_at", "agent_finished_at",
                 "agent_seconds", "verifier_seconds", "input_tokens", "cache_tokens", "output_tokens", "cost_usd",
@@ -588,6 +589,17 @@ def _seconds(start: str | None, end: str | None) -> float | None:
     return round((b - a).total_seconds(), 1)
 
 
+GRADED_SURFACES = ("tests/", "environment/", "steps/")
+
+
+def graded_digest(package: Path) -> str:
+    """What a run measures: the grader, the fixture and image, and the instructions and references, byte for byte
+    (task.toml aside: a screen copy carries the generator's version string)."""
+    inventory = {rel: _file_sha(p) for rel, p in _files(package)
+                 if rel.startswith(GRADED_SURFACES) and "__pycache__" not in rel.split("/")}
+    return _sha(json.dumps(inventory, sort_keys=True).encode())
+
+
 def _measured_package(campaign: Path) -> dict | None:
     package = campaign / "package"
     if not (package / "task.toml").is_file():
@@ -596,12 +608,40 @@ def _measured_package(campaign: Path) -> dict | None:
         cfg = tomllib.loads((package / "task.toml").read_text(encoding="utf-8"))
     except ValueError:
         cfg = {}
-    inventory = {rel: _file_sha(p) for rel, p in _files(package) if not p.is_symlink()}
+    inventory = {rel: _file_sha(p) for rel, p in _files(package)}
     return {"version": (cfg.get("task") or {}).get("version"), "files": len(inventory),
             "inventory_sha256": _sha(json.dumps(inventory, sort_keys=True).encode()),
-            "graded_surfaces_sha256": _sha(json.dumps({k: v for k, v in inventory.items()
-                                                       if k.startswith(("tests/", "environment/", "steps/"))
-                                                       or k == "task.toml"}, sort_keys=True).encode())}
+            "graded_surfaces_sha256": graded_digest(package)}
+
+
+def _model_stats(per_model: dict, steps: list[str]) -> dict:
+    models = {}
+    for label, runs in per_model.items():
+        scored = [r for r in runs if r["reward"] is not None]
+        passes = sum(1 for r in scored if metrics.passed(r["reward"]))
+        per_step = {}
+        for step in steps:
+            vals = [r["steps"][step]["step_reward"] for r in scored if step in r["steps"]
+                    and r["steps"][step]["step_reward"] is not None]
+            check_rates = {}
+            for r in scored:
+                for cid, v in (r["steps"].get(step) or {}).get("checks", {}).items():
+                    check_rates.setdefault(cid, []).append(1.0 if v else 0.0)
+            rate = sum(metrics.passed(v) for v in vals) / len(vals) if vals else None
+            per_step[step] = {"runs": len(vals), "pass_rate": round(rate, 3) if vals else None,
+                              "mean_reward": round(sum(vals) / len(vals), 3) if vals else None,
+                              "check_pass_rates": {c: round(sum(v) / len(v), 3) for c, v in check_rates.items()},
+                              "under_step_bar": rate < policy.STEP_PASS_RATE_MAX if vals else None}
+        models[label] = {"model_id": runs[0]["model_id"], "harness": runs[0]["harness"],
+                         "harness_version": runs[0]["harness_version"], "harbor_version": runs[0]["harbor"],
+                         "campaigns": sorted({r["campaign"] for r in runs}),
+                         "runs": len(runs), "scored": len(scored), "exceptions": sum(1 for r in runs if r["exception"]),
+                         "passes": passes,
+                         "pass_at_1": metrics.pass_at_k(len(scored), passes, 1) if scored else None,
+                         "pass_at_4": metrics.pass_at_k(len(scored), passes, 4) if len(scored) >= 4 else None,
+                         "mean_reward": round(sum(r["reward"] for r in scored) / len(scored), 3) if scored else None,
+                         "per_step": per_step}
+    return models
 
 
 def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
@@ -611,6 +651,7 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     rows, per_model, campaigns_meta = [], {}, []
     used_ids: set[tuple[str, str]] = set()
+    shipped_graded = graded_digest(src)
     for campaign in index.get("campaigns") or []:
         label = campaign.get("label") or "unknown"
         cdir = src / campaign["path"]
@@ -621,6 +662,7 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
         runtime = _read_json(cdir / "runtime.json", {}) or {}
         harbor_version = (runtime.get("versions") or {}).get("harbor")
         measured = _measured_package(cdir)
+        measures_shipped = bool(measured) and measured["graded_surfaces_sha256"] == shipped_graded
         fixture = cdir / "package/environment/repo"
         if not fixture.is_dir():
             fixture = src / "environment/repo"
@@ -638,6 +680,7 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
                                "model_id": report.get("model"), "harbor": harbor_version,
                                "protocol": report.get("protocol") or runtime.get("protocol"),
                                "measured_version": (measured or {}).get("version"),
+                               "measures_shipped": measures_shipped,
                                "path": f"calibration/campaigns/{label}/{cdir.name}"})
         for trial in campaign.get("trials") or []:
             tid = trial.get("trial_id")
@@ -691,7 +734,8 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
                     if (sdir / "agent").is_dir() else None
                 row = {"model": label, "role": role, "harness": agent_info.get("name") or report.get("agent"),
                        "harness_version": agent_info.get("version"), "harbor_version": harbor_version,
-                       "campaign": cdir.name, "run_id": run_id, "step": step, "step_index": i,
+                       "campaign": cdir.name, "measures_shipped": measures_shipped, "run_id": run_id,
+                       "step": step, "step_index": i,
                        "step_reward": step_reward, "step_passed": metrics.passed(step_reward),
                        "run_reward": run_reward, "run_passed": metrics.passed(run_reward),
                        "exception": exception or "", "gate_failed": ";".join(gate_failed),
@@ -718,7 +762,8 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
                 "schema": "arena-coding/run/1", "model": label, "model_id": report.get("model"), "role": role,
                 "harness": agent_info.get("name") or report.get("agent"), "harness_version": agent_info.get("version"),
                 "harbor_version": harbor_version, "campaign": cdir.name, "run_id": run_id,
-                "measured_version": (measured or {}).get("version"), "reward": run_reward,
+                "measured_version": (measured or {}).get("version"), "measures_shipped": measures_shipped,
+                "reward": run_reward,
                 "passed": metrics.passed(run_reward), "exception": exception,
                 "started_at": result.get("started_at"), "finished_at": result.get("finished_at"),
                 "steps": run_doc_steps})
@@ -727,37 +772,19 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
                                                          "steps": {s["step"]: s for s in run_doc_steps},
                                                          "harness": agent_info.get("name"),
                                                          "harness_version": agent_info.get("version"),
-                                                         "harbor": harbor_version, "model_id": report.get("model")})
+                                                         "harbor": harbor_version, "model_id": report.get("model"),
+                                                         "campaign": cdir.name, "measures_shipped": measures_shipped})
     with open(out / "runs.csv", "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(RUNS_COLUMNS))
         writer.writeheader()
         for row in rows:
             writer.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in RUNS_COLUMNS})
-    models = {}
-    for label, runs in per_model.items():
-        scored = [r for r in runs if r["reward"] is not None]
-        passes = sum(1 for r in scored if metrics.passed(r["reward"]))
-        per_step = {}
-        for step in steps:
-            vals = [r["steps"][step]["step_reward"] for r in scored if step in r["steps"]
-                    and r["steps"][step]["step_reward"] is not None]
-            check_rates = {}
-            for r in scored:
-                for cid, v in (r["steps"].get(step) or {}).get("checks", {}).items():
-                    check_rates.setdefault(cid, []).append(1.0 if v else 0.0)
-            per_step[step] = {"runs": len(vals), "pass_rate": round(sum(metrics.passed(v) for v in vals) / len(vals), 3)
-                              if vals else None, "mean_reward": round(sum(vals) / len(vals), 3) if vals else None,
-                              "check_pass_rates": {c: round(sum(v) / len(v), 3) for c, v in check_rates.items()},
-                              "under_step_bar": (sum(metrics.passed(v) for v in vals) / len(vals)
-                                                 < policy.STEP_PASS_RATE_MAX) if vals else None}
-        models[label] = {"model_id": runs[0]["model_id"], "harness": runs[0]["harness"],
-                         "harness_version": runs[0]["harness_version"], "harbor_version": runs[0]["harbor"],
-                         "runs": len(runs), "scored": len(scored), "exceptions": sum(1 for r in runs if r["exception"]),
-                         "passes": passes,
-                         "pass_at_1": metrics.pass_at_k(len(scored), passes, 1) if scored else None,
-                         "pass_at_4": metrics.pass_at_k(len(scored), passes, 4) if len(scored) >= 4 else None,
-                         "mean_reward": round(sum(r["reward"] for r in scored) / len(scored), 3) if scored else None,
-                         "per_step": per_step}
+    exact = {label: [r for r in runs if r["measures_shipped"]] for label, runs in per_model.items()}
+    exact = {label: runs for label, runs in exact.items() if runs}
+    earlier = {label: [r for r in runs if not r["measures_shipped"]] for label, runs in per_model.items()}
+    earlier = {label: runs for label, runs in earlier.items() if runs}
+    headline_exact = bool(exact)
+    models = _model_stats(exact if headline_exact else per_model, steps)
     shipped = version(pkg)
     measured_versions = sorted({c["measured_version"] for c in campaigns_meta
                                 if c["role"] == "calibration" and c["measured_version"]})
@@ -766,7 +793,10 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
     doc = {"schema": "arena-coding/calibration-metrics/1", "env_id": env_id(pkg), "shipped_version": shipped,
            "measured_versions": measured_versions,
            "status": ("calibrated" if enough else "partial" if models else "uncalibrated"),
-           "measured_matches_shipped": measured_versions == [shipped] if measured_versions else None,
+           "headline_measures_shipped": headline_exact,
+           "headline": ("runs whose package had this package's graded surfaces (tests/, environment/, steps/) byte "
+                        "for byte" if headline_exact else
+                        "every calibration run; none measured this package's graded surfaces byte for byte"),
            "pass_rule": f"reward >= {metrics.PASS_REWARD} (within {metrics.EPSILON})",
            "targets": {"pass_at_1_strict": "< 0.5 on both models", "step_pass_rate_max": policy.STEP_PASS_RATE_MAX,
                        "extreme_target_pass_at_1": policy.EXTREME_TARGET_PASS_AT_1},
@@ -781,12 +811,17 @@ def export_calibration(src: Path, pkg: Path, steps: list[str]) -> dict:
                                "resources": {k: (task_config(pkg).get("environment") or {}).get(k)
                                              for k in ("cpus", "memory_mb")}},
            "campaigns": campaigns_meta, "runs_csv": "calibration/runs.csv", "trials": "calibration/trials/"}
-    if measured_versions and measured_versions != [shipped]:
-        doc["version_note"] = (f"These runs measured version {', '.join(measured_versions)}; this package is "
-                               f"{shipped}. The change between them is recorded in verification/delivery.json "
-                               "(\"patch\").")
-        if delivery.get("patch"):
-            doc["patch"] = delivery["patch"]
+    if headline_exact and earlier:
+        doc["earlier_models"] = _model_stats(earlier, steps)
+        doc["earlier_note"] = ("Runs on the package before its last patch (measures_shipped false) are kept in "
+                               "calibration/trials/ and calibration/runs.csv and summarised under earlier_models; "
+                               "the headline counts only runs on this exact package.")
+    elif not headline_exact and models:
+        doc["version_note"] = (f"No run measured this exact package: these runs measured version "
+                               f"{', '.join(measured_versions) or '?'}; this package is {shipped}. The change between "
+                               "them is recorded in verification/delivery.json (\"patch\").")
+    if delivery.get("patch") and (not headline_exact or earlier):
+        doc["patch"] = delivery["patch"]
     _json(out / "metrics.json", doc)
     return doc
 
@@ -996,8 +1031,15 @@ def write_readme(pkg: Path, steps: list[str], calibration: dict, decls: list[dic
             lines.append(f"| {label} | {m.get('harness')} {m.get('harness_version') or ''} | {m.get('runs')} | "
                          f"{m.get('passes')} | {p1} | {m.get('mean_reward')} |")
         lines += ["", f"Harbor {', '.join(calibration['run_environment']['harbor_versions']) or '?'}; "
-                      f"status {calibration.get('status')}. Per-run records and per-step diffs are in "
-                      "`calibration/trials/`, one row per run and step in `calibration/runs.csv`."]
+                      f"status {calibration.get('status')}. Counted: {calibration.get('headline')}. Per-run records "
+                      "and per-step diffs are in `calibration/trials/`, one row per run and step in "
+                      "`calibration/runs.csv`."]
+        if calibration.get("earlier_models"):
+            lines += ["", "Before the last patch (kept for comparison, not counted above):", "",
+                      "| model | runs | passes | pass@1 | mean reward |", "|---|---:|---:|---:|---:|"]
+            for label, m in calibration["earlier_models"].items():
+                p1 = "" if m.get("pass_at_1") is None else f"{m['pass_at_1']:.2f}"
+                lines.append(f"| {label} | {m.get('runs')} | {m.get('passes')} | {p1} | {m.get('mean_reward')} |")
         if calibration.get("version_note"):
             lines += ["", calibration["version_note"]]
     else:
