@@ -717,6 +717,19 @@ def in_instruction(sentence: str | None, instruction: str) -> bool:
     return len(wanted) >= QUOTE_MIN_CHARS and wanted in _norm(instruction)
 
 
+def _arbitrate(prompt: str, key: str, ask) -> dict:
+    """The arbiter's answer to a judging prompt the families split on (policy.READING_ARBITER, 2026-10-21: on the
+    repaired node-rest-dashboard and school-scheduling a gap Astra called published, quoting the deciding sentence,
+    was demoted on Fable's UNDETERMINED alone and routed to an instruction rewrite)."""
+    from . import policy
+    try:
+        text = ask(policy.READING_ARBITER, prompt)
+    except Exception as exc:                              # noqa: BLE001 -- an arbiter that errs decides nothing
+        return {"model": policy.READING_ARBITER, "error": f"{type(exc).__name__}: {exc}"[:300]}
+    return {"model": policy.READING_ARBITER, key.lower(): _verdict(text, key), "sentence": _sentence(text),
+            "reasoning": (text or "")[-900:]}
+
+
 def judge_gap(instruction: str, gap: dict, *, ask=None, models: tuple[str, ...] = JUDGES) -> dict:
     """Is the gap realistic and on a clearly published rule? (user, 2026-10-09: "Block only realistic gaps").
 
@@ -741,6 +754,12 @@ def judge_gap(instruction: str, gap: dict, *, ask=None, models: tuple[str, ...] 
         except Exception as exc:                          # noqa: BLE001 -- an unanswered judge demotes nothing
             answers[model] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
     doubted = sorted(m for m, a in answers.items() if a.get("published") in ("NO", "UNDETERMINED"))
+    arbiter = None
+    if doubted and any(a.get("published") == "YES" for a in answers.values()):
+        # The families split: the arbiter's PUBLISHED decides; an erring arbiter leaves the doubt standing.
+        arbiter = _arbitrate(prompt, "PUBLISHED", ask)
+        if arbiter.get("published") == "YES":
+            doubted = []
     contrived = bool(answers) and all(a.get("realistic") == "NO" for a in answers.values())
     if doubted:
         why = "the instruction does not clearly settle it (" + ", ".join(doubted) + ")"
@@ -750,7 +769,8 @@ def judge_gap(instruction: str, gap: dict, *, ask=None, models: tuple[str, ...] 
         why = "realistic and clearly published"
     sentence = next((answers[m]["sentence"] for m in doubted if answers[m].get("sentence_found")), None)
     return {"models": list(models), "answers": answers, "blocking": not doubted and not contrived, "why": why,
-            "unsettled": bool(doubted), "doubted": doubted, "sentence": sentence}
+            "unsettled": bool(doubted), "doubted": doubted, "sentence": sentence,
+            **({"arbiter": arbiter} if arbiter else {})}
 
 
 def _unsettled(judgement: dict) -> bool:
@@ -765,6 +785,10 @@ def _reusable(judgement: dict, digest: str | None) -> bool:
     round that states an unsettled rule must be judged on the new wording). One recorded before 2026-10-21 has no
     instruction hash: it still holds, unless it doubted the sentence -- a doubt now decides whether the gap blocks
     on the instruction, so it is asked once more, against the instruction as it stands, and then holds."""
+    answers = (judgement.get("answers") or {}).values()
+    if (judgement.get("doubted") and not judgement.get("arbiter")
+            and any(isinstance(a, dict) and a.get("published") == "YES" for a in answers)):
+        return False            # a split judged before the arbiter existed (2026-10-21) is judged again
     if judgement.get("instruction_sha256"):
         return judgement["instruction_sha256"] == digest
     return not _unsettled(judgement)
@@ -1511,6 +1535,12 @@ def judge_demonstration(instruction: str, demo: dict, *, ask=None, models: tuple
             answers[model] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
     doubting = sorted(m for m, a in answers.items() if a.get("settles") in ("UNDETERMINED", labels["solution"]))
     doubted = [m for m in doubting if answers[m].get("sentence_found")]
+    arbiter = None
+    if doubted and any(a.get("settles") == labels["reference"] for a in answers.values()):
+        # The families split: the arbiter decides; an erring arbiter leaves the doubt standing.
+        arbiter = _arbitrate(prompt, "SETTLES", ask)
+        if arbiter.get("settles") == labels["reference"]:
+            doubting, doubted = [], []
     if doubted:
         why = "the instruction does not clearly settle it (" + ", ".join(doubted) + ")"
     elif doubting:
@@ -1520,7 +1550,8 @@ def judge_demonstration(instruction: str, demo: dict, *, ask=None, models: tuple
     return {"models": list(models), "labels": labels, "answers": answers, "blocking": not doubted,
             "unsettled": bool(doubted), "doubted": doubted,
             "sentence": next((answers[m]["sentence"] for m in doubted), None),
-            "realistic": "by construction: a calibration solution", "why": why}
+            "realistic": "by construction: a calibration solution", "why": why,
+            **({"arbiter": arbiter} if arbiter else {})}
 
 
 def _route(bundle: Path, gap: dict) -> bool:

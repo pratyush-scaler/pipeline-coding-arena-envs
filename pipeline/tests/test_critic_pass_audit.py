@@ -448,12 +448,14 @@ class PassAuditPdfTooling(unittest.TestCase):
         scope = _quote(self.bundle, "o_labels_scope")
 
         def judge(model, prompt):
-            if model == "claude-fable-5-1":
+            # Fable and Astra split; the arbiter (policy.READING_ARBITER) sides with the doubt.
+            if model in ("claude-fable-5-1", policy.READING_ARBITER):
                 return f"It reads two ways.\nSETTLES: UNDETERMINED\nSENTENCE: «{scope}»"
             return _settles_reference(self.EXPECTED, self.carried)(model, prompt)
         record, _ = self._audit(judge)
         gap = record["gaps"][0]
         self.assertEqual(gap["route"], "instruction")
+        self.assertEqual(gap["judgement"]["arbiter"]["model"], policy.READING_ARBITER)
         self.assertIn("o_labels_scope", gap["asserted_by"])
         self.assertEqual(gap["judgement"]["sentence"], f"«{scope}»")
         self.assertEqual({f["check"] for f in cc.pass_findings(record)}, {"pass.unsettled"})
@@ -462,6 +464,17 @@ class PassAuditPdfTooling(unittest.TestCase):
             blockers = release_blockers.collect(self.bundle)
         self.assertEqual(blockers[0]["id"], f"UNSETTLED {PDF_STEP}#p1")
         self.assertTrue(release_blockers.needs_full_round(blockers))
+
+    def test_a_split_the_arbiter_settles_the_references_way_is_a_hidden_gap(self):
+        scope = _quote(self.bundle, "o_labels_scope")
+
+        def judge(model, prompt):
+            if model == "claude-fable-5-1":
+                return f"It reads two ways.\nSETTLES: UNDETERMINED\nSENTENCE: «{scope}»"
+            return _settles_reference(self.EXPECTED, self.carried)(model, prompt)   # Astra and the arbiter
+        record, _ = self._audit(judge)
+        self.assertEqual([g["route"] for g in record["gaps"]], ["hidden"] * len(record["gaps"]))
+        self.assertTrue(record["gaps"])
 
     def test_an_unsettled_demonstration_no_check_grades_is_advisory_with_its_sentence(self):
         loose = "کد تو /app/repo هست."
