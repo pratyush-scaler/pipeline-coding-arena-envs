@@ -1,0 +1,58 @@
+{
+ "a_f0_shell-provisioning-scripts": {
+  "domain": "game_server_provisioning",
+  "prompt_language": "ru"
+ },
+ "a_f2_python-desktop-nfse-client": {
+  "domain": "municipal_e_invoice_lookup",
+  "prompt_language": "pt"
+ },
+ "a_f0_school-scheduling-spa": {
+  "domain": "school_timetabling",
+  "prompt_language": "en"
+ },
+ "a_f0_vanilla-js-payroll-webapp": {
+  "domain": "payroll_and_overtime_recap",
+  "prompt_language": "id"
+ },
+ "a_f2_3d-scene-pipeline": {
+  "domain": "3d_scene_build_pipeline",
+  "prompt_language": "hi-Latn"
+ },
+ "a_f2_browser-pwa-cors-proxy-worker": {
+  "domain": "browser_cors_proxy",
+  "prompt_language": "fr"
+ },
+ "a_f2_c-game-bot": {
+  "domain": "game_simulation_audit",
+  "prompt_language": "en"
+ },
+ "a_f2_canvas-web-app": {
+  "domain": "canvas_office_explorer_panel",
+  "prompt_language": "en"
+ },
+ "a_f2_csv-log-analysis": {
+  "domain": "game_log_analytics",
+  "prompt_language": "ru"
+ },
+ "a_f2_node-image-qc-tool": {
+  "domain": "image_quality_control_tooling",
+  "prompt_language": "en"
+ },
+ "a_f2_pdf-book-generator": {
+  "domain": "school_textbook_generation",
+  "prompt_language": "en"
+ },
+ "a_f2_python-exercise-scripts": {
+  "domain": "ml_study_exercises",
+  "prompt_language": "ru"
+ },
+ "a_f2_python-ml-pipeline": {
+  "domain": "ml_submission_verification",
+  "prompt_language": "en"
+ },
+ "a_f2_vocabulary-data-pipeline": {
+  "domain": "language_learning_data_pipeline",
+  "prompt_language": "en"
+ }
+}

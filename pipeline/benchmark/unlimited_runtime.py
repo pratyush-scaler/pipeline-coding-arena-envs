@@ -22,6 +22,9 @@ def install():
         return None
 
     Trial._resolve_timeout_sec = no_deadline
+    # Arena v0.1 §12.4: every step's workspace before the agent starts and after it stops.
+    from .workspace_capture import install as install_capture
+    install_capture()
 
 
 def main():
