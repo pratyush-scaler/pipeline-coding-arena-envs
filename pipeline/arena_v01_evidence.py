@@ -288,14 +288,17 @@ def model_metrics(runs: list[dict], csv_rows: list[dict], *, model_id: str, prov
 #:    local part of an e-mail address. The `@` becomes `\u0040`.
 #:  - `https://pw@evil.com`: URL user-info typed in a command, not an e-mail address. Every `@` in a URL
 #:    authority becomes `\u0040`.
-#:  - credential-shaped runs (`AIza...`, `sk-...`) inside opaque base64 signature / encrypted-content blobs.
-#:    Their first character becomes a `\u` escape. Only inside those fields; a real key elsewhere is still seen.
+#:  - credential-shaped runs (`AIza...`, `sk-...`) inside opaque base64 signature / encrypted-content blobs, or
+#:    inside a longer base64 run (an embedded image). Their first character becomes a `\u` escape; a key that
+#:    stands alone is still seen.
 #: Real secrets are a different matter: see REDACTED.
 ESCAPE_AT = re.compile(r"(\\[ntr][+-]?)@")
 URL_AUTHORITY = re.compile(r"://[^\s\"'<>/\\]{1,200}")
 CREDENTIAL = re.compile(r"(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}"
                         r"|AIza[0-9A-Za-z_-]{30,})")
 OPAQUE_FIELDS = ("signature", "encrypted_content", "encrypted_reasoning", "redacted_thinking", "data")
+BASE64_CHAR = re.compile(r"[A-Za-z0-9+/=_-]")
+EMBEDDED_MARGIN = 40
 
 
 def _opaque_strings(doc) -> list[str]:
@@ -325,6 +328,17 @@ def escape_json_text(raw: str) -> str:
         for m in CREDENTIAL.finditer(blob):
             hit = m.group(0)
             fixed = fixed.replace(hit, "\\u%04x" % ord(hit[0]) + hit[1:])
+    # A credential-shaped run inside a longer base64 run (an image or blob embedded in tool output) is part of
+    # that blob; a real key stands alone between quotes, spaces or punctuation and is left for the scan.
+    def embedded(m):
+        lo, hi = m.start(), m.end()
+        while lo > 0 and BASE64_CHAR.match(fixed[lo - 1]):
+            lo -= 1
+        while hi < len(fixed) and BASE64_CHAR.match(fixed[hi]):
+            hi += 1
+        return (hi - lo) - (m.end() - m.start()) >= EMBEDDED_MARGIN
+    fixed = CREDENTIAL.sub(lambda m: ("\\u%04x" % ord(m.group(0)[0]) + m.group(0)[1:]) if embedded(m) else m.group(0),
+                           fixed)
     try:
         return fixed if fixed != raw and json.loads(fixed) == before else raw
     except ValueError:

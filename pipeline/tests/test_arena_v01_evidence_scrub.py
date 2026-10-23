@@ -57,3 +57,11 @@ def test_log_addresses_outside_task_content_are_redacted(tmp_path):
     doc = json.loads(log.read_text())["t"]
     assert "ana@fixture-shop.com" in doc and "cloudflare" not in doc and "corp-mail" not in doc
     assert doc.count(ev.REDACTED_EMAIL) == 2 and "\n" in doc
+
+
+def test_credential_shape_inside_an_embedded_base64_run_is_escaped_but_a_standalone_key_is_not():
+    blob = "data:image/png;base64," + "Qm9n+/" * 30 + "AIza" + "PG1p0rr" * 7 + "+Nmrj/" * 20
+    raw = json.dumps({"content": "Output: " + blob, "cfg": "apiKey: 'AIza" + "z" * 35 + "'"})
+    out = ev.escape_json_text(raw)
+    assert "AIzaPG1p0rr" not in out and "AIza" + "z" * 35 in out
+    assert json.loads(out) == json.loads(raw)
