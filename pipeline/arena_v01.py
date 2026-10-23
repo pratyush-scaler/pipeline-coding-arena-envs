@@ -450,7 +450,7 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
         for path, sha in snap["files"].items():
             by_sha.setdefault(sha, []).append((node, path))
     old_ledger = json.loads((src / "provenance/ledger.json").read_text())
-    entries, from_node = [], {}
+    entries, from_node, cited = [], {}, set()
     repo = pkg / "environment/repo"
     # Two ledger generations: `files` (current deliveries) and `entries` (the first deliveries); both list repo paths.
     for f in sorted(old_ledger.get("files") or old_ledger.get("entries") or [], key=lambda f: f["path"]):
@@ -461,8 +461,12 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
         container = f"{workspace}/{f['path']}"
         hits = by_sha.get(sha, [])
         same_path = [(n, p) for n, p in hits if p == f["path"]]
-        pick = (same_path or hits or [None])[0]
+        # Arena refuses two ledger entries citing one source file (identical bytes, e.g. several empty
+        # __init__.py, would otherwise all cite the first match): each snapshot file is cited at most once.
+        free = [h for h in same_path + [h for h in hits if h not in same_path] if h not in cited]
+        pick = free[0] if free else None
         if pick:
+            cited.add(pick)
             node, spath = pick
             from_node[node] = from_node.get(node, 0) + 1
             cite = {"snapshot_node_id": node, "source_path": spath, "source_sha256": sha}
