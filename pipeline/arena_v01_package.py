@@ -136,6 +136,22 @@ def assemble(pkg: Path, src: Path, *, oracle: Path, nop: Path, models: dict, rep
                    "calibrated_task_tree_sha256": tree, "reward_strategy": strategy, "k": ev.K,
                    "run_environment": run_env, "models": model_docs})
 
+    orun, nrun, _ = _oracle_evidence(pkg, oracle=oracle, nop=nop, repeats=repeats, runtime=runtime, tree=tree)
+
+    if task_tree_sha256(pkg) != tree:
+        raise ValueError(f"{env_id}: the runtime surface changed while assembling evidence")
+    return {"env_id": env_id, "version": version, "tree": tree, "models": {d["model_id"]: d["task"] for d in model_docs},
+            "oracle": orun["per_step_reward"], "nop": nrun["per_step_reward"], "history": history, "redacted": redacted}
+
+
+def _oracle_evidence(pkg: Path, *, oracle: Path, nop: Path, repeats: Path, runtime: dict, tree: str):
+    """verification/oracle (§11.1), the nop run and two regrades of the Oracle's state, and receipt.json: all on
+    Harbor 0.24.0 against exactly this runtime tree."""
+    config = tomllib.loads((pkg / "task.toml").read_text())
+    env_id, version = pkg.name, config["task"]["version"]
+    steps = [s["name"] for s in config["steps"]]
+    strategy = config.get("multi_step_reward_strategy", "mean")
+    meta = config["metadata"]
     # ---- Oracle evidence (§11.1)
     (otrial,) = _trials(oracle)
     orun, oresult = ev.run_record(otrial, model_id="oracle", harness={"name": "oracle", "version": HARBOR_VERSION},
@@ -183,10 +199,98 @@ def assemble(pkg: Path, src: Path, *, oracle: Path, nop: Path, models: dict, rep
                "verifier_repeat": {"per_step": repeat}}
     ev.write_json(pkg / "verification/receipt.json", receipt)
 
+    return orun, nrun, oident
+
+
+def assemble_stale(pkg: Path, src: Path, *, oracle: Path, nop: Path, repeats: Path, history: list[dict], runtime: dict,
+                   calibrated: dict, models: dict) -> dict:
+    """A package whose calibration stays the Harbor 0.22.0 runs of an earlier version (§13.3 `stale`).
+
+    The Oracle, nop, repeats and receipt are fresh Harbor 0.24.0 runs on this exact tree. The calibration runs are
+    restated, never relabelled: runner_version is the one they ran on, calibrated_task_version / _tree_sha256 name the
+    package they measured (calibrated: {"version", "tree"}), and status is `stale`. Those runs predate per-step
+    workspace capture, so their trials carry run records, verifier output and agent logs but no changes.json.
+    models: {model_id: {"trials": [trial dirs], "provider_model", "harness_log", "effort", "requested",
+    "runner_version", "runtime_version"}}."""
+    config = tomllib.loads((pkg / "task.toml").read_text())
+    env_id, version = pkg.name, config["task"]["version"]
+    steps = [s["name"] for s in config["steps"]]
+    strategy = config.get("multi_step_reward_strategy", "mean")
+    tree = task_tree_sha256(pkg)
+    orun, nrun, oident = _oracle_evidence(pkg, oracle=oracle, nop=nop, repeats=repeats, runtime=runtime, tree=tree)
+
+    runs_by_model, csv_rows, started, finished, redacted, runner = {}, [], [], [], 0, set()
+    for model_id, m in models.items():
+        runs = []
+        for trial in m["trials"]:
+            result = json.loads((trial / "result.json").read_text())
+            info = result.get("agent_info") or {}
+            harness = {"name": info.get("name"), "version": info.get("version")}
+            missing = [s for s in steps if not (ev.step_dir(trial, s) / "verifier").is_dir()]
+            if missing and len(missing) < len(steps):
+                raise ValueError(f"{env_id}: {trial.name} lacks steps {missing}; the step layout changed")
+            rec, result = ev.run_record(trial, model_id=model_id, harness=harness, effort=m["effort"],
+                                        tree_sha=calibrated["tree"], steps=steps, strategy=strategy,
+                                        refusal=_refused(trial, m["harness_log"]))
+            base = f"calibration/trials/{model_id}/{rec['run_id']}"
+            ev.write_json(pkg / base / "run.json", rec)
+            for st in steps:
+                d = ev.step_dir(trial, st)
+                dest = pkg / base / "steps" / st
+                for name in ("reward.json", "arena-grade.json", "test-stdout.txt"):
+                    if (d / "verifier" / name).is_file():
+                        data = (d / "verifier" / name).read_bytes()
+                        ev.assert_no_secret(data, f"{trial}/verifier/{name}")
+                        (dest / "verifier").mkdir(parents=True, exist_ok=True)
+                        (dest / "verifier" / name).write_bytes(data)
+                if (d / "agent/trajectory.json").is_file():
+                    redacted += ev.copy_json_evidence(d / "agent/trajectory.json", dest / "agent/trajectory.json")
+                if (d / "agent" / m["harness_log"]).is_file():
+                    redacted += ev.copy_text_evidence(d / "agent" / m["harness_log"], dest / "agent" / m["harness_log"])
+            csv_rows += ev.runs_csv_rows(trial, rec, result, steps, calibrated["tree"])
+            started.append(rec["started_at"])
+            finished.append(rec["finished_at"])
+            runs.append((rec, harness))
+        runs_by_model[model_id] = runs
+        runner.add((m["runner_version"], m["runtime_version"]))
+    with io.StringIO() as buf:
+        w = csv.DictWriter(buf, fieldnames=ev.RUNS_CSV_HEADER, lineterminator="\n")
+        w.writeheader()
+        for row in csv_rows:
+            w.writerow(row)
+        (pkg / "calibration/runs.csv").write_text(buf.getvalue())
+    if len(runner) != 1:
+        raise ValueError(f"{env_id}: calibration campaigns ran on different runners: {runner}")
+    runner_version, runtime_version = runner.pop()
+    model_docs = [ev.model_metrics([r for r, _ in runs], csv_rows, model_id=model_id,
+                                   provider_model=models[model_id]["provider_model"], harness=runs[0][1],
+                                   effort=models[model_id]["effort"], steps=steps,
+                                   requested=models[model_id]["requested"],
+                                   settings={"limits": "none: no turn, token or wall-clock limit"})
+                  for model_id, runs in runs_by_model.items()]
+    run_env = {"runner": "harbor", "runner_version": runner_version, "runtime": "docker",
+               "runtime_version": runtime_version, "host_os": "Linux (same Coder workspace pool; release not recorded)",
+               "arch": "linux/amd64", "agent_user": oident["agent_user"], "agent_uid": oident["agent_uid"],
+               "started_at": min(started), "finished_at": max(finished)}
+    ev.write_json(pkg / "calibration/metrics.json",
+                  {"schema": ev.METRICS_SCHEMA, "env_id": env_id, "status": "stale",
+                   "calibrated_task_version": calibrated["version"], "calibrated_task_tree_sha256": calibrated["tree"],
+                   "reward_strategy": strategy, "k": ev.K, "run_environment": run_env, "models": model_docs})
     if task_tree_sha256(pkg) != tree:
         raise ValueError(f"{env_id}: the runtime surface changed while assembling evidence")
+    notes = [f"Calibration is `stale`: the {sum(len(r) for r in runs_by_model.values())} runs in `calibration/` ran on "
+             f"Harbor {runner_version} against version {calibrated['version']} (task tree "
+             f"`{calibrated['tree'][:16]}…`), before this version's format conversion; they are restated as recorded, "
+             f"not relabelled. Arena's metrics schema requires Harbor {HARBOR_VERSION} for current calibration, so this "
+             "package's calibration check fails until the runs are repeated on it. The Oracle, nop and repeat grades are "
+             f"Harbor {HARBOR_VERSION} runs on this exact version.",
+             f"Those Harbor {runner_version} runs predate per-step workspace capture: each trial carries its run record, "
+             "the verifier's reward, check results and output, and the agent's transcript, but no before/after workspace "
+             "inventory (`changes.json`). `agent_uid` in `metrics.json` is the uid the declared agent user resolves to "
+             "in this image definition, read from the Harbor 0.24.0 Oracle run."]
     return {"env_id": env_id, "version": version, "tree": tree, "models": {d["model_id"]: d["task"] for d in model_docs},
-            "oracle": orun["per_step_reward"], "nop": nrun["per_step_reward"], "history": history, "redacted": redacted}
+            "oracle": orun["per_step_reward"], "nop": nrun["per_step_reward"], "history": history, "redacted": redacted,
+            "notes": notes}
 
 
 # ---------------------------------------------------------------- authoring/traps.json (§15)
@@ -321,6 +425,7 @@ def readme(pkg: Path, *, summary: dict, history: list[dict]) -> str:
              "own content (addresses from web-search results an agent read, or made up in a test command) are replaced "
              "with `" + ev.REDACTED_EMAIL + "`; the task's fictional fixture addresses are kept."]
             if summary.get("emails_redacted") else []),
+          *["- " + n for n in summary.get("notes", [])],
           "- `reward-details.json` binds the delivered task tree and the captured workspace it graded; the verifier "
           "writes zeros there at run time and the harness fills them when it archives the run (verifier contract §8).", ""]
     L += ["## Changelog", "", "| Version | Date | Class | Summary | Calibration |", "|---|---|---|---|---|"]
