@@ -1,58 +1,284 @@
 {
  "a_f0_shell-provisioning-scripts": {
   "domain": "game_server_provisioning",
-  "prompt_language": "ru"
+  "prompt_language": "ru",
+  "batch": "B1",
+  "calibration": "current"
  },
  "a_f2_python-desktop-nfse-client": {
   "domain": "municipal_e_invoice_lookup",
-  "prompt_language": "pt"
+  "prompt_language": "pt",
+  "batch": "B1",
+  "calibration": "current"
  },
  "a_f0_school-scheduling-spa": {
   "domain": "school_timetabling",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f0_vanilla-js-payroll-webapp": {
   "domain": "payroll_and_overtime_recap",
-  "prompt_language": "id"
+  "prompt_language": "id",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_3d-scene-pipeline": {
   "domain": "3d_scene_build_pipeline",
-  "prompt_language": "hi-Latn"
+  "prompt_language": "hi-Latn",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_browser-pwa-cors-proxy-worker": {
   "domain": "browser_cors_proxy",
-  "prompt_language": "fr"
+  "prompt_language": "fr",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_c-game-bot": {
   "domain": "game_simulation_audit",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_canvas-web-app": {
   "domain": "canvas_office_explorer_panel",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_csv-log-analysis": {
   "domain": "game_log_analytics",
-  "prompt_language": "ru"
+  "prompt_language": "ru",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_node-image-qc-tool": {
   "domain": "image_quality_control_tooling",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_pdf-book-generator": {
   "domain": "school_textbook_generation",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_python-exercise-scripts": {
   "domain": "ml_study_exercises",
-  "prompt_language": "ru"
+  "prompt_language": "ru",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_python-ml-pipeline": {
   "domain": "ml_submission_verification",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
  },
  "a_f2_vocabulary-data-pipeline": {
   "domain": "language_learning_data_pipeline",
-  "prompt_language": "en"
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
+ },
+ "a_f0_next-js-club-management": {
+  "domain": "shop_coupon_checkout_pricing",
+  "prompt_language": "fa",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f0_python-docx-report-generator": {
+  "domain": "investment_finance_reporting",
+  "prompt_language": "ru",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_node-rest-dashboard": {
+  "domain": "local_rest_dashboard_server",
+  "prompt_language": "ru",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f1_pptx-generator-script": {
+  "domain": "presentation_tooling",
+  "prompt_language": "ru",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_python-pdf-tooling": {
+  "domain": "pdf_exam_text_layer_editing",
+  "prompt_language": "fa",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_python-scraper-cli": {
+  "domain": "forecast_table_web_scraping",
+  "prompt_language": "zh",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_python-slide-pptx-generation": {
+  "domain": "slide_file_generation",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_react-note-taking-spa": {
+  "domain": "markdown_note_vault_indexing",
+  "prompt_language": "en",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f1_static-html-mindmap": {
+  "domain": "static_mind_map_page",
+  "prompt_language": "zh",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f1_vanilla-js-pwa": {
+  "domain": "ai_lesson_learning_app",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_browser-rts-game": {
+  "domain": "browser_rts_game_garrison_rules",
+  "prompt_language": "ru",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f2_chrome-extension-speech-text-process": {
+  "domain": "voice_typing_word_correction",
+  "prompt_language": "te",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_cli-tool": {
+  "domain": "smali_source_dump_cli",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_database-migration-tool": {
+  "domain": "database_migration",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_express-chat-app": {
+  "domain": "chat_reply_post_processing",
+  "prompt_language": "pt",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_fastapi-fitness-app": {
+  "domain": "fitness_rank_goal_calculation",
+  "prompt_language": "fr",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_go-desktop-app": {
+  "domain": "battery_monitor_desktop_app",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_html-date-form": {
+  "domain": "reflective_log_rule_checking",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_nextjs-fintech-webapp": {
+  "domain": "financial_statement_redaction",
+  "prompt_language": "en",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f2_node-http-server": {
+  "domain": "chat_history_budget_trimming",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_ocr-data-pipeline": {
+  "domain": "ocr_to_quiz_build",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
+ },
+ "a_f2_python-ai-agent": {
+  "domain": "llm_agent_tool_calling",
+  "prompt_language": "zh",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f2_python-cli-agent": {
+  "domain": "cli_agent_shell_safety",
+  "prompt_language": "pt",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_python-llm-client": {
+  "domain": "llm_streaming_chat_client",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
+ },
+ "a_f2_python-report-generator": {
+  "domain": "engineering_report_generation",
+  "prompt_language": "fa",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_python-text-parsing-pipeline": {
+  "domain": "exam_review_markdown_parsing",
+  "prompt_language": "en",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f2_python-trading-bot": {
+  "domain": "crypto_trading_bot",
+  "prompt_language": "fa",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_react-web-app": {
+  "domain": "pet_livestock_care_app",
+  "prompt_language": "hi-Latn",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_second-html-canvas-3d-viewer": {
+  "domain": "roblox_model_file_checking",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_sql-dataset-generator": {
+  "domain": "csv_import_preflight_validation",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "current"
+ },
+ "a_f2_static-html-prototype": {
+  "domain": "healthcare_web_prototype",
+  "prompt_language": "en",
+  "batch": "B3",
+  "calibration": "stale"
+ },
+ "a_f2_streamlit-video-editor": {
+  "domain": "ai_assisted_video_editing",
+  "prompt_language": "ru",
+  "batch": "B1",
+  "calibration": "stale"
+ },
+ "a_f2_trading-analysis-engine": {
+  "domain": "gold_trading_setup_engine",
+  "prompt_language": "en",
+  "batch": "B2",
+  "calibration": "stale"
  }
 }
