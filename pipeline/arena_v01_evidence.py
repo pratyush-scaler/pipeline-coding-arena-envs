@@ -15,6 +15,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import tarfile
 from pathlib import Path
 
@@ -35,8 +36,7 @@ def sha256(data: bytes) -> str:
 def write_json(path: Path, doc) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(doc, indent=1, ensure_ascii=False)
-    fixed = text.replace("\\n@", "\\n\\u0040")  # see ESCAPED_NEWLINE_AT; kept only if it parses identically
-    path.write_text((fixed if fixed != text and json.loads(fixed) == json.loads(text) else text) + "\n")
+    path.write_text(escape_json_text(text) + "\n")  # parses identically; see escape_json_text
 
 
 # ---------------------------------------------------------------- §12.4 workspace changes
@@ -57,6 +57,7 @@ def inventory(tar_path: Path, pkg: Path, contents_rel: str) -> list[dict]:
                 entries.append({"path": path, "kind": "symlink", "mode": mode, "target": m.linkname})
             elif m.isfile() or m.islnk():
                 data = tf.extractfile(m).read()
+                assert_no_secret(data, f"{tar_path.name}:{path}")
                 digest = sha256(data)
                 blob = pkg / contents_rel / digest
                 if not blob.is_file():
@@ -281,35 +282,142 @@ def model_metrics(runs: list[dict], csv_rows: list[dict], *, model_id: str, prov
 
 # ---------------------------------------------------------------- copying run evidence
 
-#: The leak scan's e-mail pattern reads the JSON escape for a newline followed by a decorator
-#: (`\n@pytest.fixture`) as the address `n@pytest.fixture`. Only that sequence is re-escaped (`@` -> `@`);
-#: the parsed JSON is identical, and an `@` preceded by a letter or digit -- a real address -- is untouched.
-ESCAPED_NEWLINE_AT = ("\\n@", "\\n\\u0040")
+#: Arena's leak scan (Q25) reads raw text. Three shapes in agent logs are not what it looks for, and each is
+#: rewritten with a JSON escape so the PARSED content is unchanged (every rewrite is checked by parsing):
+#:  - `\n@pytest.fixture` / `\n+@pytest...`: the escape letter of a newline (plus a diff marker) read as the
+#:    local part of an e-mail address. The `@` becomes `\u0040`.
+#:  - `https://pw@evil.com`: URL user-info typed in a command, not an e-mail address. Every `@` in a URL
+#:    authority becomes `\u0040`.
+#:  - credential-shaped runs (`AIza...`, `sk-...`) inside opaque base64 signature / encrypted-content blobs.
+#:    Their first character becomes a `\u` escape. Only inside those fields; a real key elsewhere is still seen.
+#: Real secrets are a different matter: see REDACTED.
+ESCAPE_AT = re.compile(r"(\\[ntr][+-]?)@")
+URL_AUTHORITY = re.compile(r"://[^\s\"'<>/\\]{1,200}")
+CREDENTIAL = re.compile(r"(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}"
+                        r"|AIza[0-9A-Za-z_-]{30,})")
+OPAQUE_FIELDS = ("signature", "encrypted_content", "encrypted_reasoning", "redacted_thinking", "data")
 
 
-def copy_json_evidence(source: Path, target: Path) -> None:
-    raw = source.read_text(encoding="utf-8")
-    fixed = raw.replace(*ESCAPED_NEWLINE_AT)
-    if fixed != raw and json.loads(raw) != json.loads(fixed):
-        raise ValueError(f"{source}: re-escaping changed the parsed content")
+def _opaque_strings(doc) -> list[str]:
+    out, stack = [], [doc]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if isinstance(v, str) and k in OPAQUE_FIELDS and len(v) >= 64 and " " not in v:
+                    out.append(v)
+                else:
+                    stack.append(v)
+        elif isinstance(x, list):
+            stack.extend(x)
+    return out
+
+
+def escape_json_text(raw: str) -> str:
+    """raw with the escapes above applied, or raw unchanged when it is not JSON or the parse would differ."""
+    try:
+        before = json.loads(raw)
+    except ValueError:
+        return raw
+    fixed = ESCAPE_AT.sub(lambda m: m.group(1) + "\\u0040", raw)
+    fixed = URL_AUTHORITY.sub(lambda m: m.group(0).replace("@", "\\u0040"), fixed)
+    for blob in _opaque_strings(before):
+        for m in CREDENTIAL.finditer(blob):
+            hit = m.group(0)
+            fixed = fixed.replace(hit, "\\u%04x" % ord(hit[0]) + hit[1:])
+    try:
+        return fixed if fixed != raw and json.loads(fixed) == before else raw
+    except ValueError:
+        return raw
+
+
+#: Harness credentials a run's agent may print (for example by running `env`). They are replaced before any
+#: log is copied into a package; the replacement is disclosed in the README. Set by the packager from the
+#: credentials file the campaigns used; the values themselves are never written anywhere.
+REDACTED = "[REDACTED: harness credential]"
+SECRETS: list[str] = []
+
+
+def load_secrets(keys_file: Path) -> None:
+    for line in Path(keys_file).read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            value = line.split("=", 1)[1].strip().strip("\"'")
+            if len(value) >= 16 and not value.startswith("http") and value not in SECRETS:
+                SECRETS.append(value)
+
+
+def redact(text: str) -> tuple[str, int]:
+    n = 0
+    for value in SECRETS:
+        for probe in (value, json.dumps(value)[1:-1]):
+            if probe in text:
+                n += text.count(probe)
+                text = text.replace(probe, REDACTED)
+    return text, n
+
+
+#: E-mail addresses in agent logs that occur nowhere in the task's own content (a web-search result the agent read,
+#: an address it made up for a test) are replaced: Arena accepts only the task's fictional fixtures (§16.1).
+REDACTED_EMAIL = "[e-mail redacted]"
+
+
+def redact_log_addresses(pkg: Path) -> int:
+    """Replace, in every copied agent log, each address Arena's leak scan would reject (same pattern, same fixture
+    rule). A match that starts right after a backslash keeps that escape letter, so JSON stays valid."""
+    from arena_rle_formatcheck.checker import LEAK_PATTERNS, is_fixture_source
+    pat = LEAK_PATTERNS["personal_email"]
+    fixture = set()
+    for f in pkg.rglob("*"):
+        rel = f.relative_to(pkg).as_posix()
+        if f.is_file() and not f.is_symlink() and is_fixture_source(rel):
+            fixture.update(m.lower() for m in pat.findall(f.read_bytes()[:16 << 20].decode("utf-8", "replace")))
+    total = 0
+    for f in sorted(pkg.glob("calibration/trials/*/*/steps/*/agent/*")):
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        count = 0
+
+        def swap(m):
+            nonlocal count
+            if m.group(0).lower() in fixture:
+                return m.group(0)
+            count += 1
+            keep = m.group(0)[0] if m.start() and text[m.start() - 1] == "\\" else ""
+            return keep + REDACTED_EMAIL
+        new = pat.sub(swap, text)
+        if count:
+            if f.suffix == ".json":
+                json.loads(new)
+            f.write_text(new, encoding="utf-8")
+            total += count
+    return total
+
+
+def assert_no_secret(data: bytes, where: str) -> None:
+    for value in SECRETS:
+        if value.encode() in data or value[:24].encode() in data:
+            raise ValueError(f"{where}: carries a harness credential; captured bytes cannot be redacted")
+
+
+def copy_json_evidence(source: Path, target: Path) -> int:
+    raw, n = redact(source.read_text(encoding="utf-8"))
+    json.loads(raw)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(fixed, encoding="utf-8")
+    target.write_text(escape_json_text(raw), encoding="utf-8")
+    return n
 
 
-def copy_text_evidence(source: Path, target: Path) -> None:
-    """Harness logs are JSON lines; each line that parses is re-escaped like a JSON file, others are copied."""
+def copy_text_evidence(source: Path, target: Path) -> int:
+    """Harness logs are JSON lines; each line that parses is escaped like a JSON file, others are copied."""
+    raw, n = redact(source.read_text(encoding="utf-8", errors="replace"))
     out = []
-    for line in source.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True):
-        fixed = line.replace(*ESCAPED_NEWLINE_AT)
-        if fixed != line:
-            try:
-                if json.loads(line) != json.loads(fixed):
-                    fixed = line
-            except ValueError:
-                fixed = line
-        out.append(fixed)
+    for line in raw.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        out.append(escape_json_text(body) + line[len(body):] if body.strip() else line)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("".join(out), encoding="utf-8")
+    return n
 
 
 def finalize_details(source: Path, target: Path, *, tree_sha: str, snapshot_rel: str, snapshot_sha: str) -> dict:
@@ -350,11 +458,14 @@ def archive_step(pkg: Path, trial: Path, step: str, dest_rel: str, *, model_id: 
     (dest / "verifier/reward.json").write_bytes((src / "verifier/reward.json").read_bytes())
     for name in ("arena-grade.json", "test-stdout.txt"):
         if (src / "verifier" / name).is_file():
-            (dest / "verifier" / name).write_bytes((src / "verifier" / name).read_bytes())
+            data = (src / "verifier" / name).read_bytes()
+            assert_no_secret(data, f"{src}/verifier/{name}")
+            (dest / "verifier" / name).write_bytes(data)
     details = finalize_details(src / "verifier/reward-details.json", dest / "verifier/reward-details.json",
                                tree_sha=tree_sha, snapshot_rel=f"{dest_rel}/changes.json", snapshot_sha=snap_sha)
+    redacted = 0
     if (src / "agent/trajectory.json").is_file():
-        copy_json_evidence(src / "agent/trajectory.json", dest / "agent/trajectory.json")
+        redacted += copy_json_evidence(src / "agent/trajectory.json", dest / "agent/trajectory.json")
     if harness_log and (src / "agent" / harness_log).is_file():
-        copy_text_evidence(src / "agent" / harness_log, dest / "agent" / harness_log)
-    return {"changes": doc, "details": details}
+        redacted += copy_text_evidence(src / "agent" / harness_log, dest / "agent" / harness_log)
+    return {"changes": doc, "details": details, "redacted": redacted}

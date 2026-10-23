@@ -89,7 +89,7 @@ def assemble(pkg: Path, src: Path, *, oracle: Path, nop: Path, models: dict, rep
     tree = task_tree_sha256(pkg)
 
     # ---- calibration
-    runs_by_model, csv_rows, started, finished, identity = {}, [], [], [], None
+    runs_by_model, csv_rows, started, finished, identity, redacted = {}, [], [], [], None, 0
     for model_id, m in models.items():
         runs = []
         for trial in _trials(m["campaign"]):
@@ -102,8 +102,9 @@ def assemble(pkg: Path, src: Path, *, oracle: Path, nop: Path, models: dict, rep
             ev.write_json(pkg / base / "run.json", rec)
             if rec["outcome"] != "excluded":
                 for s in steps:
-                    ev.archive_step(pkg, trial, s, f"{base}/steps/{s}", model_id=model_id, run_id=rec["run_id"],
-                                    tree_sha=tree, contents_rel="calibration/contents", harness_log=m["harness_log"])
+                    out = ev.archive_step(pkg, trial, s, f"{base}/steps/{s}", model_id=model_id, run_id=rec["run_id"],
+                                          tree_sha=tree, contents_rel="calibration/contents", harness_log=m["harness_log"])
+                    redacted += out["redacted"]
                 identity = identity or _capture_identity(trial, steps[0])
             csv_rows += ev.runs_csv_rows(trial, rec, result, steps, tree)
             started.append(rec["started_at"])
@@ -185,7 +186,7 @@ def assemble(pkg: Path, src: Path, *, oracle: Path, nop: Path, models: dict, rep
     if task_tree_sha256(pkg) != tree:
         raise ValueError(f"{env_id}: the runtime surface changed while assembling evidence")
     return {"env_id": env_id, "version": version, "tree": tree, "models": {d["model_id"]: d["task"] for d in model_docs},
-            "oracle": orun["per_step_reward"], "nop": nrun["per_step_reward"], "history": history}
+            "oracle": orun["per_step_reward"], "nop": nrun["per_step_reward"], "history": history, "redacted": redacted}
 
 
 # ---------------------------------------------------------------- authoring/traps.json (§15)
@@ -307,9 +308,19 @@ def readme(pkg: Path, *, summary: dict, history: list[dict]) -> str:
     L += ["## Known limitations and assumptions", "",
           f"- The agent runs as `{receipt['executed_as']['agent_user']}`; no network in any phase; resources as declared "
           "in `task.toml`.",
-          "- Agent transcripts (`calibration/trials/*/*/steps/*/agent/`) are stored with `@` written as the JSON escape "
-          "`\\u0040` where it directly follows an escaped newline, so a leak scan does not read a Python decorator "
-          "after a line break as an e-mail address; the parsed content is unchanged.",
+          "- Agent transcripts (`calibration/trials/*/*/steps/*/agent/`) use JSON escapes in three places so a raw-text "
+          "leak scan does not misread them; the parsed content is unchanged: `@` is written `\\u0040` after an escaped "
+          "newline (a Python decorator that starts a line), in URL user-info typed in commands, and after a host name "
+          "the task's own files name, and the first character of a credential-shaped run inside an opaque base64 "
+          "signature or encrypted-content field is written as a `\\u` escape.",
+          *(["- " + str(summary["redacted"]) + " occurrence(s) of the calibration harness's own API credential, which an "
+             "agent printed while inspecting its environment, are replaced with `" + ev.REDACTED + "` in the agent logs. "
+             "Nothing else in those logs is altered, and the captured workspace bytes never contained it."]
+            if summary.get("redacted") else []),
+          *(["- " + str(summary["emails_redacted"]) + " e-mail address(es) in agent logs that occur nowhere in the task's "
+             "own content (addresses from web-search results an agent read, or made up in a test command) are replaced "
+             "with `" + ev.REDACTED_EMAIL + "`; the task's fictional fixture addresses are kept."]
+            if summary.get("emails_redacted") else []),
           "- `reward-details.json` binds the delivered task tree and the captured workspace it graded; the verifier "
           "writes zeros there at run time and the harness fills them when it archives the run (verifier contract §8).", ""]
     L += ["## Changelog", "", "| Version | Date | Class | Summary | Calibration |", "|---|---|---|---|---|"]
