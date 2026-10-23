@@ -597,7 +597,10 @@ def _step_result(data: dict, folder: Path, name: str, *, oracle: bool, solver: b
     reward = rewards.get("reward") if isinstance(rewards, dict) else None
     if not _number(reward) or not 0 <= reward <= 1:
         errors.append("Missing, nonfinite or out-of-range step reward")
-    checks, detail_errors = _details(folder / "verifier/reward-details.json")
+    # An Arena v0.1 package keeps grade.py's own per-check details in grade-details.json and writes
+    # reward-details.json in Arena's schema (pipeline/arena_v01.py); validity reads the grader's own.
+    details = folder / "verifier/grade-details.json"
+    checks, detail_errors = _details(details if details.is_file() else folder / "verifier/reward-details.json")
     errors.extend(detail_errors)
     code_path = folder / "agent/exit-code.txt"
     code = None
