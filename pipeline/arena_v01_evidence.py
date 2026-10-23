@@ -34,7 +34,9 @@ def sha256(data: bytes) -> str:
 
 def write_json(path: Path, doc) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
+    text = json.dumps(doc, indent=1, ensure_ascii=False)
+    fixed = text.replace("\\n@", "\\n\\u0040")  # see ESCAPED_NEWLINE_AT; kept only if it parses identically
+    path.write_text((fixed if fixed != text and json.loads(fixed) == json.loads(text) else text) + "\n")
 
 
 # ---------------------------------------------------------------- §12.4 workspace changes
