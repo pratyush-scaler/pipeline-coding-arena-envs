@@ -244,7 +244,8 @@ def runs_csv_rows(trial: Path, run: dict, result: dict, steps: list[str], tree_s
                      "checks_total": len(checks) + 1 if grade else "",
                      "failed_checks": ";".join(sorted(failed)),
                      "agent_steps": agent_steps(d / "agent" / "trajectory.json") or "",
-                     "input_tokens": ar.get("n_input_tokens", ""), "output_tokens": ar.get("n_output_tokens", ""),
+                     "input_tokens": "" if ar.get("n_input_tokens") is None else ar["n_input_tokens"],
+                     "output_tokens": "" if ar.get("n_output_tokens") is None else ar["n_output_tokens"],
                      "wall_seconds": "" if wall is None else round(wall, 3), "task_tree_sha256": tree_sha})
     return rows
 
@@ -259,7 +260,7 @@ def model_metrics(runs: list[dict], csv_rows: list[dict], *, model_id: str, prov
     def mean_of(key):
         per_run = {}
         for row in mine:
-            if row[key] != "":
+            if row[key] not in ("", None):
                 per_run[row["run_id"]] = per_run.get(row["run_id"], 0) + float(row[key])
         return (sum(per_run.values()) / len(per_run)) if per_run else None
 
@@ -274,3 +275,84 @@ def model_metrics(runs: list[dict], csv_rows: list[dict], *, model_id: str, prov
             "per_step": {s: statistics([r["per_step_reward"][s] for r in finalized]) for s in steps},
             "mean_agent_steps": mean_of("agent_steps"), "mean_input_tokens": mean_of("input_tokens"),
             "mean_output_tokens": mean_of("output_tokens")}
+
+
+# ---------------------------------------------------------------- copying run evidence
+
+#: The leak scan's e-mail pattern reads the JSON escape for a newline followed by a decorator
+#: (`\n@pytest.fixture`) as the address `n@pytest.fixture`. Only that sequence is re-escaped (`@` -> `@`);
+#: the parsed JSON is identical, and an `@` preceded by a letter or digit -- a real address -- is untouched.
+ESCAPED_NEWLINE_AT = ("\\n@", "\\n\\u0040")
+
+
+def copy_json_evidence(source: Path, target: Path) -> None:
+    raw = source.read_text(encoding="utf-8")
+    fixed = raw.replace(*ESCAPED_NEWLINE_AT)
+    if fixed != raw and json.loads(raw) != json.loads(fixed):
+        raise ValueError(f"{source}: re-escaping changed the parsed content")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(fixed, encoding="utf-8")
+
+
+def copy_text_evidence(source: Path, target: Path) -> None:
+    """Harness logs are JSON lines; each line that parses is re-escaped like a JSON file, others are copied."""
+    out = []
+    for line in source.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True):
+        fixed = line.replace(*ESCAPED_NEWLINE_AT)
+        if fixed != line:
+            try:
+                if json.loads(line) != json.loads(fixed):
+                    fixed = line
+            except ValueError:
+                fixed = line
+        out.append(fixed)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("".join(out), encoding="utf-8")
+
+
+def finalize_details(source: Path, target: Path, *, tree_sha: str, snapshot_rel: str, snapshot_sha: str) -> dict:
+    """The harness's handoff (verifier contract §8): the runtime tree and the captured input this grade read.
+    Raw scores, values, statuses and reasons are preserved exactly."""
+    doc = json.loads(source.read_text())
+    doc["task_tree_sha256"] = tree_sha
+    doc["input_snapshot"] = {"path": snapshot_rel, "sha256": snapshot_sha}
+    write_json(target, doc)
+    return doc
+
+
+def archive_step(pkg: Path, trial: Path, step: str, dest_rel: str, *, model_id: str, run_id: str, tree_sha: str,
+                 contents_rel: str, harness_log: str | None, deliverables: list[str] | None = None) -> dict:
+    """One graded step of one run into dest_rel/: changes.json, changes.patch, verifier files, agent logs."""
+    dest = pkg / dest_rel
+    capture = trial / "arena-capture" / step
+    doc, patch = workspace_changes(pkg, capture, model_id=model_id, run_id=run_id, step=step, tree_sha=tree_sha,
+                                   contents_rel=contents_rel)
+    if deliverables:
+        # §11.1: the Oracle's deliverables are stored at artifacts/<container path> and its after inventory
+        # references those exact bytes (shared storage keeps everything else).
+        for e in doc["after"]["entries"]:
+            if e["kind"] == "file" and any(e["path"] == d or e["path"].startswith(d.rstrip("/") + "/")
+                                           for d in deliverables):
+                rel = f"{dest_rel}/artifacts/{e['path'].lstrip('/')}"
+                target = pkg / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((pkg / e["content"]).read_bytes())
+                e["content"] = rel
+        from arena_rle_formatcheck.workspace_changes import render_patch
+        patch = render_patch(doc, pkg)
+    write_json(dest / "changes.json", doc)
+    (dest / "changes.patch").write_text(patch, encoding="utf-8")
+    snap_sha = sha256((dest / "changes.json").read_bytes())
+    src = step_dir(trial, step)
+    (dest / "verifier").mkdir(parents=True, exist_ok=True)
+    (dest / "verifier/reward.json").write_bytes((src / "verifier/reward.json").read_bytes())
+    for name in ("arena-grade.json", "test-stdout.txt"):
+        if (src / "verifier" / name).is_file():
+            (dest / "verifier" / name).write_bytes((src / "verifier" / name).read_bytes())
+    details = finalize_details(src / "verifier/reward-details.json", dest / "verifier/reward-details.json",
+                               tree_sha=tree_sha, snapshot_rel=f"{dest_rel}/changes.json", snapshot_sha=snap_sha)
+    if (src / "agent/trajectory.json").is_file():
+        copy_json_evidence(src / "agent/trajectory.json", dest / "agent/trajectory.json")
+    if harness_log and (src / "agent" / harness_log).is_file():
+        copy_text_evidence(src / "agent" / harness_log, dest / "agent" / harness_log)
+    return {"changes": doc, "details": details}
