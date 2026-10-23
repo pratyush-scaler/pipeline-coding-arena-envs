@@ -109,9 +109,14 @@ def task_toml(old: dict, *, env_id: str, version: str, domain: str, prompt_langu
                 "programming_languages": [meta_old["language"]] if meta_old.get("language") else None,
                 "agent_workspace": workspace, "deliverables": list(deliverables), "protected_paths": [],
                 "source_session": session}
+    # Arena's Q12 needs every captured descendant of a deliverable collected, so a whole-repo deliverable
+    # takes no cache excludes (grade.py drops __pycache__ and .pytest_cache from its grading copy anyway).
+    whole_repo = any(d == workspace or workspace.startswith(d.rstrip("/") + "/") for d in deliverables)
+    excludes = [] if whole_repo else ARTIFACT_EXCLUDES
     lines = ['schema_version = "1.4"',
              f'multi_step_reward_strategy = {_toml_value(old.get("multi_step_reward_strategy", "mean"))}', "",
-             "[[artifacts]]", f"source = {_toml_value(workspace)}", f"exclude = {_toml_value(ARTIFACT_EXCLUDES)}", ""]
+             "[[artifacts]]", f"source = {_toml_value(workspace)}",
+             *([f"exclude = {_toml_value(excludes)}"] if excludes else []), ""]
     for path in outside:
         lines += ["[[artifacts]]", f"source = {_toml_value(path)}", ""]
     lines += _table("task", {"name": f"arena/{env_id}", "version": version, "description": task.get("description"),
