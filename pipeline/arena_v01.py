@@ -182,7 +182,9 @@ def declarations(old_entries: list, pkg: Path | None = None) -> dict:
                                   "unpacks them, so they are fixtures of the wrong format by design.",
                         "details": {"paths": stubs, "defect": "wrong-format"}})
     for e in old_entries or []:
-        if e.get("kind") == "large":
+        # Arena's large-data covers task inputs; our old `large` also flagged authoring files (a big spec.json)
+        # that are not in the runtime tree at all, and those are not declarations.
+        if e.get("kind") == "large" and (pkg is None or (pkg / e["path"]).is_file()):
             n += 1
             out.append({"id": f"large-data-{n}", "kind": "large-data",
                         "reason": "A task input larger than 10 MB that the user's workflow reads as a whole.",
@@ -346,7 +348,14 @@ def unpack(zip_path: Path, dest: Path) -> Path:
             mode = (info.external_attr >> 16) & 0o777
             if mode:
                 os.chmod(target, mode)
-    return dest / roots.pop()
+    top = dest / roots.pop()
+    if not (top / "task.toml").is_file():
+        # Older deliveries wrap the package in a faithfulness folder (F2-scenario/<env-id>/).
+        inner = [d for d in top.iterdir() if d.is_dir() and (d / "task.toml").is_file()]
+        if len(inner) != 1:
+            raise ValueError(f"{zip_path.name}: no single package folder with a task.toml")
+        top = inner[0]
+    return top
 
 
 def convert_runtime(zip_path: Path, out_root: Path, *, domain: str, prompt_language: str) -> dict:
