@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import posixpath
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,14 @@ async def capture(trial, step: str | None, phase: str) -> dict:
             raise RuntimeError(f"capture command exited {result.return_code}")
         target = folder / record["tar"]
         await env.download_file(REMOTE, target)
+        # The receipt's executed_as: the agent account as the container resolves it, and the runner's own uid.
+        user = getattr(getattr(getattr(getattr(trial, "task", None), "config", None), "agent", None), "user", None)
+        record["agent_user"] = user
+        record["host_uid"] = os.getuid()
+        if isinstance(user, str) and user:
+            who = await env.exec(f"id -u '{user}'", timeout_sec=60, user="root")
+            uid = (who.stdout or "").strip()
+            record["agent_uid"] = int(uid) if who.return_code == 0 and uid.isdigit() else None
         data = target.read_bytes()
         record.update(ok=True, bytes=len(data), tar_sha256=hashlib.sha256(data).hexdigest())
     except Exception as exc:  # recorded, never raised: the run proceeds without workspace evidence

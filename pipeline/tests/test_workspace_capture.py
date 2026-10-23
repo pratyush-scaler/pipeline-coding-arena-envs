@@ -23,6 +23,8 @@ class FakeEnv:
         self.calls.append(("exec", user, command))
         if command.startswith("rm -f"):
             return Result()
+        if command.startswith("id -u"):
+            return Result(0, "1000\n")
         return Result(self.code, "/app/repo\n", "boom" if self.code else "")
 
     async def download_file(self, source, target):
@@ -34,6 +36,7 @@ def trial(tmp_path, env, metadata=None):
     return types.SimpleNamespace(
         paths=types.SimpleNamespace(trial_dir=tmp_path),
         task=types.SimpleNamespace(config=types.SimpleNamespace(
+            agent=types.SimpleNamespace(user="agent"),
             metadata=metadata if metadata is not None else {"agent_workspace": "/app/repo",
                                                             "deliverables": ["/app/repo"], "protected_paths": []})),
         agent_environment=env)
@@ -50,6 +53,7 @@ def test_capture_runs_as_root_keeps_the_tar_and_removes_the_remote_copy(tmp_path
     record = asyncio.run(wc.capture(trial(tmp_path, env), "01-step", "before-agent"))
     folder = tmp_path / wc.FOLDER / "01-step"
     assert record["ok"] and record["present"] == ["/app/repo"] and record["scope"] == ["/app/repo"]
+    assert record["agent_user"] == "agent" and record["agent_uid"] == 1000 and isinstance(record["host_uid"], int)
     assert (folder / "before-agent.tar").read_bytes() == b"tar-bytes"
     assert json.loads((folder / "before-agent.json").read_text())["tar_sha256"] == record["tar_sha256"]
     assert all(user == "root" for kind, user, _ in env.calls if kind == "exec")

@@ -379,3 +379,111 @@ def convert_runtime(zip_path: Path, out_root: Path, *, domain: str, prompt_langu
     tomllib.loads((pkg / "task.toml").read_text())  # parses
     return {"env_id": env_id, "from_version": old["task"]["version"], "version": version,
             "package": str(pkg), "source_package": str(src), "task_tree_sha256": task_tree_sha256(pkg)}
+
+
+# ---------------------------------------------------------------- provenance (outside the runtime tree)
+
+SOURCE_SCOPE_SCHEMA = "arena-source-scope/v1"
+LEDGER_SCHEMA = "arena-source-ledger/v1"
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def snapshot_index(session_dir: Path) -> dict:
+    """Every exported workspace snapshot of the session: node -> {path: sha256 of the blob's bytes}."""
+    out = {}
+    for manifest in sorted((session_dir / "workspaces").glob("*.json")):
+        files = {}
+        for entry in json.loads(manifest.read_text()).get("files", []):
+            blob = session_dir / entry.get("file", "")
+            if entry.get("status") == "ok" and blob.is_file():
+                files[entry["path"]] = _sha(blob.read_bytes())
+        out[manifest.stem] = {"files": files, "manifest_sha256": _sha(manifest.read_bytes())}
+    return out
+
+
+def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member: str, span: tuple[int, int],
+               intent: str, workspace: str = "/app/repo") -> tuple[dict, dict]:
+    """source-scope v1 and ledger v1 from the source session itself (Arena §14).
+
+    The seed's message range is the one request segment. File citations resolve only through the
+    session's exported workspace snapshots: identical bytes are `recorded`, the same path with other
+    bytes is `recorded-modified`, anything else is `authored`. The start workspace is the snapshot most
+    files were lifted from."""
+    data_raw = (session_dir / "data.json").read_bytes()
+    trace = json.loads(data_raw)["traces"][0]
+    messages = trace["messages"]
+    lo, hi = span
+    hi = min(hi, len(messages) - 1)
+    if not any(messages[i].get("role") == "user" for i in range(lo, hi + 1)):
+        raise ValueError(f"{pkg.name}: seed range {lo}..{hi} holds no user message")
+    node_of = lambda i, last=False: (messages[i].get("node_ids") or [None])[-1 if last else 0]
+    msg_of_node = {n: i for i, m in enumerate(messages) for n in (m.get("node_ids") or [])}
+    snaps = snapshot_index(session_dir)
+    by_sha: dict[str, list[tuple[str, str]]] = {}
+    for node, snap in snaps.items():
+        for path, sha in snap["files"].items():
+            by_sha.setdefault(sha, []).append((node, path))
+    old_ledger = json.loads((src / "provenance/ledger.json").read_text())
+    entries, from_node = [], {}
+    repo = pkg / "environment/repo"
+    for f in sorted(old_ledger.get("files", []), key=lambda f: f["path"]):
+        target = repo / f["path"]
+        if not target.is_file():
+            continue
+        sha = _sha(target.read_bytes())
+        container = f"{workspace}/{f['path']}"
+        hits = by_sha.get(sha, [])
+        same_path = [(n, p) for n, p in hits if p == f["path"]]
+        pick = (same_path or hits or [None])[0]
+        if pick:
+            node, spath = pick
+            from_node[node] = from_node.get(node, 0) + 1
+            cite = {"snapshot_node_id": node, "source_path": spath, "source_sha256": sha}
+            if node in msg_of_node:
+                cite["message_index"] = msg_of_node[node]
+            entries.append({"path": container, "sha256": sha, "origin": "recorded", "citation": cite})
+            continue
+        prior = [(n, s) for n, snap in snaps.items() for p, s in snap["files"].items() if p == f["path"]]
+        if prior:
+            node, ssha = prior[-1]
+            cite = {"snapshot_node_id": node, "source_path": f["path"], "source_sha256": ssha}
+            if node in msg_of_node:
+                cite["message_index"] = msg_of_node[node]
+            entries.append({"path": container, "sha256": sha, "origin": "recorded-modified", "citation": cite,
+                            "note": (f.get("note") or "Reconstructed and edited for the task.")[:1000]})
+            continue
+        entries.append({"path": container, "sha256": sha, "origin": "authored",
+                        "note": (f.get("note") or "Reconstructed from the session's tool calls; no exported "
+                                                   "snapshot holds these bytes.")[:1000]})
+    authored_files = [e["path"] for e in entries if e["origin"] != "recorded"]
+    if from_node:
+        node = max(from_node, key=from_node.get)
+        start = {"origin": "recorded-modified", "node_id": node, "snapshot_sha256": snaps[node]["manifest_sha256"],
+                 "change_note": ("The working tree lifts the files cited as recorded in provenance/ledger.json from "
+                                 "this snapshot or the session's other snapshots; "
+                                 + (f"{len(authored_files)} file(s) are reconstructed or edited, listed with notes "
+                                    "in the ledger." if authored_files else "no file is edited."))}
+    else:
+        start = {"origin": "synthetic"}
+    step_names = [s["name"] for s in tomllib.loads((pkg / "task.toml").read_text()).get("steps", [])]
+    scope = {"schema": SOURCE_SCOPE_SCHEMA, "session_id": trace["session_id"],
+             "export": {"archive": archive, "member": member, "data_json_sha256": _sha(data_raw)},
+             "segments": {"seed-request": {"start": {"node_id": node_of(lo), "message_index": lo},
+                                           "end": {"node_id": node_of(hi, True), "message_index": hi}}},
+             "steps": {}}
+    for i, step in enumerate(step_names):
+        scope["steps"][step] = {
+            "start_workspace": start if i == 0 else {"origin": "synthetic"},
+            "authored": ["Hidden test inputs and checks built from the rules the instruction states (tests/).",
+                         "The instruction restates the session user's goal in their voice and states the rules "
+                         "each criterion grades; the rubric's acceptance column quotes them."],
+            "uses": [{"segment": "seed-request", "use": "request", "adoption": "partial",
+                      "adopted": intent.strip()[:2000] or "The session user's goal, as the instruction restates it.",
+                      "not_adopted": "Requests and assistant answers in this range that the instruction does not "
+                                     "restate; the delivered task grades only the rules the instruction states."}]}
+    ledger = {"schema": LEDGER_SCHEMA, "session_id": trace["session_id"],
+              "export_data_json_sha256": _sha(data_raw), "entries": entries}
+    return scope, ledger
