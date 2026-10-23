@@ -80,7 +80,9 @@ def _table(name: str, values: dict) -> list[str]:
     return [f"[{name}]", *(f"{k} = {_toml_value(v)}" for k, v in values.items() if v is not None), ""]
 
 
-def task_toml(old: dict, *, env_id: str, version: str, domain: str, prompt_language: str) -> str:
+def task_toml(old: dict, *, env_id: str, version: str, domain: str, prompt_language: str,
+              declared: list[str] | None = None) -> str:
+    """declared: the repo-relative deliverable paths tests/checks.json makes the grader enforce."""
     meta_old = old.get("metadata", {})
     level = meta_old.get("faithfulness_level") or meta_old.get("faithfulness")
     if level not in LEVELS:
@@ -89,8 +91,10 @@ def task_toml(old: dict, *, env_id: str, version: str, domain: str, prompt_langu
     if not session:
         raise ValueError(f"{env_id}: no source session")
     workspace = "/app/repo"
-    # A grader that reads the whole working tree names no single file: the deliverable is the repo.
-    deliverables = old.get("deliverables") or meta_old.get("deliverables") or [workspace]
+    # The first deliveries name deliverables only in tests/checks.json (the grader's contract); a grader that
+    # names none reads the whole working tree, and then the deliverable is the repo.
+    deliverables = (old.get("deliverables") or meta_old.get("deliverables")
+                    or sorted(f"{workspace}/{d}" for d in dict.fromkeys(declared or [])) or [workspace])
     outside = sorted({d for d in deliverables if not (d == workspace or d.startswith(workspace + "/"))})
     task = old["task"]
     env, agent, verifier = (dict(old.get(k, {})) for k in ("environment", "agent", "verifier"))
@@ -358,6 +362,11 @@ def unpack(zip_path: Path, dest: Path) -> Path:
     return top
 
 
+def declared_deliverables(src: Path) -> list[str]:
+    doc = json.loads((src / "tests/checks.json").read_text())
+    return [d["path"] for d in doc.get("deliverables", []) if d.get("path")]
+
+
 def convert_runtime(zip_path: Path, out_root: Path, *, domain: str, prompt_language: str) -> dict:
     """Convert one package's runtime surface; the rest of the old package is kept beside it for evidence."""
     work = out_root / ".source" / zip_path.stem
@@ -372,7 +381,7 @@ def convert_runtime(zip_path: Path, out_root: Path, *, domain: str, prompt_langu
     for top in ("environment", "steps", "tests"):
         shutil.copytree(src / top, pkg / top, symlinks=True)
     (pkg / "task.toml").write_text(task_toml(old, env_id=env_id, version=version, domain=domain,
-                                             prompt_language=prompt_language))
+                                             prompt_language=prompt_language, declared=declared_deliverables(src)))
     old_decl = json.loads((src / "declarations.json").read_text()) if (src / "declarations.json").is_file() else []
     (pkg / "declarations.json").write_text(json.dumps(declarations(old_decl, pkg), indent=1) + "\n")
     checks = json.loads((src / "tests/checks.json").read_text())["checks"]
@@ -443,7 +452,8 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
     old_ledger = json.loads((src / "provenance/ledger.json").read_text())
     entries, from_node = [], {}
     repo = pkg / "environment/repo"
-    for f in sorted(old_ledger.get("files", []), key=lambda f: f["path"]):
+    # Two ledger generations: `files` (current deliveries) and `entries` (the first deliveries); both list repo paths.
+    for f in sorted(old_ledger.get("files") or old_ledger.get("entries") or [], key=lambda f: f["path"]):
         target = repo / f["path"]
         if not target.is_file():
             continue
