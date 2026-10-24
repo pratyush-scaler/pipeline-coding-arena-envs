@@ -577,6 +577,29 @@ def failures(report: list[dict], waived: set[str] = frozenset()) -> list[str]:
                    if r.get("status") == "FAIL" and r["id"] not in waived})
 
 
+#: The supplier's names as Q37 knows them; a hit counts only when one stands as a word (user, 2026-10-25: "the checks
+#: should not fail unless the word Scaler is explicitly revealing any identity" -- not inside 'escalera' or
+#: 'StandardScaler').
+SUPPLIER_NAMES = [SUPPLIER[i + 1] for i in range(0, len(SUPPLIER), 2)]
+
+
+def identity_hits(zpath: Path) -> list[str]:
+    """Members of the zip whose path or text holds a supplier name as a standalone word or joined name."""
+    pats = []
+    for name in SUPPLIER_NAMES:
+        words = [re.escape(w) for w in re.split(r"[\s_-]+", name.strip()) if w]
+        pats.append(re.compile(r"(?<![A-Za-z0-9])" + r"[\s_-]?".join(words) + r"(?![A-Za-z0-9])", re.I))
+    found = []
+    with zipfile.ZipFile(zpath) as z:
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+            text = info.filename + "\n" + z.read(info).decode("utf-8", errors="ignore")
+            if any(p.search(text) for p in pats):
+                found.append(info.filename)
+    return found
+
+
 def check(zpath: Path, waived: set[str] = frozenset()) -> list[str]:
     fc = _formatcheck()
     out = ZIPS / "checks" / (zpath.stem + ".json")
@@ -587,6 +610,9 @@ def check(zpath: Path, waived: set[str] = frozenset()) -> list[str]:
     proc = subprocess.run(args, cwd=fc, capture_output=True, text=True)
     print("\n".join(l for l in proc.stdout.splitlines() if not l.startswith("  [PASS]"))[-4000:])
     failed = failures(json.loads(out.read_text()), waived)
+    if "Q37" in failed and not identity_hits(zpath):
+        failed.remove("Q37")  # only letters inside other words; no supplier name stands as a name (user, 2026-10-25)
+        print(f"{zpath.name}: Q37 matches only inside other words; no supplier name stands as a word -- accepted")
     print(f"{zpath.name}: {'PASS' if not failed else 'FAIL ' + ','.join(failed)}"
           + (f" (waived: {','.join(sorted(waived))})" if waived else ""))
     return failed

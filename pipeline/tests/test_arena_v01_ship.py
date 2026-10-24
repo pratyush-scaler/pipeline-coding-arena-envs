@@ -38,3 +38,16 @@ def test_reports_name_no_host_path():
         "source: <pipeline>/envs/a_f2_react-web-app/verification/x.json"
     with pytest.raises(SystemExit):
         ship.scrub_report("/home/pratyush/notes", "a_f2_x", "x")
+
+
+def test_q37_counts_only_a_supplier_name_standing_as_a_word(tmp_path):
+    import zipfile
+    clean = tmp_path / "a@1.0.0.zip"
+    with zipfile.ZipFile(clean, "w") as z:
+        z.writestr("a/lexicon.js", "escalera StandardScaler MinMaxScaler upscaler")
+    assert ship.identity_hits(clean) == []
+    named = tmp_path / "b@1.0.0.zip"
+    with zipfile.ZipFile(named, "w") as z:
+        z.writestr("b/README.md", "Built by Scaler AI Labs")
+        z.writestr("b/scaler/x.txt", "")
+    assert ship.identity_hits(named) == ["b/README.md", "b/scaler/x.txt"]
