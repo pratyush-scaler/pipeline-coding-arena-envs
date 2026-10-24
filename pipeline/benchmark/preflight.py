@@ -11,6 +11,17 @@ def validate_task(bundle: Path, *, legacy_diagnostic: bool = False) -> dict:
         return {"artifact_sha256": sha, "mode": "legacy-diagnostic",
                 "release_qualified": False, "current_generator_verified": False,
                 "note": "Original task semantics retained; these results cannot qualify the current pipeline."}
+    # An Arena v0.1 package derived from a version for its release qualification (pipeline/arena_v01_release.py):
+    # admissible only when its source is current-generator clean and re-deriving it gives exactly this package.
+    from ..arena_v01_release import validation
+    try:
+        derived = validation(bundle)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"Arena v0.1 package does not hold to its recorded derivation: {exc}") from exc
+    if derived is not None:
+        if identity(bundle) != sha:
+            raise ValueError("Task changed during benchmark preflight")
+        return derived
     from ..assurance import generated_problems
     try:
         spec = strict_json((bundle / "authoring/spec.json").read_text())

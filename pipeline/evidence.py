@@ -194,7 +194,11 @@ def native_evidence(bundle: Path, output: Path, agent: str, minimum: int = 1) ->
         except ValueError as exc:
             return [f"native calibration campaign: {exc}"], {"trials": []}
     validation = report.get("task_validation", {})
-    if (validation.get("mode") != "current-draft"
+    # A campaign over the Arena v0.1 package derived from this version (pipeline/arena_v01_release.py) is this
+    # version's evidence only when the package reproduces from it; checked below where the snapshot is compared.
+    from .arena_v01_release import MODE as DERIVED
+    derived = validation.get("mode") == DERIVED
+    if (validation.get("mode") not in ("current-draft", DERIVED)
             or validation.get("current_generator_verified") is not True
             or validation.get("artifact_sha256") != identity(bundle)):
         errors.append("native task was not verified against the current generator; legacy diagnostics cannot certify release")
@@ -224,7 +228,10 @@ def native_evidence(bundle: Path, output: Path, agent: str, minimum: int = 1) ->
             or report.get("dry_run")
             or report.get("status") != "finished" or report.get("step_names") != names):
         errors.append("native report is incomplete, invalid or uses another protocol")
-    if identity(output / "package") != identity(bundle):
+    if derived:
+        from .arena_v01_release import snapshot_problems
+        errors.extend(snapshot_problems(bundle, output / "package", validation))
+    elif identity(output / "package") != identity(bundle):
         errors.append("native snapshot differs from the task")
     if report.get("runtime", {}).get("versions") != EXPECTED_VERSIONS:
         errors.append("native runtime versions differ from the pinned protocol")

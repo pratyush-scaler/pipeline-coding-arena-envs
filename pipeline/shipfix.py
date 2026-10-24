@@ -444,10 +444,17 @@ def step_rates(audit: dict) -> dict[str, dict[str, float]]:
     return {m: {n: round(a / b, 3) for n, (a, b) in steps.items() if b} for m, steps in seen.items()}
 
 
-def release(version: Path) -> dict:
+def release(version: Path, arena_v01: dict | None = None) -> dict:
     """After a clean, proven-hard final version: the calibration of record and what shipping it
     needs (user, 2026-10-07: "run 10 attempts per model per task once a task is finalised and task
     is proven to be hard"). Each step is recorded in verification/shipfix-release.json:
+
+      arena_v01   (user, 2026-10-24: "use the 0.24 calibration as release qualification") with an
+                  Arena v0.1 release target -- `arena_v01` {domain, prompt_language[, level, version,
+                  lineage]} writes it, verification/arena-v01.json keeps it -- qualify's controls and
+                  10 x 2 run on the v0.1 package derived from this version (pipeline.arena_v01_release),
+                  every gate below reads those campaigns, and this step holds the claimed level to the
+                  measured one. The record's `calibration` names the format, Harbor and the runs.
 
       revalidate  controls and probes again when their receipts are stale: policy_identity covers
                   every pipeline file, so a pipeline fix after the final run (c-043's verifier
@@ -462,9 +469,14 @@ def release(version: Path) -> dict:
     from . import genuine, policy, release as release_mod, shipcheck
     from .author import controls, probes
     from .benchmark.harbor import resolve_model
+    from . import arena_v01_release as v01
     version = Path(version).resolve()
     path = version / RELEASE
     record = {"schema": SCHEMA + "/release", "version": str(version), "steps": {}}
+    if arena_v01:
+        v01.write_target(version, **arena_v01)
+    target = v01.target(version)
+    record["arena_v01_target"] = target
 
     def step(name, fn):
         started = time.time()
@@ -575,13 +587,24 @@ def release(version: Path) -> dict:
                 "valid": {m: r.get("episodes_valid") for m, r in metrics.items()}, "not_hard": why}
 
     hard = step("hardness", hardness)
+
+    def arena_v01_step():
+        out = {"calibration": v01.calibration_of_record(version)}
+        record["calibration"] = out["calibration"]
+        out["not_ready"] = v01.level_problems(version, target) if target else []
+        return out
+
+    v01_row = step("arena_v01", arena_v01_step)
     sweep = step("shipcheck", lambda: (lambda r: (version.joinpath("verification/shipcheck.json").write_text(
         json.dumps(r, indent=1, default=str)), {"ok": r["ok"], "open": r["open"],
         "findings": [f for f in r.get("findings") or [] if not f.get("waived")][:8]})[1])(
         shipcheck.sweep(version, image=True, repro=True)))
     record["ready"] = bool((record["steps"]["genuine"].get("result") or {}).get("certified")
                            and hard.get("ok") and not (hard.get("result") or {}).get("not_hard")
-                           and sweep.get("ok") and (sweep.get("result") or {}).get("open") == 0)
+                           and sweep.get("ok") and (sweep.get("result") or {}).get("open") == 0
+                           # without a target the step only records the calibration; it never blocks
+                           and (not target or (v01_row.get("ok")
+                                               and not (v01_row.get("result") or {}).get("not_ready"))))
     path.write_text(json.dumps(record, indent=1, default=str))
     return record
 
@@ -595,9 +618,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-screen", action="store_true")
     ap.add_argument("--release", action="store_true",
                     help="on a final version: revalidate if stale, qualify 10 x 2, certify, sweep")
+    ap.add_argument("--arena-v01", metavar="JSON",
+                    help='with --release: qualify on the Arena v0.1 package derived from this version, e.g. '
+                         '{"domain": "data_engineering", "prompt_language": "fr", "level": "F1"} '
+                         '(level, version and lineage optional; pipeline.arena_v01_release.write_target)')
     args = ap.parse_args(argv)
+    if args.arena_v01 and not args.release:
+        ap.error("--arena-v01 goes with --release")
     if args.release:
-        record = release(args.version)
+        record = release(args.version, json.loads(args.arena_v01) if args.arena_v01 else None)
         for name, row in record["steps"].items():
             print(f"  {name:10s} {'ok' if row.get('ok') else 'FAILED'} "
                   f"{json.dumps(row.get('result') or row.get('error'), default=str)[:400]}")

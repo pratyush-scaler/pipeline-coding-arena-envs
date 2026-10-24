@@ -372,10 +372,17 @@ def convert_runtime(zip_path: Path, out_root: Path, *, domain: str, prompt_langu
     work = out_root / ".source" / zip_path.stem
     shutil.rmtree(work, ignore_errors=True)
     src = unpack(zip_path, work)
+    return convert_tree(src, out_root, domain=domain, prompt_language=prompt_language)
+
+
+def convert_tree(src: Path, out_root: Path, *, domain: str, prompt_language: str, version: str | None = None) -> dict:
+    """convert_runtime on an unpacked supplier-layout package `src` (a delivered zip's folder, or the one
+    pipeline.arena_v01_release builds from a bundle before release). `version` defaults to the next minor."""
+    src = Path(src)
     env_id = src.name
     old = tomllib.loads((src / "task.toml").read_text())
-    version = bump_minor(old["task"]["version"])
-    pkg = out_root / env_id
+    version = version or bump_minor(old["task"]["version"])
+    pkg = Path(out_root) / env_id
     shutil.rmtree(pkg, ignore_errors=True)
     pkg.mkdir(parents=True)
     for top in ("environment", "steps", "tests"):

@@ -6,6 +6,21 @@ the zip only when Arena's own checker (lmarena/arena-rle-formatcheck-external, p
     arena_v01_ship.py status  [<env-id>...]
     arena_v01_ship.py finish  <env-id> [--skip-regrade] [--skip-pull]
     arena_v01_ship.py check   <zip>
+    arena_v01_ship.py run     <workspace> -- <pipeline.cli args>
+    arena_v01_ship.py release-finish <bundle> <workspace> --archive NAME --sessions DIR [--batch B]
+                              [--previous-version V --previous-date D] [--skip-regrade] [--skip-pull]
+
+Release qualification (user, 2026-10-24: "use the 0.24 calibration as release qualification"). A final version is
+released on its Arena v0.1 package from this checkout's staged code, so its controls and 10 x 2 run on Harbor 0.24
+(pipeline/arena_v01_release.py):
+
+    arena_v01_ship.py run <ws> -- shipfix <bundle> --release --arena-v01 '{"domain": D, "prompt_language": L}'
+    arena_v01_ship.py release-finish <bundle> <ws> --archive NAME --sessions DIR
+
+`release-finish` builds the supplier and v0.1 packages ON the workspace from the released version (refused unless
+the runtime tree is exactly the calibrated one), adds Arena's provenance, and assembles the evidence from the
+release's own campaigns (`finish`); nothing is calibrated twice. `convert`/`launch` stay for packages delivered
+before (a_f2_sports-data-pipeline), whose rows `finish` reads exactly as before.
 
 The delivery format, receipts and schemas are Arena's (docs/delivery-format.md in the checker). Calibration and
 the Oracle evidence must come from Harbor 0.24.0 (Q19/Q21: rerun, never relabelled): this checkout's
@@ -160,15 +175,7 @@ def convert(zip_path: Path, *, domain: str, language: str, archive: str, session
         raise SystemExit(f"{cited} is missing: hard-link the original export there under its supplier-free name")
     made = conv_mod.convert_runtime(zip_path, PACKAGES, domain=domain, prompt_language=language)
     env, pkg, src = made["env_id"], Path(made["package"]), Path(made["source_package"])
-    spec = json.loads((src / "authoring/spec.json").read_text())
-    sid, seed = spec["source"]["session_id"], int(spec["source"]["seed_index"])
-    session_dir = sessions / sid
-    member = _archive_member(cited, sid, (session_dir / "data.json").read_bytes())
-    scope, ledger = conv_mod.provenance(pkg, src, session_dir=session_dir, archive=archive, member=member,
-                                        span=_seed_span(session_dir, seed), intent=spec.get("intent", ""))
-    (pkg / "provenance").mkdir(exist_ok=True)
-    for name, doc in (("source-scope.json", scope), ("ledger.json", ledger)):
-        (pkg / "provenance" / name).write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
+    ledger = _provenance(pkg, src, cited, archive, sessions)
     record = _record()
     record[env] = {**made, "source_zip": str(zip_path.resolve()), "domain": domain, "prompt_language": language,
                    "batch": batch, "archive": archive, "delivered_on": date.fromtimestamp(zip_path.stat().st_mtime)
@@ -179,6 +186,20 @@ def convert(zip_path: Path, *, domain: str, language: str, archive: str, session
         origins[e["origin"]] = origins.get(e["origin"], 0) + 1
     print(f"{env}: {made['from_version']} -> {made['version']}; ledger {origins}")
     return record[env]
+
+
+def _provenance(pkg: Path, src: Path, cited: Path, archive: str, sessions: Path) -> dict:
+    """Arena's provenance (source-scope.json, ledger.json) for a converted package; returns the ledger."""
+    spec = json.loads((src / "authoring/spec.json").read_text())
+    sid, seed = spec["source"]["session_id"], int(spec["source"]["seed_index"])
+    session_dir = sessions / sid
+    member = _archive_member(cited, sid, (session_dir / "data.json").read_bytes())
+    scope, ledger = conv_mod.provenance(pkg, src, session_dir=session_dir, archive=archive, member=member,
+                                        span=_seed_span(session_dir, seed), intent=spec.get("intent", ""))
+    (pkg / "provenance").mkdir(exist_ok=True)
+    for name, doc in (("source-scope.json", scope), ("ledger.json", ledger)):
+        (pkg / "provenance" / name).write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
+    return ledger
 
 
 # ------------------------------------------------------------------------------------------------ launch
@@ -292,9 +313,31 @@ def _measured(campaign: Path) -> dict:
     return {"trials": trials}
 
 
-def _hack_scan(pkg: Path, env: str, local: Path) -> tuple[dict, int, int, int]:
+def _layout(env: str, row: dict) -> dict:
+    """Where `finish` reads a package's campaigns: its own launches (CAMPAIGNS/<env>/cal-*), or -- for a package a
+    pipeline release qualified (row["release"]) -- that release's campaigns of record, by their recorded paths."""
+    remote = CAMPAIGNS / env
+    rel = row.get("release")
+    if not rel:
+        return {"oracle": remote / "cal-oracle", "nop": remote / "cal-nop",
+                "models": {m: remote / f"cal-{m}" for m in MODELS}, "bundle": None}
+    from pipeline.benchmark.harbor import resolve_model
+    cal = rel["calibration"]
+    models = {}
+    for m in MODELS:
+        parts = cal["campaigns"].get(resolve_model(m)) or []
+        if len(parts) != 1:
+            raise SystemExit(f"{env}: {m} has {len(parts)} campaign part(s) in the release; the v0.1 assembler "
+                             "reads exactly one campaign per model (void top-ups are not assembled yet)")
+        models[m] = Path(parts[0])
+    return {"oracle": Path(cal["oracle"]), "nop": Path(cal["nop"]), "models": models, "bundle": Path(rel["bundle"])}
+
+
+def _hack_scan(pkg: Path, env: str, campaigns: dict, bundle: Path | None = None) -> tuple[dict, int, int, int]:
+    """A released version is scanned as its release scanned it -- with the bundle, whose human adjudications
+    (verification/hack-adjudications.json) clear the flags they rule on; HACK_REVIEWS applies either way."""
     from pipeline.attribution import trajectory_hacks
-    findings = {m: trajectory_hacks(pkg, _measured(local / f"cal-{m}")) for m in MODELS}
+    findings = {m: trajectory_hacks(bundle or pkg, _measured(campaigns[m])) for m in MODELS}
     reviews = json.loads(HACK_REVIEWS.read_text())["reviews"] if HACK_REVIEWS.is_file() else []
     for m, fs in findings.items():
         for f in fs:
@@ -315,12 +358,14 @@ def finish(env: str, *, regrade: bool = True, pull: bool = True) -> int:
     ws = row["workspace"]
     ev.load_secrets(LIVE / "keys.env")  # harness credentials an agent may have printed; redacted from copied logs
     remote = CAMPAIGNS / env
+    lay = _layout(env, row)
     pkg, src = Path(row["package"]), Path(row["source_package"])
     steps = [s["name"] for s in tomllib.loads((pkg / "task.toml").read_text())["steps"]]
     if regrade:
-        trial = _ssh(ws, f"ls -d {q(str(remote / 'cal-oracle/jobs/run'))}/*/ | head -1").stdout.decode() \
+        trial = _ssh(ws, f"ls -d {q(str(lay['oracle'] / 'jobs/run'))}/*/ | head -1").stdout.decode() \
             .strip().splitlines()[-1].rstrip("/")
-        _ssh(ws, f"cat > {q(str(remote / 'regrade.sh'))}", stdin=REGRADE.encode(), timeout=120)
+        _ssh(ws, f"mkdir -p {q(str(remote))} && cat > {q(str(remote / 'regrade.sh'))}", stdin=REGRADE.encode(),
+             timeout=120)
         for s in steps:
             out = _ssh(ws, coder_mod._with_docker(
                 f"bash {q(str(remote / 'regrade.sh'))} {q(str(PACKAGES / env))} {q(s)} "
@@ -345,15 +390,10 @@ def finish(env: str, *, regrade: bool = True, pull: bool = True) -> int:
     docker_version, host_os, machine = lines[-3], lines[-2], lines[-1]
     if machine != "x86_64":
         raise SystemExit(f"{ws}: {machine} is not linux/amd64")
-    models = {m: {"campaign": remote / f"cal-{m}", "provider_model": v["provider_model"],
+    models = {m: {"campaign": lay["models"][m], "provider_model": v["provider_model"],
                   "harness_log": v["harness_log"], "effort": "high", "requested": 10} for m, v in MODELS.items()}
-    history = [{"version": row["from_version"], "date": row["delivered_on"], "class": "minor",
-                "summary": "Previous delivery (supplier layout); calibrated on Harbor 0.22.0.", "calibration": "stale"},
-               {"version": row["version"], "date": date.today().isoformat(), "class": "minor",
-                "summary": "Arena v0.1 package format: delivery metadata in [metadata], verifier resources declared, "
-                           "rubric per step, reward-details in Arena's schema; recalibrated on Harbor 0.24.0.",
-                "calibration": "current"}]
-    summary = ap.assemble(pkg, src, oracle=remote / "cal-oracle", nop=remote / "cal-nop", models=models,
+    history = _history(row)
+    summary = ap.assemble(pkg, src, oracle=lay["oracle"], nop=lay["nop"], models=models,
                           repeats=remote / "repeats", history=history,
                           runtime={"version": docker_version, "host_os": host_os})
     summary["emails_redacted"] = ev.redact_log_addresses(pkg)
@@ -364,7 +404,7 @@ def finish(env: str, *, regrade: bool = True, pull: bool = True) -> int:
     differ = ap.grader_unchanged(pkg, src)
     if differ:
         raise SystemExit(f"{env}: grader files changed since the controls ran: {differ}")
-    findings, n_flag, n_blind, n_benign = _hack_scan(pkg, env, remote)
+    findings, n_flag, n_blind, n_benign = _hack_scan(pkg, env, lay["models"], lay["bundle"])
     ev.write_json(pkg / "verification/hack-scan.json",
                   {"schema": "arena-pipeline/hack-scan/1", "scanner": "pattern scan of every agent command in the "
                    "calibration trajectories (test access, graded writes, symlinks, tamper, undeclared outputs)",
@@ -398,6 +438,23 @@ def finish(env: str, *, regrade: bool = True, pull: bool = True) -> int:
     return 0 if row["accepted"] else 1
 
 
+def _history(row: dict) -> list[dict]:
+    if not row.get("release"):
+        return [{"version": row["from_version"], "date": row["delivered_on"], "class": "minor",
+                 "summary": "Previous delivery (supplier layout); calibrated on Harbor 0.22.0.", "calibration": "stale"},
+                {"version": row["version"], "date": date.today().isoformat(), "class": "minor",
+                 "summary": "Arena v0.1 package format: delivery metadata in [metadata], verifier resources declared, "
+                            "rubric per step, reward-details in Arena's schema; recalibrated on Harbor 0.24.0.",
+                 "calibration": "current"}]
+    previous = [{"version": row["from_version"], "date": row["delivered_on"], "class": "minor",
+                 "summary": "Previous delivery (supplier layout).", "calibration": "stale"}] \
+        if row.get("from_version") else []
+    return previous + [{"version": row["version"], "date": date.today().isoformat(), "class": "minor",
+                        "summary": "Arena v0.1 package; its release qualification is this calibration: native Oracle "
+                                   "and nop controls and 10 episodes per model on Harbor 0.24.0, on this exact tree.",
+                        "calibration": "current"}]
+
+
 def _zip(pkg: Path, env: str, version: str) -> Path:
     ZIPS.mkdir(parents=True, exist_ok=True)
     zpath = ZIPS / f"{env}@{version}.zip"
@@ -410,6 +467,79 @@ def _zip(pkg: Path, env: str, version: str) -> Path:
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, f.read_bytes())
     return zpath
+
+
+# ------------------------------------------------------------------------------------------------ release
+
+def run(ws: str, args: list[str]) -> str:
+    """Any pipeline.cli command from this checkout's staged code (its Harbor pin) on `ws`, detached; pass task trees
+    as absolute paths. `./arena coder runs` / `watch` follow it like any staged run."""
+    if not args:
+        raise SystemExit("nothing to run: give the pipeline.cli arguments after --")
+    dest, sha = stage(ws)
+    rid = _start(ws, dest, sha, list(args))
+    print(json.dumps({"workspace": ws, "run": rid, "code_sha": sha, "run_dir": str(LIVE / coder_run.RUNS / rid),
+                      "argv": list(args)}))
+    return rid
+
+
+#: Bundle folders release-finish never pulls: work areas, not receipts (pipeline.deliver.RECEIPTS is an allowlist).
+BUNDLE_PULL_FILTERS = ["- verification/controls-work/", "- verification/local-workers/",
+                       "- verification/control-cache/", "- verification/design-sessions/", "- verification/reviews/",
+                       "- verification/screens/", "- verification/determinacy/", "- __pycache__/"]
+
+
+def release_finish(bundle: Path, ws: str, *, archive: str, sessions: Path, batch: str | None = None,
+                   previous: tuple[str, str] | None = None, regrade: bool = True, pull: bool = True) -> int:
+    bundle = bundle.resolve()
+    cited = ARCHIVES / archive
+    if not cited.is_file():
+        raise SystemExit(f"{cited} is missing: hard-link the original export there under its supplier-free name")
+    dest, sha = stage(ws)
+    env_vars = " ".join(f"{k}={q(v)}" for k, v in coder_run.remote_env({}).items())
+    out = _ssh(ws, f"cd {q(dest)} && env {env_vars} PYTHONPATH={q(dest)} {q(str(LIVE / '.venv/bin/python'))} "
+                   f"-m pipeline.arena_v01_release package {q(str(bundle))} --packages {q(str(PACKAGES))}",
+               timeout=3600)
+    lines = [l for l in coder_mod._clean(out.stdout.decode()).splitlines() if l.startswith("{")]
+    if not lines:
+        raise SystemExit(f"{bundle}: the workspace packaging printed no record")
+    made = json.loads(lines[-1])
+    env, version = made["env_id"], made["version"]
+    cal = made["calibration"]
+    if pull:
+        coder_run.rsync(ws, f"{bundle}/", f"{bundle}/", push=False, timeout=3600, compress=True,
+                        filters=BUNDLE_PULL_FILTERS)
+        for path in (made["package"], made["source_package"]):
+            Path(path).mkdir(parents=True, exist_ok=True)
+            coder_run.rsync(ws, f"{path}/", f"{path}/", push=False, delete=True, timeout=1800, compress=True)
+        parts = [cal["oracle"], cal["nop"], *(p for ps in cal["campaigns"].values() for p in ps)]
+        for path in parts:
+            Path(path).mkdir(parents=True, exist_ok=True)
+            coder_run.rsync(ws, f"{path}/", f"{path}/", push=False, timeout=7200, compress=True,
+                            filters=["- package/", "- jobs/run/*/artifacts/logs/"])
+    pkg, src = Path(made["package"]), Path(made["source_package"])
+    if conv_mod.task_tree_sha256(pkg) != (cal.get("package") or {}).get("task_tree_sha256"):
+        raise SystemExit(f"{env}: the pulled package is not the calibrated tree")
+    ledger = _provenance(pkg, src, cited, archive, sessions)
+    params = made["params"]
+    record = _record()
+    if env in record and not record[env].get("release"):
+        raise SystemExit(f"{env} is already a converted delivery in {RECORD}; it is not replaced by a release row")
+    record[env] = {"env_id": env, "from_version": previous[0] if previous else None, "version": version,
+                   "package": str(pkg), "source_package": str(src), "task_tree_sha256": made["task_tree_sha256"],
+                   "source_zip": None, "domain": params["domain"], "prompt_language": params["prompt_language"],
+                   "batch": batch, "archive": archive, "delivered_on": previous[1] if previous else None,
+                   "converted_at": time.time(), "workspace": ws, "code_sha": sha,
+                   "release": {"bundle": str(bundle), "record": str(bundle / "verification/shipfix-release.json"),
+                               "calibration": cal}}
+    _save(record)
+    origins: dict[str, int] = {}
+    for e in ledger["entries"]:
+        origins[e["origin"]] = origins.get(e["origin"], 0) + 1
+    print(f"{env}@{version}: released {bundle.name} on {cal['format']} (Harbor {', '.join(cal['harbor'])}); "
+          f"ledger {origins}")
+    # finish's Oracle repeats build the verifier from PACKAGES/<env> on the workspace: the packaging step above wrote it
+    return finish(env, regrade=regrade, pull=pull)
 
 
 # ------------------------------------------------------------------------------------------------ check
@@ -479,8 +609,21 @@ def main() -> int:
     f.add_argument("--skip-pull", action="store_true")
     ck = sub.add_parser("check")
     ck.add_argument("zip", type=Path)
+    rn = sub.add_parser("run", help="a pipeline.cli command from this checkout's staged code (Harbor 0.24)")
+    rn.add_argument("workspace")
+    rn.add_argument("args", nargs=argparse.REMAINDER)
+    rf = sub.add_parser("release-finish", help="the v0.1 zip of a version `shipfix --release --arena-v01` made ready")
+    rf.add_argument("bundle", type=Path)
+    rf.add_argument("workspace")
+    rf.add_argument("--archive", required=True, help="the cited export archive's supplier-free name")
+    rf.add_argument("--sessions", type=Path, required=True, help="the unpacked dump's sessions directory")
+    rf.add_argument("--batch")
+    rf.add_argument("--previous-version", help="the version this package replaces, when it was delivered before")
+    rf.add_argument("--previous-date", help="that delivery's date (YYYY-MM-DD)")
+    rf.add_argument("--skip-regrade", action="store_true")
+    rf.add_argument("--skip-pull", action="store_true")
     a = ap_.parse_args()
-    if a.cmd == "finish":
+    if a.cmd in ("finish", "release-finish"):
         _checker_interpreter()
     load_keys(prompt_if_missing=False)
     if a.cmd == "convert":
@@ -493,6 +636,14 @@ def main() -> int:
         return finish(a.env, regrade=not a.skip_regrade, pull=not a.skip_pull)
     elif a.cmd == "check":
         return 1 if check(a.zip) else 0
+    elif a.cmd == "run":
+        run(a.workspace, a.args[1:] if a.args[:1] == ["--"] else a.args)
+    elif a.cmd == "release-finish":
+        if bool(a.previous_version) != bool(a.previous_date):
+            ap_.error("--previous-version and --previous-date go together")
+        return release_finish(a.bundle, a.workspace, archive=a.archive, sessions=a.sessions, batch=a.batch,
+                              previous=(a.previous_version, a.previous_date) if a.previous_version else None,
+                              regrade=not a.skip_regrade, pull=not a.skip_pull)
     return 0
 
 

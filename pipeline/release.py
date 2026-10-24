@@ -409,11 +409,18 @@ def _evaluate(bundle: Path, replay: bool = True) -> dict:
         if index.get("artifact_sha256") != sha:
             return ["native calibration index is missing or stale"]
         problems, reports, hack_issues = [], [], []
+        from .arena_v01_release import FORMAT, target, target_problems
+        params = target(bundle)
+        evidence["calibration_format"] = {"format": FORMAT if params else "pipeline bundle", "target": params}
         for path in index.get("campaigns", []):
             # Voids leave the denominator; what blocks is too few *valid*
             # episodes, counted over the campaign and its void replacements.
             issues, measured = calibration_measurement(
                 bundle, index, path, policy.SPEC_EPISODES_PER_MODEL)
+            # The calibration of record measures what the version releases on: with an Arena v0.1 target, the
+            # derived package of exactly that target (user, 2026-10-24); never a mix.
+            for part in [path, *((index.get("topups") or {}).get(str(path)) or [])]:
+                issues = issues + target_problems(part, params)
             # Band composition no longer gates -- see policy.BANDS_GATE_RELEASE.
             # The old rule demanded 4-6 objectives at 30-70% and at most two
             # below 30%, which a genuinely hard task cannot satisfy: most of its
@@ -590,9 +597,11 @@ def _evaluate(bundle: Path, replay: bool = True) -> dict:
         if index.get("artifact_sha256") != sha:
             return ["native controls refer to another task version"]
         problems = []
+        from .arena_v01_release import target, target_problems
+        params = target(bundle)
         for role, expected in (("oracle", 1), ("nop", 0)):
             issues, measured = native_evidence(bundle, Path(index[role]), role)
-            problems.extend(f"{role}: {e}" for e in issues)
+            problems.extend(f"{role}: {e}" for e in issues + target_problems(index[role], params))
             if not measured["trials"] or any(t.get("reward") != expected for t in measured["trials"]):
                 problems.append(f"native {role} expected complete reward {expected}")
         return problems
@@ -654,9 +663,11 @@ def _calibrated(bundle: Path, models: list[str], n: int) -> bool:
         if index.get("artifact_sha256") != identity(Path(bundle)):
             return False
         reusable = set()
+        from .arena_v01_release import target, target_problems
+        params = target(Path(bundle))
         for path in index.get("campaigns", []):
             issues, measured = calibration_measurement(Path(bundle), index, path, n)
-            if not issues and measured.get("model"):
+            if not issues and measured.get("model") and not target_problems(path, params):
                 reusable.add(str(measured["model"]).casefold())
         return {resolve_model(m).casefold() for m in models} <= reusable
     except (OSError, ValueError, TypeError, KeyError):
@@ -718,6 +729,12 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
     native_root = native_root.resolve() / uuid.uuid4().hex
     snapshot = native_root / "source"
     sha = freeze(bundle, snapshot)
+    # User, 2026-10-24: "use the 0.24 calibration as release qualification". With an Arena v0.1 release target the
+    # controls and the calibration of record run on the v0.1 package derived from this frozen snapshot, and those
+    # campaigns are the package's calibration and Oracle evidence (pipeline/arena_v01_release.py).
+    from .arena_v01_release import target, target_problems, derive
+    params = target(bundle)
+    run_on = Path(derive(snapshot, native_root / "arena-v01", params)["package"]) if params else snapshot
     def retained(name):
         try:
             value = strict_json((bundle / "verification" / name).read_text())
@@ -728,7 +745,7 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
     def reusable_native(path, role, minimum=1):
         try:
             issues, measured = native_evidence(bundle, Path(path), role, minimum)
-            return measured if not issues else None
+            return measured if not issues and not target_problems(path, params) else None
         except (OSError, ValueError, TypeError, KeyError):
             return None
 
@@ -750,7 +767,7 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
         # Controls run where calibration runs, so both measure one environment.
         run_campaign, capacity = native_runner("calibration")
         with capacity.reserve(1):
-            report = run_campaign(snapshot, output, agent=role)
+            report = run_campaign(run_on, output, agent=role)
         index[role] = str(output)
         atomic_json(bundle / "verification/native-controls.json", index)
         issues, measured = native_evidence(bundle, output, role)
@@ -791,19 +808,20 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
                 issues, measured = calibration_measurement(bundle, prior_index, path, n)
             except (OSError, ValueError, TypeError, KeyError):
                 continue
-            if not issues and measured.get("model") == resolve_model(model):
+            if not issues and measured.get("model") == resolve_model(model) and not any(
+                    target_problems(p, params) for p in [path, *((prior_index.get("topups") or {}).get(str(path)) or [])]):
                 extra = (prior_index.get("topups") or {}).get(str(path), [])
                 if any("void episodes leave" in p for p in attribution.problems(bundle, measured, n)):
                     # A retained campaign short of valid episodes only because some were void:
                     # top up the voids, keeping every scored episode. Reusing it unchanged left
                     # c-014 blocked on 9/10 at every re-qualify (2026-10-08).
-                    return _calibrate_model(bundle, snapshot, native_root, model, n, workers,
+                    return _calibrate_model(bundle, run_on, native_root, model, n, workers,
                                             existing=[str(path), *extra])
                 return path, extra, not attribution.problems(bundle, measured)
         # Top-up for infrastructure loss: `_calibrate_model` keeps every scored
         # episode and runs only as many more as were void. See its docstring
         # and `policy.topup_problems` (policy.MAX_TOPUP_ATTEMPTS bounds it).
-        return _calibrate_model(bundle, snapshot, native_root, model, n, workers)
+        return _calibrate_model(bundle, run_on, native_root, model, n, workers)
 
     with ThreadPoolExecutor(max_workers=len(models)) as pool:
         futures = [pool.submit(measure, model) for model in models]

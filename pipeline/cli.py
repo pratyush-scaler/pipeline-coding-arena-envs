@@ -206,7 +206,8 @@ def cmd_shipfix(args) -> int:
     """Deterministic ship fixes on a new version, then acceptance (pipeline/shipfix.py)."""
     load_keys(prompt_if_missing=False)
     if args.release:
-        return _run("pipeline.shipfix", args.version, "--release")
+        return _run("pipeline.shipfix", args.version, "--release",
+                    *(["--arena-v01", args.arena_v01] if args.arena_v01 else []))
     return _run("pipeline.shipfix", args.version, *(["--edits", args.edits] if args.edits else []),
                 *(["--finish"] if args.finish else []), *(["--no-screen"] if args.no_screen else []))
 
@@ -722,6 +723,9 @@ def build_parser():
     sf.add_argument("--release", action="store_true",
                     help="on a final version: revalidate stale controls, qualify 10 x 2, certify the "
                          "calibration campaigns, sweep")
+    sf.add_argument("--arena-v01", metavar="JSON",
+                    help="with --release: qualify on the Arena v0.1 package derived from this version "
+                         "(pipeline.shipfix --arena-v01)")
     sf.set_defaults(fn=cmd_shipfix)
 
     ro = sub.add_parser("reopen", help="grant each review-blocked build ONE more repair pass with its review "
