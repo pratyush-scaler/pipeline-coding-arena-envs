@@ -674,6 +674,10 @@ def _calibrated(bundle: Path, models: list[str], n: int) -> bool:
         return False
 
 
+#: Screen problems that only say the screen was measured by another native runner (evidence.native_evidence).
+RUNNER_TRANSITION = ("native runner changed", "native runtime versions differ")
+
+
 def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: str,
             native_root: Path, n: int = 10, workers: int = 2) -> dict:
     """Bounded production campaign. Stop spending as soon as a stage rejects it."""
@@ -708,7 +712,14 @@ def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: st
     # blind solve still run when their retained receipts are missing or stale.
     if not _calibrated(bundle, models, n):
         from .screen import shippable_problems
-        if refused := shippable_problems(bundle, models):
+        refused = shippable_problems(bundle, models)
+        from .arena_v01_release import target as _v01_target
+        if refused and _v01_target(bundle):
+            # Arena v0.1 release (user, 2026-10-24): the calibration of record below is measured fresh on this runner
+            # and every gate reads it, so a clean screen measured by the previous runner (Harbor 0.22) still opens
+            # the gate. Only the runner transition is forgiven; any other screen problem still refuses.
+            refused = [p for p in refused if not str(p).split(": ", 1)[-1].startswith(RUNNER_TRANSITION)]
+        if refused:
             raise ValueError("the task has no clean screen of this version, so the "
                              f"{policy.SPEC_EPISODES_PER_MODEL}-episode calibration of record "
                              "will not start: " + "; ".join(refused[:6]))

@@ -233,7 +233,10 @@ def _start(ws: str, dest: Path, sha: str, args: list[str]) -> str:
                "argv": [str(LIVE / ".venv/bin/python"), "-m", "pipeline.cli", *args],
                # a batch with its own artifacts root (pipeline-artifacts-bash100) keeps it on the workspace
                "env": coder_run.remote_env({"ARENA_PIPELINE_ARTIFACTS": os.environ.get(
-                   "ARENA_PIPELINE_ARTIFACTS", str(LIVE / "pipeline-artifacts"))}),
+                   "ARENA_PIPELINE_ARTIFACTS", str(LIVE / "pipeline-artifacts")),
+                   # every episode of a 10 x 2 calibration at once (capacity.NATIVE_CAPACITY defaults to 16)
+                   **({"ARENA_NATIVE_CONCURRENCY": os.environ["ARENA_NATIVE_CONCURRENCY"]}
+                      if os.environ.get("ARENA_NATIVE_CONCURRENCY") else {})}),
                "keys": coder_run.keys_values(LIVE / "keys.env"), "code_sha": sha, "keys_dir": KEYS_DIR}
     _ssh(ws, f"mkdir -p -m 700 {q(KEYS_DIR)}", timeout=120)
     coder_mod.ssh(ws, coder_mod._with_docker(f"python3 -c {q(coder_run.LAUNCHER)}"),
