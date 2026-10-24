@@ -61,6 +61,17 @@ OUTLOOKS = ("meets-target", "strong-candidate", "weak-candidate",
 # Receipts
 # ---------------------------------------------------------------------------
 
+def _runner_changed(campaign: Path) -> bool:
+    """The campaign's report names a native runner other than this checkout's (evidence.native_evidence's test)."""
+    import hashlib
+    try:
+        recorded = json.loads((campaign / "report.json").read_text()).get("runner_sha256")
+    except (OSError, ValueError):
+        return False  # missing evidence is native_evidence's finding, recorded with the campaign
+    runner = Path(__file__).parent / "benchmark/harbor.py"
+    return recorded != hashlib.sha256(runner.read_bytes()).hexdigest()
+
+
 def current(bundle: Path) -> dict | None:
     """The screen receipt bound to this exact task version, or None."""
     from .artifacts import identity
@@ -194,6 +205,10 @@ def run(bundle: Path, *, native_root: Path, models: list[str] | None = None,
                 # altered files) is replaced -- its scores cannot be trusted.
                 integrity = [p for p in row.get("evidence_problems") or []
                              if not str(p).split(": ", 1)[-1].startswith("need >= ")]
+                # The recorded problems were found by the runner of that time: a campaign measured by another
+                # runner (Harbor 0.22 -> 0.24, 2026-10-24) is replaced, as qualification would refuse it.
+                if row.get("campaign") and _runner_changed(Path(row["campaign"])):
+                    integrity.append("native runner changed; remeasure with the current protocol")
                 if (not integrity and row.get("campaign")
                         and model in {resolve_model(m) for m in models}):
                     extra = list((prior.get("index") or {}).get("topups", {}).get(row["campaign"]) or [])

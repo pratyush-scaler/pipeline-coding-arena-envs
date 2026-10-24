@@ -231,7 +231,9 @@ def _start(ws: str, dest: Path, sha: str, args: list[str]) -> str:
     rid = coder_run.run_id()
     request = {"root": str(dest), "run_dir": str(LIVE / coder_run.RUNS / rid),
                "argv": [str(LIVE / ".venv/bin/python"), "-m", "pipeline.cli", *args],
-               "env": coder_run.remote_env({"ARENA_PIPELINE_ARTIFACTS": str(LIVE / "pipeline-artifacts")}),
+               # a batch with its own artifacts root (pipeline-artifacts-bash100) keeps it on the workspace
+               "env": coder_run.remote_env({"ARENA_PIPELINE_ARTIFACTS": os.environ.get(
+                   "ARENA_PIPELINE_ARTIFACTS", str(LIVE / "pipeline-artifacts"))}),
                "keys": coder_run.keys_values(LIVE / "keys.env"), "code_sha": sha, "keys_dir": KEYS_DIR}
     _ssh(ws, f"mkdir -p -m 700 {q(KEYS_DIR)}", timeout=120)
     coder_mod.ssh(ws, coder_mod._with_docker(f"python3 -c {q(coder_run.LAUNCHER)}"),
