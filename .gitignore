@@ -93,3 +93,9 @@ logs/
 ship-zips/
 .staged/
 pipeline-artifacts-oct13/
+
+# Arena v0.1 delivery (orchestration/arena_v01_ship.py): packages, zips, cited archives, pinned checker
+/arena-v01-packages/
+/arena-v01-zips/
+/arena-v01-archives/
+/.arena-formatcheck/

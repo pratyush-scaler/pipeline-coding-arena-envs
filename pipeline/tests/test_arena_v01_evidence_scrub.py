@@ -48,6 +48,7 @@ def test_every_at_in_a_url_authority_is_escaped():
 
 
 def test_log_addresses_outside_task_content_are_redacted(tmp_path):
+    pytest.importorskip("arena_rle_formatcheck")  # Arena's checker supplies the patterns (orchestration/arena_v01_ship.py)
     (tmp_path / "environment").mkdir()
     (tmp_path / "environment/users.csv").write_text("ana@fixture-shop.com\n")
     log = tmp_path / "calibration/trials/m/r/steps/s/agent/trajectory.json"

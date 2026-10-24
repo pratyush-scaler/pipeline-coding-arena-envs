@@ -1,0 +1,15 @@
+{
+ "_comment": "Supplier-approved format-check waivers (user, 2026-10-24): env-id -> {check id: the note the README states}. Only a human adds an entry.",
+ "a_f2_3d-scene-pipeline": {
+  "Q25": "Arena's leak scan (Q25) reports placeholder home-directory paths (`/home/` followed by `me` or `you`) that GPT 6 Astra wrote into its own workspace files during calibration (example invocations in README files it added). They name no machine or person and come from no supplier system; the captured bytes are delivered exactly as run, so they are not edited, and no run was dropped or repeated. Delivered under a waiver approved by the supplier on 2026-10-24."
+ },
+ "a_f2_node-image-qc-tool": {
+  "Q25": "Arena's leak scan (Q25) reports placeholder home-directory paths (`/home/` followed by `me`) that Claude Fable 5.1 (one run) wrote into its own workspace files during calibration (a fixture path in a unit test it added). They name no machine or person and come from no supplier system; the captured bytes are delivered exactly as run, so they are not edited, and no run was dropped or repeated. Delivered under a waiver approved by the supplier on 2026-10-24."
+ },
+ "a_f2_python-ml-pipeline": {
+  "Q37": "Arena's supplier-identity scan (Q37) matches the word `scaler` here because the task's own code uses scikit-learn's `StandardScaler`, which recurs in the rubric, traps and captured run files. It is the standard name of a feature-scaling algorithm, not anyone's identity; the code is the session user's and is not renamed. Delivered under a waiver approved by the supplier on 2026-10-24."
+ },
+ "a_f2_python-exercise-scripts": {
+  "Q37": "Arena's supplier-identity scan (Q37) matches the word `scaler` here because the task's own code uses a `MinMaxScaler` class the exercise asks for, which recurs in the rubric, traps and captured run files. It is the standard name of a feature-scaling algorithm, not anyone's identity; the code is the session user's and is not renamed. Delivered under a waiver approved by the supplier on 2026-10-24."
+ }
+}

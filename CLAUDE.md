@@ -124,6 +124,15 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   semantic review) as repair feedback. Fixes: `arena shipfix` (deterministic
   edits, no model, no redesign) or a hidden-only `harden --fast` round;
   waivers are human only (`verification/shipcheck-waivers.json`).
+- **Arena v0.1 is the delivery format; Arena's own checker is the gate** (user,
+  2026-10-24). A released package is converted, recalibrated on Harbor 0.24.0
+  (10+10, Oracle, nop; evidence is rerun, never relabelled) and zipped by
+  `orchestration/arena_v01_ship.py convert|launch|status|finish`; `finish`
+  runs lmarena/arena-rle-formatcheck-external at its pinned commit and a zip
+  ships only with no FAIL, every hack flag reviewed and none uninspectable.
+  Provenance cites the export archive by its supplier-free name (Q37), a hard
+  link in `arena-v01-archives/`. Waivers are human only
+  (`orchestration/arena_v01_waivers.json`) and the README states each one.
 - **Hidden suites must enforce every published clause** (Arena C-006, C-013,
   C-024; the critic found executed 1.0 counter-implementations in all 31
   shipped tasks). `arena critic` (pipeline/coverage_critic.py) has a model
