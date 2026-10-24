@@ -81,9 +81,14 @@ def flags(version: Path) -> list[dict]:
     return out
 
 
+#: Every artifacts root a batch may screen or qualify under: the default and any ARENA_PIPELINE_ARTIFACTS sibling
+#: (pipeline-artifacts-bash100: every flag there was "not retained" until 2026-10-24, so each needed a hand ruling).
+_NATIVE_ROOTS = "pipeline-artifacts*/native"
+
+
 def _root(version: Path) -> Path | None:
     for parent in [Path(version).resolve(), *Path(version).resolve().parents]:
-        if (parent / "pipeline-artifacts/native").is_dir():
+        if any(p.is_dir() for p in parent.glob(_NATIVE_ROOTS)):
             return parent
     return None
 
@@ -92,7 +97,7 @@ def step_dir(version: Path, hit: dict) -> Path | None:
     root = _root(version)
     if root is None:
         return None
-    for trial in sorted(root.glob(f"pipeline-artifacts/native/*/*/jobs/run/{hit['trial']}")):
+    for trial in sorted(root.glob(f"{_NATIVE_ROOTS}/*/*/jobs/run/{hit['trial']}")):
         folder = trial / "steps" / str(hit.get("step") or "")
         if folder.is_dir():
             return folder
