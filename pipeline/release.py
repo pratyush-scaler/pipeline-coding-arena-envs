@@ -677,7 +677,9 @@ def _calibrated(bundle: Path, models: list[str], n: int) -> bool:
 
 
 #: Screen problems that only say the screen was measured by another native runner (evidence.native_evidence).
-RUNNER_TRANSITION = ("native runner changed", "native runtime versions differ")
+RUNNER_TRANSITION = ("native runner changed", "native runtime versions differ",
+                     "native isolation/history controller changed",
+                     "native harness or its pinned version differs")
 
 
 def _qualify(bundle: Path, models: list[str], review_model: str, blind_model: str,
