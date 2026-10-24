@@ -444,6 +444,14 @@ def step_rates(audit: dict) -> dict[str, dict[str, float]]:
     return {m: {n: round(a / b, 3) for n, (a, b) in steps.items() if b} for m, steps in seen.items()}
 
 
+def hacks_only_block(qualified: dict) -> bool:
+    """The qualify step stopped, and every error it gave is an unresolved reward-hacking flag."""
+    result = qualified.get("result") or {}
+    errors = [str(e) for e in result.get("errors") or []]
+    return (bool(qualified.get("ok")) and not result.get("release_ready") and bool(errors)
+            and all("reward hacking unresolved" in e for e in errors))
+
+
 def release(version: Path, arena_v01: dict | None = None) -> dict:
     """After a clean, proven-hard final version: the calibration of record and what shipping it
     needs (user, 2026-10-07: "run 10 attempts per model per task once a task is finalised and task
@@ -548,9 +556,22 @@ def release(version: Path, arena_v01: dict | None = None) -> dict:
         return record
     primary, secondary = policy.resolve_calibration_models()
     reviewer = review_model(version)
-    qualified = step("qualify", lambda: {k: v for k, v in release_mod.qualify(
-        version, [primary, secondary], reviewer, secondary, Path(__file__).resolve().parents[1] / "pipeline-artifacts/native",
-        n=policy.SPEC_EPISODES_PER_MODEL, workers=policy.SPEC_EPISODES_PER_MODEL).items() if k in ("status", "release_ready", "errors")})
+    def qualify():
+        return {k: v for k, v in release_mod.qualify(
+            version, [primary, secondary], reviewer, secondary,
+            Path(__file__).resolve().parents[1] / "pipeline-artifacts/native",
+            n=policy.SPEC_EPISODES_PER_MODEL, workers=policy.SPEC_EPISODES_PER_MODEL).items()
+            if k in ("status", "release_ready", "errors")}
+
+    qualified = step("qualify", qualify)
+    # Flags the calibration raised are triaged in this run (user, 2026-10-24: a benign ruling cost a whole release
+    # re-run each time): when every one is decided benign, qualify is asked again on the same calibration.
+    if hacks_only_block(qualified):
+        from . import hack_triage
+        triaged = step("hack_triage", lambda: hack_triage.triage(version))
+        if (triaged.get("ok") and (triaged.get("result") or {}).get("new")
+                and not (triaged.get("result") or {}).get("open")):
+            qualified = step("qualify_after_triage", qualify)
     if not (qualified.get("ok") and (qualified.get("result") or {}).get("release_ready")):
         record["ready"] = False
         path.write_text(json.dumps(record, indent=1, default=str))

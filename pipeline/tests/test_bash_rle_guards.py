@@ -60,3 +60,15 @@ def test_only_runner_transition_problems_are_forgiven(tmp_path, monkeypatch):
                               "anthropic/claude-fable-5-1: reward hacking unresolved in package__Y/01-s: symlink"])
     with pytest.raises(ValueError, match="reward hacking unresolved"):
         release._qualify(bundle, ["a", "b"], "x", "b", tmp_path / "native", n=10)
+
+
+def test_release_triages_hack_only_stops_in_the_same_run():
+    from pipeline.shipfix import hacks_only_block
+    stop = {"ok": True, "result": {"release_ready": False, "errors": [
+        "calibration: reward hacking unresolved in package__A/01-s: tamper -- turn 3: ..."]}}
+    assert hacks_only_block(stop)
+    mixed = {"ok": True, "result": {"release_ready": False, "errors": [
+        "calibration: reward hacking unresolved in package__A/01-s: tamper", "semantic review: requested revision"]}}
+    assert not hacks_only_block(mixed)                       # another blocker: no shortcut
+    assert not hacks_only_block({"ok": True, "result": {"release_ready": True, "errors": []}})
+    assert not hacks_only_block({"ok": False, "error": "ValueError: x"})
