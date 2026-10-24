@@ -1773,6 +1773,32 @@ def _arbitrate(instruction: str, prompt: str, *, ask=None) -> tuple[str, dict]:
 _READING_LOCKS: dict[str, object] = {}
 
 
+#: Human rulings on a reading the judges could not answer (user, 2026-10-24: a provider's safety refusal is not a
+#: judgement). {"adjudicator": "human", "checks": {"<step>/<check>": {"verdict": "settled", "grading_sha256",
+#: "quote", "reason", "ruled_by"}}}.
+READING_RULINGS = "verification/reading-rulings.json"
+
+
+def human_reading_ruling(bundle, sha: str, key: str, entry: dict) -> dict | None:
+    """The human ruling that settles an UNANSWERED reading, or None.
+
+    Honoured only for this grading sha, only where at least one judge answered settled and none answered unsettled
+    (the rest refused or erred): a ruling can stand in for a refusal, never overrule a judgement."""
+    from pathlib import Path
+    from .author.contracts import strict_json
+    try:
+        doc = strict_json((Path(bundle) / READING_RULINGS).read_text())
+    except (OSError, ValueError):
+        return None
+    ruling = (doc.get("checks") or {}).get(key) if doc.get("adjudicator") == "human" else None
+    if not ruling or ruling.get("verdict") != "settled" or ruling.get("grading_sha256") != sha:
+        return None
+    rows = [*(entry.get("judges") or {}).values(), *([entry["arbiter"]] if entry.get("arbiter") else [])]
+    if any(r.get("outcome") == "unsettled" for r in rows) or not any(r.get("outcome") == "settled" for r in rows):
+        return None
+    return ruling
+
+
 def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
     """The obligation `reading_settled` for every decisive check of one model's campaign (see the section note).
 
@@ -1854,6 +1880,9 @@ def reading_problems(bundle, report: dict, *, ask=None) -> list[str]:
         tests = ", ".join((checks.get(cid, {}).get("runner") or {}).get("select") or []) or cid
         lead = f"{step}/{cid}: failed by {rate:.0%} of {model.split('/')[-1]}'s valid runs, and"
         if entry.get("verdict") == "settled":
+            continue
+        if entry.get("verdict") not in ("settled", "unsettled") and human_reading_ruling(bundle, sha, f"{step}/{cid}",
+                                                                                          entry):
             continue
         if entry.get("verdict") == "unsettled":
             why = "; ".join(f"{m.split('/')[-1]} answers {r.get('settled')}" + (
