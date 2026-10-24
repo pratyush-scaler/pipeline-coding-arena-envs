@@ -235,7 +235,7 @@ def _start(ws: str, dest: Path, sha: str, args: list[str]) -> str:
                "env": coder_run.remote_env({"ARENA_PIPELINE_ARTIFACTS": os.environ.get(
                    "ARENA_PIPELINE_ARTIFACTS", str(LIVE / "pipeline-artifacts")),
                    # every episode of a 10 x 2 calibration at once (capacity.NATIVE_CAPACITY defaults to 16)
-                   **{k: os.environ[k] for k in ("ARENA_NATIVE_CONCURRENCY", "ARENA_V01_RELEASE_WITHOUT_SCREEN")
+                   **{k: os.environ[k] for k in ("ARENA_NATIVE_CONCURRENCY", "ARENA_V01_RELEASE_WITHOUT_SCREEN", "ARENA_REVIEW_MODEL")
                       if os.environ.get(k)}}),
                "keys": coder_run.keys_values(LIVE / "keys.env"), "code_sha": sha, "keys_dir": KEYS_DIR}
     _ssh(ws, f"mkdir -p -m 700 {q(KEYS_DIR)}", timeout=120)
