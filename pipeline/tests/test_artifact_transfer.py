@@ -60,6 +60,39 @@ class ArtifactTransferTests(unittest.TestCase):
                     extract_artifact_archive(archive, root / "out")
                 self.assertEqual(list((root / "out").iterdir()), [])
 
+    def test_dependency_links_are_left_out_and_the_rest_is_collected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self.archive(root, [
+                (".", tarfile.DIRTYPE, 0o755, b""),
+                ("./server.js", tarfile.REGTYPE, 0o644, b"require('http')\n"),
+                ("./node_modules", tarfile.SYMTYPE, 0o777, b"/opt/deps/node_modules"),
+            ])
+            target = root / "out"
+            extract_artifact_archive(archive, target)
+            self.assertEqual((target / "server.js").read_bytes(), b"require('http')\n")
+            self.assertFalse((target / "node_modules").exists() or (target / "node_modules").is_symlink())
+
+    def test_only_links_into_the_dependency_root_are_left_out(self):
+        for link in (b"/opt/deps", b"/opt/depsx/node_modules", b"/opt/deps/../etc", b"opt/deps/node_modules",
+                     b"/etc/passwd"):
+            with self.subTest(link=link), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                archive = self.archive(root, [("good.txt", tarfile.REGTYPE, 0o444, b"good"),
+                                              ("node_modules", tarfile.SYMTYPE, 0o777, link)])
+                with self.assertRaises(ValueError):
+                    extract_artifact_archive(archive, root / "out")
+                self.assertEqual(list((root / "out").iterdir()), [])
+
+    def test_nothing_is_written_through_a_dependency_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = self.archive(root, [("node_modules", tarfile.SYMTYPE, 0o777, b"/opt/deps/node_modules"),
+                                          ("node_modules/x.js", tarfile.REGTYPE, 0o644, b"bad")])
+            with self.assertRaises(ValueError):
+                extract_artifact_archive(archive, root / "out")
+            self.assertEqual(list((root / "out").iterdir()), [])
+
     def test_duplicate_names_do_not_replace_artifact_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

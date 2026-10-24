@@ -33,26 +33,50 @@ OVERLAY = """services:
 """
 
 
+DEPS_ROOT = PurePosixPath("/opt/deps")
+
+
+def vendored_link(member: tarfile.TarInfo) -> bool:
+    """The image build's link from the repo to a re-installed dependency tree (node_modules -> /opt/deps/...).
+
+    It is image content, not agent output: the transfer leaves it out and grade.py's restore_tree re-links it in
+    the verifier. Refusing it failed the whole /app/repo artifact (c-001's Oracle scored 0.0 on Harbor 0.24,
+    2026-10-25), and Arena's packages may not hold symlinks (M11).
+    """
+    target = PurePosixPath(member.linkname)
+    return member.issym() and target.is_absolute() and ".." not in target.parts and DEPS_ROOT in target.parents
+
+
 def extract_artifact_archive(archive: Path, destination: Path) -> None:
     """Copy artifact bytes without applying guest read-only modes on the host.
 
     Docker Desktop's cp extractor applies 0555 directory permissions before
     writing their children. A non-root host then receives an incomplete tree.
     Only the controller's temporary copy is writable; guest fixtures stay
-    protected. Refuse links and traversal before writing any archive member.
+    protected. Refuse links and traversal before writing any archive member;
+    a link into the dependency root is left out, never written or followed.
     """
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:") as stream:
         members = stream.getmembers()
-        paths = set()
+        paths, vendored = set(), set()
         for member in members:
             path = PurePosixPath(member.name)
-            if path.is_absolute() or ".." in path.parts or not (member.isdir() or member.isfile()):
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("Artifact archive contains an unsafe entry")
+            if vendored_link(member):
+                vendored.add(path)
+                continue
+            if not (member.isdir() or member.isfile()):
                 raise ValueError("Artifact archive contains an unsafe entry")
             if path in paths or (not path.parts and not member.isdir()):
                 raise ValueError("Artifact archive contains a duplicate or invalid entry")
             paths.add(path)
+        if any(link in path.parents for path in paths for link in vendored):
+            raise ValueError("Artifact archive contains an entry under a dependency link")
         for member in members:
+            if PurePosixPath(member.name) in vendored:
+                continue
             path = destination.joinpath(*PurePosixPath(member.name).parts)
             if member.isdir():
                 path.mkdir(parents=True, exist_ok=True)
