@@ -365,7 +365,7 @@ def finish(version: Path, *, screen: bool = True) -> dict:
 
     critic_thread = threading.Thread(target=step, args=("critic", critic_step))
 
-    step("controls", lambda: {"ok": controls.run(version, workers=3).get("ok")})
+    step("controls", lambda: {"ok": controls.run(version, workers=_control_workers()).get("ok")})
     if screener is not None:
         screener.start()
     critic_thread.start()
@@ -444,6 +444,15 @@ def step_rates(audit: dict) -> dict[str, dict[str, float]]:
     return {m: {n: round(a / b, 3) for n, (a, b) in steps.items() if b} for m, steps in seen.items()}
 
 
+def _control_workers() -> int:
+    """Control trials run at once: ARENA_CONTROL_WORKERS, default 3 (a 32-CPU workspace takes 12; user, 2026-10-25)."""
+    import os
+    try:
+        return max(1, int(os.environ.get("ARENA_CONTROL_WORKERS", "3")))
+    except ValueError:
+        return 3
+
+
 def hacks_only_block(qualified: dict) -> bool:
     """The qualify step stopped, and every error it gave is an unresolved reward-hacking flag."""
     result = qualified.get("result") or {}
@@ -500,7 +509,7 @@ def release(version: Path, arena_v01: dict | None = None) -> dict:
         stale = {"controls": controls.problems(version), "probes": probes.problems(version)}
         out = {"stale": {k: v[:3] for k, v in stale.items() if v}}
         if stale["controls"]:
-            out["controls"] = bool(controls.run(version, workers=3).get("ok"))
+            out["controls"] = bool(controls.run(version, workers=_control_workers()).get("ok"))
         if stale["probes"] or stale["controls"]:
             out["probes"] = bool(probes.run(version).get("ok"))
         # qualify requires a harbor tasks-check receipt for this exact version. A version a harden
