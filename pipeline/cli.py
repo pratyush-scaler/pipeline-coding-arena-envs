@@ -154,6 +154,14 @@ def cmd_select(args) -> int:
     return 0
 
 
+def cmd_bash_rle_wave(args) -> int:
+    """The bash RLE wave: surviving seeds richest in failed shell calls, stamped for the track."""
+    extra = ["-c", args.classified, "-o", args.out, "--min-failed", str(args.min_failed)]
+    if args.count is not None:
+        extra += ["-n", str(args.count)]
+    return _run("pipeline.select.bash_rle", *extra)
+
+
 def cmd_build(args) -> int:
     """Phases 1-4: author the batch, grade it, screen it on both models, stop."""
     load_keys()
@@ -653,6 +661,14 @@ def build_parser():
                    help="stop classifying once this many seeds survive")
     s.add_argument("-j", "--workers", type=int, default=8)
     s.set_defaults(fn=cmd_select)
+
+    bw = sub.add_parser("bash-rle-wave", help="write a bash RLE wave: the classified seeds whose spans hold the "
+                        "most failed shell calls, stamped track=bash_rle for `build -c`")
+    bw.add_argument("-c", "--classified", default=str(_config.ARTIFACTS / "classified.json"))
+    bw.add_argument("-o", "--out", default=str(_config.ARTIFACTS / "bash-rle-wave.json"))
+    bw.add_argument("-n", "--count", type=int, default=None)
+    bw.add_argument("--min-failed", type=int, default=policy.BASH_RLE_MIN_FAILED_SHELL_CALLS)
+    bw.set_defaults(fn=cmd_bash_rle_wave)
 
     b = sub.add_parser("build", help="author and grade a batch, then screen it on both "
                                      "calibration models and stop")

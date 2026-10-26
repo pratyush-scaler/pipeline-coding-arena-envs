@@ -1220,7 +1220,8 @@ def main(argv: list[str] | None = None) -> int:
     # second seed in the same session (a later requirement to revise a
     # premise with). A PRIOR, not a measurement: the first real task cleared
     # every floor from one usable correction and screened at pass@1 1.00.
-    rows.sort(key=lambda r: (r.get("tier", 4), -hardness_prior(r), -r.get("dispute", 0)))
+    # A bash RLE wave (pipeline/select/bash_rle.py) orders by its seeds' shell failures first; 0 elsewhere.
+    rows.sort(key=lambda r: (r.get("tier", 4), -r.get("track_priority", 0), -hardness_prior(r), -r.get("dispute", 0)))
     # Rank is 1-based over the sorted survivors and is the only stable handle a
     # human has on a seed. Taking a prefix is fine for a first batch, but it
     # cannot express "build the ones we skipped" -- which is how rank 4 went

@@ -56,6 +56,7 @@ from .outcomes import AuthoringStalled, SeedRejected
 from .quality import MIN_PITFALLS_CONSIDERED, QUALITY_PROMPT
 from .difficulty import EXTREME_PROMPT, profile as difficulty_profile
 from . import levers as levers_mod
+from . import bash_rle
 from .transport import MODEL, _call
 from .native_submission import call_with_retained_submit
 from .validate import MAX_GATED_WEIGHT_SHARE, MAX_SINGLE_WEIGHT_SHARE
@@ -136,6 +137,9 @@ def _designer_call(body: dict) -> dict:
 RETIRED_TOOLS = ("review_design", "evaluate", "run_parser")
 TRACE_MESSAGE_CHARS = 6000
 TOOL_IO_CHARS = 900
+#: read_trace renders each tool call's input and output up to this many characters (user, 2026-10-26: the designer
+#: gets the maximum context on the trace's failures; 900 hid most stderr and every long command).
+TRACE_TOOL_IO_CHARS = 6000
 REJECTING_FEEDBACK = ("edit", "disapprove", "escape")
 MAX_FIXTURE_WRITE = 512 * 1024
 
@@ -758,11 +762,19 @@ def _tools(n_msgs: int) -> list[dict]:
          "trap provenance, and every response the user EDITED, DISAPPROVED or ESCAPED with what the user said next.",
          "input_schema": obj},
         {"name": "read_trace", "description": f"Read the session transcript (0..{n_msgs - 1}), up to 3 messages per "
-         "call, with per-turn feedback, undo/error markers and every tool call's input and output (clipped inline).",
+         "call, with per-turn feedback, undo/error markers and every tool call's input and output (up to "
+         f"{TRACE_TOOL_IO_CHARS} characters each).",
          "input_schema": {"type": "object", "properties": {"start": {"type": "integer"}, "end": {"type": "integer"},
                                                            "char_offset": {"type": "integer"}}, "required": ["start", "end"]}},
         {"name": "read_signals", "description": "Arena's outcome signals mapped to message indices, feedback counts, "
          "session stats and the task split. Discovery aids, never the reward.", "input_schema": obj},
+        {"name": "read_failures", "description": "Every failed tool call of the session, in order: the full command, "
+         "exit code, failure class, stderr and stdout tails, Arena's bash_reliability verdict, repeats of the same "
+         "command, what the agent ran next and what the user said next. Filter by failure_class or in_span_only; "
+         "page with offset.",
+         "input_schema": {"type": "object", "properties": {"offset": {"type": "integer"}, "limit": {"type": "integer"},
+                                                           "failure_class": {"type": "string"},
+                                                           "in_span_only": {"type": "boolean"}}, "required": []}},
         {"name": "snapshot_boundaries", "description": "Every message boundary at which the working tree changed: "
          "{msg_index, role, files, bytes}. Use it to pick the turn the fixture is lifted from.", "input_schema": obj},
         {"name": "workspace_at", "description": "The working tree at a message boundary: paths, bytes, whether text.",
@@ -908,7 +920,7 @@ def _clip(text: str, limit: int = TOOL_IO_CHARS) -> str:
     return text if len(text) <= limit else text[:limit] + f" ...[{len(text) - limit} more chars]"
 
 
-def _render_message(msg: dict, limit: int | None = TRACE_MESSAGE_CHARS) -> str:
+def _render_message(msg: dict, limit: int | None = TRACE_MESSAGE_CHARS, tool_chars: int = TOOL_IO_CHARS) -> str:
     parts = []
     feedback = msg.get("feedback")
     if isinstance(feedback, dict) and feedback:
@@ -930,7 +942,8 @@ def _render_message(msg: dict, limit: int | None = TRACE_MESSAGE_CHARS) -> str:
             parts.append(str(block.get("text") or ""))
         elif kind.startswith("tool-"):
             parts.append(f"[tool {kind[5:]} ({block.get('state') or 'no state'}) input: "
-                         f"{_clip(_compact(block.get('input')))} | output: {_clip(_compact(block.get('output')))}]")
+                         f"{_clip(_compact(block.get('input')), tool_chars)} | output: "
+                         f"{_clip(_compact(block.get('output')), tool_chars)}]")
         elif kind in ("file", "image"):
             parts.append(f"[{kind} {block.get('filename') or block.get('mediaType') or ''}]")
     text = redact_excerpt(" ".join(p for p in parts if p))
@@ -1181,13 +1194,35 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             "note": "Arena's per-turn signals and check-in verdicts are discovery material for traps: "
                     "never use it as the reward, a check or a claim about difficulty."}, ensure_ascii=False)))
 
+    failure_digest = None
+
+    def trace_failures() -> dict:
+        nonlocal failure_digest
+        if failure_digest is None:
+            failure_digest = failures_digest(trace, session_id, root, extraction.span)
+        return failure_digest
+
+    def read_failures(offset: int = 0, limit: int = 10, failure_class: str | None = None,
+                      in_span_only: bool = False, **_):
+        result = trace_failures()
+        rows = [r for r in result["failures"] if (not failure_class or r["class"] == failure_class)
+                and (r["in_span"] or not in_span_only)]
+        lo, n = max(0, int(offset)), max(1, min(int(limit), 25))
+        return json.loads(redact_excerpt(json.dumps({
+            "summary": result["summary"], "span": result["span"], "total": len(rows),
+            "failures": rows[lo:lo + n], "next_offset": lo + n if lo + n < len(rows) else None,
+            "note": "Every failed tool call of the session in trace order: the full command, stderr and stdout "
+                    "tails, Arena's bash_reliability verdict where it maps to this call, how many times the same "
+                    "command had failed, what the agent ran next and what the user said next. Trap material and "
+                    "setup material, never the reward."}, ensure_ascii=False)))
+
     def read_trace(start: int, end: int, char_offset: int = 0, **_):
         lo = max(int(start), 0)
         hi = min(int(end), len(messages), lo + 3)
         offset = max(0, int(char_offset))
 
         def entry(i):
-            text = _render_message(messages[i], limit=None)
+            text = _render_message(messages[i], limit=None, tool_chars=TRACE_TOOL_IO_CHARS)
             stop = min(len(text), offset + 14000)
             return {"i": i, "role": messages[i].get("role"), "text": text[offset:stop],
                     "next_char_offset": stop if stop < len(text) else None}
@@ -1967,6 +2002,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             "read_evidence": lambda **kw: evidence().read(**kw),
             "view_evidence_image": lambda **kw: evidence().image(**kw),
             "list_corrections": list_corrections, "read_trace": read_trace, "read_signals": read_signals,
+            "read_failures": read_failures,
             "snapshot_boundaries": snapshot_boundaries, "workspace_at": workspace_at,
             "read_workspace_file": read_workspace_file, "diff_workspace": diff_workspace,
             "materialize_fixture": materialize_fixture,
@@ -1992,6 +2028,30 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
 # Opening message
 # ---------------------------------------------------------------------------
 
+def _session_outcomes(session_id: str, root=None) -> dict | None:
+    from ..dump import signals as sig
+    try:
+        return sig.load_outcomes(session_id, root)
+    except (OSError, ValueError):
+        return None
+
+
+def failures_digest(trace: dict, session_id: str, root=None, span=None) -> dict:
+    """pipeline/dump/failures.digest over this session, with Arena's outcomes when the dump has them."""
+    from ..dump import failures as failures_mod
+    return failures_mod.digest(trace, _session_outcomes(session_id, root), span)
+
+
+def _failure_lines(trace: dict | None, extraction) -> list[str]:
+    """The session's signals, check-ins and failed tool calls, pushed into the opening (user, 2026-10-26)."""
+    if not trace or not trace.get("messages"):
+        return []
+    from ..dump import failures as failures_mod
+    outcomes = _session_outcomes(extraction.session_id, getattr(extraction, "source_root", None))
+    result = failures_mod.digest(trace, outcomes, getattr(extraction, "span", None))
+    return ["", *failures_mod.session_lines(trace, outcomes), *failures_mod.brief(result)]
+
+
 def _operator_brief_lines(row: dict) -> list[str]:
     """What an operator recorded after reading this trace before the build
     (frozen wave row: `operator_brief`, and for a multi-turn task
@@ -2013,7 +2073,7 @@ def _operator_brief_lines(row: dict) -> list[str]:
     return lines
 
 
-def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> str:
+def _opening(row: dict, extraction, bundle: Path, level: str | None = None, trace: dict | None = None) -> str:
     from .. import learning_signal as _learning_signal
     repo = bundle / "environment" / "repo"
     files = [p for p in repo.rglob("*") if p.is_file()] if repo.is_dir() else []
@@ -2039,6 +2099,7 @@ def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> s
         f"REPRODUCTION the classifier described: {cls.get('reproduction')}",
         "DEFECT PAIRS the classifier found (before_msg -> after_msg): " + json.dumps(cls.get("defect_pairs") or [], ensure_ascii=False),
         "CHECKABLE RULES the classifier extracted: " + json.dumps(cls.get("checkable_rules") or [], ensure_ascii=False)[:3000],
+        *_failure_lines(trace, extraction),
         "",
         f"The fixture (environment/repo) currently holds {len(files)} files, {sum(p.stat().st_size for p in files):,} bytes, "
         f"languages {json.dumps(langs)}, lifted at message boundary "
@@ -2096,7 +2157,8 @@ def _opening(row: dict, extraction, bundle: Path, level: str | None = None) -> s
         "",
         levers_mod.relevant_text(cls, repo, steps=max(1, len(cls.get("defect_pairs") or []))),
         "",
-        "Start with list_corrections and snapshot_boundaries; read the defective and the accepted trees; reproduce "
+        "Start with list_corrections, read_failures and snapshot_boundaries; read the defective and the accepted "
+        "trees; reproduce "
         "the defect with sandbox_run before writing any test. Use stage_spec to build the draft in sections; check_draft "
         "for static problems; sandbox_grade and run_controls for executed ones; finish with submit_draft. Clean means "
         "VALID, not hard: before submitting, reread quality.difficulty_case and ask whether a strong engineer working "
@@ -2277,7 +2339,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     tools = _tools(len(trace.get("messages", [])))
     if row.get("_captured_episodes"):
         tools = tools + FAST_TOOLS
-    opening = _opening(row, extraction, bundle, level)
+    opening = _opening(row, extraction, bundle, level, trace)
     if level in TRAP_POLICY:
         opening += "\n\n" + TRAP_POLICY[level]
     research_floor = 0 if revision else policy.MIN_RESEARCHED_TRAPS
@@ -2296,6 +2358,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         opening += "\nAn earlier draft is staged. Use read_draft and check_draft to inspect and repair it."
     if level in CATEGORY_GUIDANCE:
         opening = CATEGORY_GUIDANCE[level] + "\n\n" + opening
+    opening = bash_rle.lead(row, opening)
     opening = (REVISION_MANDATE if revision else AUTHORING_MANDATE) + "\n\n" + opening
     if feedback:
         opening = ("Design or revise using the constraints and findings below. Confirm which findings apply "

@@ -421,9 +421,9 @@ Checks every measured model already passes -- the free points you may re-aim:
 How each check behaved in calibration (the trap has to move these):
 {breadth}
 
-1. UNDERSTAND FIRST. Read the corrections, the rejected turns and the workspace
-   history (list_corrections, read_trace, snapshot_boundaries, diff_workspace),
-   and the fixture as it stands. Reproduce the current defect in sandbox_run.
+1. UNDERSTAND FIRST. Read the corrections, the rejected turns, the trace's failed
+   tool calls and the workspace history (list_corrections, read_failures,
+   read_trace, snapshot_boundaries, diff_workspace), and the fixture as it stands. Reproduce the current defect in sandbox_run.
    The traps must belong to this repository and this scenario.
 
 2. BUILD INTERLOCKS, NOT SINGLE TRAPS (the CODING DIFFICULTY DOCTRINE at the top

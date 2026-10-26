@@ -24,6 +24,30 @@ corpus actually carries.
                                       # copied and its acceptance state reported
 ```
 
+### The bash RLE track (user, 2026-10-26)
+
+Coding tasks rich in bash failure outcomes (Arena's `bash_reliability` signal), built by
+the same pipeline with two additions:
+
+```
+./arena bash-rle-wave -o pipeline-artifacts/bash-rle-wave.json   # surviving seeds with >= 2 failed
+                                      # shell decisions in their span, best first, track=bash_rle
+./arena build -c pipeline-artifacts/bash-rle-wave.json -o envs-bash-rle --ranks 1,2
+```
+
+- `pipeline/select/bash_rle.py` profiles each surviving seed's failed shell calls and
+  stamps the wave's rows `track: "bash_rle"` with a `track_priority` (orchestrate orders
+  by it inside a tier).
+- `pipeline/author/bash_rle.py` holds the track's mandate: what the first wave measured
+  (three tasks at 0-1/10 pass@1 per model on Harbor 0.24), which the designer reads first
+  on a track row. Its levers (`prior_run_state`, `label_not_data`, `interrupted_write`,
+  ...) are catalogued in `levers.BASH_LEVERS` for every task.
+- Every design, on either track, opens with the TRACE FAILURE DIGEST
+  (`pipeline/dump/failures.py`): every failed tool call of the session, its class, Arena's
+  verdict where it maps to the call, repeats, and what the agent and the user did next.
+  `read_failures` returns each in full, and `read_trace` shows tool input and output up
+  to 6000 characters.
+
 ### On Coder (everything that takes time; user, 2026-10-03)
 
 ```

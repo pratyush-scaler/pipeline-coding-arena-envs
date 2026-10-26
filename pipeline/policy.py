@@ -1111,3 +1111,9 @@ PASS_AUDIT_DEMONSTRATIONS = 3
 #: Solutions the pass audit reads at once. Three ran scraper v8's 12 critic reads in four waves and the audit took 85
 #: minutes of a release (2026-10-21); the designer rounds share the same model's rate limit, so not more than this.
 PASS_AUDIT_WORKERS = 6
+
+# --- 2026-10-26: the bash RLE track (pipeline/select/bash_rle.py, pipeline/author/bash_rle.py) ---
+#: Failed shell decisions (failed shell calls other than a search that found nothing or an unclassified exit) a
+#: seed's span must hold to join a bash RLE wave (user, 2026-10-26: "a branch to the pipeline to create bash failure
+#: tasks which are rich in bash failure outcomes"). A seed with one has no shell decision for the designer to build on.
+BASH_RLE_MIN_FAILED_SHELL_CALLS = 2

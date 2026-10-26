@@ -1068,8 +1068,115 @@ RESEARCH_HAZARDS = (
     "SemVer argmax across build metadata", "'case-insensitive' without naming lower/upper/casefold, or "
     "'valid email' without a grammar")
 
+#: The bash RLE levers (pipeline/author/bash_rle.py), measured on the first bash RLE wave: Harbor 0.24.0,
+#: 10 runs per model, the hidden check each lever names, failed runs out of 10 per family.
+_WAVE = "bash RLE wave 2026-10-24 (Harbor 0.24.0, 10 runs per model): "
+BASH_LEVERS = {
+    "prior_run_state": {
+        "family": "state", "targets": "both", "status": "measured",
+        "evidence": _WAVE + "sports o_reprise -- out/ already held a complete record written another way, an empty "
+                    "one, a truncated one and a JSON object without the fields: Fable 10/10, Astra 10/10 failed.",
+        "recipe": "The deliverable re-runs over a directory an earlier run or another tool already wrote. Publish what "
+                  "counts as done in domain words ('a match already collected is not fetched again'); hidden state "
+                  "holds a complete record written another way, an empty one, a cut-off one and a well-formed one "
+                  "missing its fields. Visible runs start from an empty directory.",
+        "signals": [r"resume|already|skip|exists|\[ -[efs] |os\.path\.exists|existsSync|checkpoint|cache"]},
+    "name_spelling_scope": {
+        "family": "scope", "targets": "both", "status": "measured",
+        "evidence": _WAVE + "stl o_refuse_unlisted -- an unlisted .STL in a PREVIEW folder, a .Stl among the "
+                    "documents, an unaccented twin of a listed name: Fable 10/10, Astra 10/10; o_backup_not_stl "
+                    "(editor backups name.stl~ are junk): Fable 4/10.",
+        "recipe": "A published rule covers files by kind ('every part', 'any .stl'). Hidden trees carry the kind in "
+                  "every spelling the visible tree lacks -- upper and mixed-case extensions, a nested folder, an "
+                  "unaccented twin of an accented name -- and look-alikes that are NOT members (name.stl~, "
+                  "name.stl.bak).",
+        "signals": [r"\*\.\w+|find .*-i?name|glob|fnmatch|endswith\(|\.lower\(\)|case \$|\.suffix"]},
+    "foreign_saved_files": {
+        "family": "representation", "targets": "both", "status": "measured",
+        "evidence": _WAVE + "textforge o_list_windows -- modulos.txt saved by Notepad (BOM, CRLF, no final newline, "
+                    "a comment, a name with spaces): Fable 6/10, Astra 8/10; stl o_checksum_formats -- a checksum "
+                    "list back from an editor and one in sha256sum's escaped mode: Fable 6/10.",
+        "recipe": "A file the user edits by hand or brings from another machine is input. Hidden copies are saved "
+                  "by Notepad or an editor (BOM, CRLF, no final newline, comments, blank lines, names with spaces) "
+                  "or by the producing tool's other mode (sha256sum's escaped records, binary markers). Visible "
+                  "copies are clean LF files.",
+        "signals": [r"while read|read -r|readlines|splitlines|\.txt\b|sha256sum|md5sum|IFS="]},
+    "parser_hostile_payload": {
+        "family": "adversarial", "targets": "both", "status": "measured",
+        "evidence": _WAVE + "textforge o_verbatim and o_shortcut -- libraries that read their own source text "
+                    "inlined into one page: Fable 6/10, Astra 8/10; o_script_hazards -- '</SCRIPT >', '<!--' "
+                    "before '<script>', '$&' and '$'' in the code: Astra 5/10.",
+        "recipe": "Content passes through a boundary that parses it: an HTML script element, a replacement string "
+                  "(sed, String.replace), a here-document, a JSON argument on argv. Hidden payloads carry the "
+                  "boundary's live tokens and code that reads its own text; visible payloads are inert.",
+        "signals": [r"<script|\.replace\(|\bsed\b|<<\s*['\"]?\w+|innerHTML|String\(|JSON\.parse|argv"]},
+    "composition_seams": {
+        "family": "interaction", "targets": "fable", "status": "measured",
+        "evidence": _WAVE + "textforge o_concat -- seven libraries that run alone and collide when concatenated: "
+                    "Fable 8/10, Astra 1/10; o_alone -- 'use strict', legacy octal escapes, undeclared "
+                    "assignments: Fable 7/10, Astra 1/10.",
+        "recipe": "Units that each work alone are combined by the deliverable (concatenated or inlined scripts, "
+                  "sourced shell files, a bundle). Hidden units carry seams: a trailing // comment with no newline, "
+                  "a leading '(' with no semicolon, a BOM or CRLF, strict-mode or scope-sensitive code.",
+        "signals": [r"cat .*>>|concat|bundle|inline|\bsource\b|^\. |require\(|import "]},
+    "interrupted_write": {
+        "family": "state", "targets": "fable", "status": "measured",
+        "evidence": _WAVE + "sports o_atomique -- killed while waiting on a reply, and a batch starting with "
+                    "leftovers of an earlier run: Fable 9/10, Astra 1/10.",
+        "recipe": "The process is killed mid-run and the next run starts from what it left. The published rule is "
+                  "about what a reader may ever see ('a file in out/ is always complete'): writing elsewhere then "
+                  "renaming AND clearing stale temporaries are both needed. Visible runs are never interrupted.",
+        "signals": [r"mktemp|\.tmp\b|mv -f|os\.replace|rename|\btrap\b|flock|\.lock"]},
+    "failure_keeps_previous": {
+        "family": "state", "targets": "both", "status": "measured",
+        "evidence": _WAVE + "stl o_refuse_missing -- a listed STL deleted after a good build; the run must fail "
+                    "and leave the earlier archive byte-identical: Fable 6/10, Astra 0/10; textforge o_fail_safe -- "
+                    "a library node --check rejects, a missing one, a broken app file: Fable 3/10, Astra 7/10.",
+        "recipe": "When a run fails (a listed input missing, a unit failing its check), the previous good output "
+                  "stays byte-identical and the exit status says so. The natural script deletes or truncates first; "
+                  "hidden cases fail at each stage after a good build.",
+        "signals": [r"rm -r?f|> \"?\$|truncate|set -e|exit [1-9]|--check|\|\| exit|unlink"]},
+    "label_not_data": {
+        "family": "representation", "targets": "astra", "status": "measured",
+        "evidence": _WAVE + "sports o_historique -- finished games under labels the repo doesn't name, one in "
+                    "the user's language, and an interrupted one: Astra 10/10, Fable 3/10; o_404 -- an ordinary "
+                    "reply whose body says the match is unknown: Astra 3/10.",
+        "recipe": "Code classifies records or replies by a status label; the published rule is about the data ('a "
+                  "match is finished when it has a final score'). Hidden data carries finished records under labels "
+                  "the repo never names (one in the user's language), a finished label without the data, and a "
+                  "success reply whose body is a refusal.",
+        "signals": [r"status|statusText|http_code|\.ok\b|== ['\"]\w+['\"]|=== ['\"]\w+['\"]|404"]},
+    "invocation_context": {
+        "family": "environment", "targets": "fable", "status": "measured",
+        "evidence": _WAVE + "stl o_layout_junk -- called from two levels up with a trailing-slash relative path: "
+                    "Fable 6/10, Astra 0/10.",
+        "recipe": "The script is published as runnable from anywhere. Hidden runs call it from two levels up with a "
+                  "trailing-slash relative path, through a symlink and on a copy under a path with spaces; visible "
+                  "runs call it from its own directory.",
+        "signals": [r"\$0|BASH_SOURCE|dirname|\$PWD|pwd\b|__dirname|realpath|readlink"]},
+    "absent_tool_premise": {
+        "family": "environment", "targets": "both", "status": "hypothesis",
+        "evidence": _WAVE + "the STL packager's machine had no zip, unzip, pdfinfo or pypdf (its trace hit pdfinfo "
+                    "exit 127); 12% of Fable's and 13% of Astra's shell calls failed, in 10/10 and 8/10 runs. "
+                    "Measures bash failures, not pass rate.",
+        "recipe": "The machine lacks a tool the trace's agent reached for (the trace failure digest's missing "
+                  "programs); the instruction says so in the user's words, and the verifier image is the same. The "
+                  "deliverable works with what is installed; interlock it with a decision the fallback makes harder "
+                  "(escaped names, an archive that must be reproducible, the previous result kept).",
+        "signals": [r"command -v|which |zip|pdfinfo|pypdf|curl|jq|npm install|apt-get"]},
+    "shell_state_x_unseen_label": {
+        "family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": _WAVE + "each 0/10 release interlocked a both-family state decision with family-specific ones "
+                    "on the same hidden runs (sports: prior_run_state + label_not_data + interrupted_write).",
+        "recipe": "One hidden run where prior_run_state or failure_keeps_previous (both families) meets "
+                  "label_not_data or foreign_saved_files (Astra) and interrupted_write or invocation_context "
+                  "(Fable): fixing the state decision alone still fails the shape or the context.",
+        "signals": []},
+}
+
 LEVERS.update(PROXY_LEVERS)
 LEVERS.update(RESEARCH_LEVERS)
+LEVERS.update(BASH_LEVERS)
 
 INTERLOCK_RECIPES = tuple(name for name, meta in LEVERS.items() if meta["status"] == "interlock")
 
@@ -1097,6 +1204,10 @@ DEAD = (
     "instruction defect, not difficulty)",
     "edge rules listed out explicitly in the instruction (Terminal-Bench: .95-1.00 solve rates)",
     "an allowance worded 'may' that the tests enforce as 'must' (a void, not a failure)",
+    "one famous shell pitfall as the whole task (c-001, pkill -f matching its own shell: Fable 1.0 on 9 of 9 valid "
+    "runs, Astra 0.9 on 5 of 5, Harbor 0.24)",
+    "a grader that reimplements a browser, a shell or an OS (the site generator's page reader: 10 review rounds of "
+    "disagreements with browsers); grade with the real tool in the verifier image",
 )
 
 #: Words that announce a trap or hand over the method. Advisory (sibling R5 V16).
