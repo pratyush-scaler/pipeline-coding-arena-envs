@@ -319,10 +319,13 @@ class Orchestration(unittest.TestCase):
         row = {"version": "1.1.0", "from_version": None, "release": {"bundle": "/b", "calibration": cal}}
         lay = ship._layout("a_f2_x", row)
         self.assertEqual((lay["oracle"], lay["models"]["claude-fable-5-1"], lay["bundle"]),
-                         (Path("/n/oracle"), Path("/n/f"), Path("/b")))
+                         (Path("/n/oracle"), [Path("/n/f")], Path("/b")))
         history = ship._history(row)
         self.assertEqual([h["version"] for h in history], ["1.1.0"])
+        # a void top-up is assembled with its primary campaign (2026-10-30), never refused
         cal["campaigns"]["openai/gpt-6-astra"].append("/n/a-topup")
+        self.assertEqual(ship._layout("a_f2_x", row)["models"]["gpt-6-astra"], [Path("/n/a"), Path("/n/a-topup")])
+        cal["campaigns"]["openai/gpt-6-astra"] = []
         with self.assertRaises(SystemExit):
             ship._layout("a_f2_x", row)
 

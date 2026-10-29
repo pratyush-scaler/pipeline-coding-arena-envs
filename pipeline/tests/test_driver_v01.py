@@ -59,3 +59,20 @@ class Driver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TopUps(unittest.TestCase):
+    def test_trials_and_measurements_concatenate_a_campaigns_parts(self):
+        from pipeline import arena_v01_package as ap
+        root = Path(tempfile.mkdtemp())
+        for part, ids in (("primary", ("t1", "t2")), ("topup", ("t3",))):
+            for i in ids:
+                (root / part / "jobs/run" / i).mkdir(parents=True)
+                (root / part / "jobs/run" / i / "result.json").write_text("{}")
+            (root / part / "report.json").write_text(json.dumps({"trials": [{"id": i, "valid": True, "steps": []}
+                                                                             for i in ids]}))
+        self.assertEqual([t.name for t in ap._trials([root / "primary", root / "topup"])], ["t1", "t2", "t3"])
+        self.assertEqual([t.name for t in ap._trials(root / "primary")], ["t1", "t2"])
+        from orchestration import arena_v01_ship as ship
+        self.assertEqual([t["id"] for t in ship._measured([root / "primary", root / "topup"])["trials"]],
+                         ["t1", "t2", "t3"])

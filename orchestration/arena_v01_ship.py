@@ -308,7 +308,9 @@ def scrub_report(text: str, env: str, where: str) -> str:
     return text
 
 
-def _measured(campaign: Path) -> dict:
+def _measured(campaign) -> dict:
+    if isinstance(campaign, (list, tuple)):              # a campaign and its void top-ups
+        return {"trials": [t for part in campaign for t in _measured(Path(part))["trials"]]}
     report = json.loads((campaign / "report.json").read_text())
     trials = []
     for t in report.get("trials") or []:
@@ -335,10 +337,11 @@ def _layout(env: str, row: dict) -> dict:
     models = {}
     for m in MODELS:
         parts = cal["campaigns"].get(resolve_model(m)) or []
-        if len(parts) != 1:
-            raise SystemExit(f"{env}: {m} has {len(parts)} campaign part(s) in the release; the v0.1 assembler "
-                             "reads exactly one campaign per model (void top-ups are not assembled yet)")
-        models[m] = Path(parts[0])
+        if not parts:
+            raise SystemExit(f"{env}: {m} has no campaign in the release")
+        # The primary campaign and its void top-ups, in order (2026-10-30 audit: a release whose 10 x 2 needed a
+        # top-up could not be finished).
+        models[m] = [Path(p) for p in parts]
     return {"oracle": Path(cal["oracle"]), "nop": Path(cal["nop"]), "models": models, "bundle": Path(rel["bundle"])}
 
 

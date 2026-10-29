@@ -53,8 +53,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _trials(campaign: Path) -> list[Path]:
-    return sorted(p for p in (campaign / "jobs/run").iterdir() if (p / "result.json").is_file())
+def _trials(campaign) -> list[Path]:
+    """Every trial of a campaign -- or of a campaign and its void top-ups, given as a list of parts (a void is recorded
+    as an excluded run, so the parts concatenate)."""
+    parts = campaign if isinstance(campaign, (list, tuple)) else [campaign]
+    return [t for part in parts
+            for t in sorted(p for p in (Path(part) / "jobs/run").iterdir() if (p / "result.json").is_file())]
 
 
 def _refused(trial: Path, harness_log: str | None) -> bool:
