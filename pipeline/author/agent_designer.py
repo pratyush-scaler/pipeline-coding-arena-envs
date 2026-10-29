@@ -93,6 +93,16 @@ _ELIDED = ("[earlier tool output elided to keep the conversation inside the mode
            "re-run the tool if you need it again]\n")
 
 
+def _source_record(row: dict, session_id, seed_index) -> dict:
+    """spec.source: the seed, its tier and -- for a track-stamped row -- its track, so a hardening or repair round
+    (repair.design_inputs builds its row from spec.source) still leads with the track's mandate (2026-10-30 audit:
+    every bash RLE revision lost bash_rle.MANDATE)."""
+    record = {"session_id": session_id, "seed_index": seed_index, "tier": row.get("tier", 4)}
+    if row.get("track"):
+        record["track"] = row["track"]
+    return record
+
+
 def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
     """Shorten old tool results in place when the prompt nears the model's limit; return how many were cut.
 
@@ -1225,8 +1235,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
 
     def creation_status(**_):
         spec = draft_spec()
-        spec.setdefault("source", {"session_id": session_id, "seed_index": extraction.seed_index,
-                                   "tier": row.get("tier", 4)})
+        spec.setdefault("source", _source_record(row, session_id, extraction.seed_index))
         spec.setdefault("target_level", level or "")
         return creation.inventory(spec, bundle)
 
@@ -1558,8 +1567,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             (dest / "environment").mkdir(parents=True)
         shutil.copytree(repo, dest / "environment/repo")
         spec = draft_spec()
-        spec.setdefault("source", {"session_id": session_id, "seed_index": extraction.seed_index,
-                                   "tier": row.get("tier", 4)})
+        spec.setdefault("source", _source_record(row, session_id, extraction.seed_index))
         spec.setdefault("target_level", level or "")
         spec.setdefault("_producer", {"model": MODEL, "effort": ARENA_EFFORT})
         # Match submission defaults before running expensive controls. These
@@ -2168,7 +2176,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                                                  "trace": trace, "level": level, "row": row,
                                                  "arguments": {"spec": spec}})
         spec = copy.deepcopy(spec)
-        spec.setdefault("source", {"session_id": session_id, "seed_index": extraction.seed_index, "tier": row.get("tier", 4)})
+        spec.setdefault("source", _source_record(row, session_id, extraction.seed_index))
         spec.setdefault("target_level", level or "")
         if type(row.get("step_budget")) is int:
             spec["step_budget"] = row["step_budget"]
@@ -2842,8 +2850,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
 
     def prepare(spec):
         spec = copy.deepcopy(spec)
-        spec.setdefault("source", {"session_id": extraction.session_id, "seed_index": extraction.seed_index,
-                                   "tier": row.get("tier", 4)})
+        spec.setdefault("source", _source_record(row, extraction.session_id, extraction.seed_index))
         spec.setdefault("target_level", level or "")
         if type(row.get("step_budget")) is int:
             spec["step_budget"] = row["step_budget"]

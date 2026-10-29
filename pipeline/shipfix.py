@@ -627,7 +627,7 @@ def release(version: Path, arena_v01: dict | None = None) -> dict:
     v01_row = step("arena_v01", arena_v01_step)
     sweep = step("shipcheck", lambda: (lambda r: (version.joinpath("verification/shipcheck.json").write_text(
         json.dumps(r, indent=1, default=str)), {"ok": r["ok"], "open": r["open"],
-        "findings": [f for f in r.get("findings") or [] if not f.get("waived")][:8]})[1])(
+        "findings": [f for f in r.get("findings") or [] if not f.get("waived")]})[1])(
         shipcheck.sweep(version, image=True, repro=True)))
     record["ready"] = bool((record["steps"]["genuine"].get("result") or {}).get("certified")
                            and hard.get("ok") and not (hard.get("result") or {}).get("not_hard")

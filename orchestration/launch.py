@@ -29,7 +29,7 @@ def survivors(wave: Path) -> list[dict]:
     rows = [r for r in json.loads(wave.read_text())["rows"]
             if r["classification"].get("survives") and r.get("tier", 4) <= CFG["max_tier"]]
     annotate(rows)
-    rows.sort(key=lambda r: (r.get("tier", 4), -orchestrate.hardness_prior(r), -r.get("dispute", 0)))
+    rows.sort(key=orchestrate.wave_order)
     return rows
 
 
@@ -95,6 +95,9 @@ def main(argv: list[str]) -> int:
     done: dict[str, list[int]] = {}
 
     def one(ws: str, ranks: list[int]) -> None:
+        # Mount the dump's persistent mirror BEFORE pushing sessions into it (2026-10-30 audit): after a workspace
+        # restart the mount is gone, and mounting it later hid the sessions just pushed to the root disk.
+        coder_mod.ssh(ws, coder_run.persist_script([dump]), timeout=900)
         coder_mod.ssh(ws, f"mkdir -p {shlex.quote(str(wave.parent))} {shlex.quote(str(dump / 'sessions'))}", timeout=300)
         coder_run.rsync(ws, str(wave), str(wave), push=True, timeout=900, compress=True)
         for sid in sorted({rows[r - 1]["session_id"] for r in ranks}):

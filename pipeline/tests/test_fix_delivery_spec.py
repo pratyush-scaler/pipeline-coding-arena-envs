@@ -348,9 +348,22 @@ class UnlevelledAndAccounting(unittest.TestCase):
 class MultiTurn(_Tmp):
     """Spec B6 + "give each turn its own rubric"."""
 
-    def test_two_steps_each_with_an_objective_is_multi_turn(self):
-        from pipeline import deliverable
-        self.assertTrue(deliverable.task_record(_bundle(self.root))["multi_turn"])
+    def test_three_turns_each_with_an_objective_and_a_turn_contract_is_multi_turn(self):
+        # Appendix A + the user's 2026-10-12 rule: at least policy.MULTI_STEP_MIN_STEPS (3) turns, each graded by
+        # its own objective, with TURNS.md. Two turns are not enough (this test asserted two until 2026-10-30).
+        from pipeline import deliverable, policy
+        self.assertEqual(policy.MULTI_STEP_MIN_STEPS, 3)
+        two = _bundle(self.root)
+        self.assertFalse(deliverable.task_record(two)["multi_turn"])
+        b = _bundle(self.root, "c-002-editorial-review", checks=[
+            {"id": f"o{i}", "kind": "objective", "weight": 1, "step": s}
+            for i, s in enumerate(("01-task", "02-revision", "03-final"), 1)])
+        toml = b / "task.toml"
+        toml.write_text(toml.read_text() + '\n[[steps]]\nname = "03-final"\n')
+        (b / "TURNS.md").write_text("turn contract\n")
+        record = deliverable.task_record(b)
+        self.assertEqual(record["steps"], ["01-task", "02-revision", "03-final"])
+        self.assertTrue(record["multi_turn"])
 
     def test_a_step_with_no_objective_is_not_a_turn(self):
         from pipeline import deliverable

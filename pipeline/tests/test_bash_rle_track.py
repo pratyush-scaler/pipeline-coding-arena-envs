@@ -215,3 +215,26 @@ class BashRleWave(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrackSurvivesRevision(unittest.TestCase):
+    """2026-10-30 audit: spec.source carried no track, so every hardening/repair round lost bash_rle.MANDATE."""
+
+    def test_the_track_is_kept_in_spec_source_and_reaches_the_revision_row(self):
+        from pipeline.author import agent_designer as agent
+        record = agent._source_record({"tier": 2, "track": "bash_rle"}, "s1", 0)
+        self.assertEqual(record, {"session_id": "s1", "seed_index": 0, "tier": 2, "track": "bash_rle"})
+        self.assertNotIn("track", agent._source_record({"tier": 2}, "s1", 0))
+        from pipeline.author import bash_rle
+        self.assertTrue(bash_rle.applies({**record, "category": "F2"}))
+
+    def test_build_launch_and_driver_rank_by_one_order(self):
+        from pipeline import orchestrate
+        rows = [{"seed_key": "A", "tier": 2, "track_priority": 9.0, "dispute": 0.1},
+                {"seed_key": "B", "tier": 2, "track_priority": 1.0, "dispute": 0.9}]
+        with unittest.mock.patch.object(orchestrate, "hardness_prior", return_value=0.0):
+            self.assertEqual([r["seed_key"] for r in sorted(rows, key=orchestrate.wave_order)], ["A", "B"])
+        import inspect
+        from orchestration import launch, driver
+        self.assertIn("wave_order", inspect.getsource(launch.survivors))
+        self.assertIn("wave_order", inspect.getsource(driver.wave_rank))

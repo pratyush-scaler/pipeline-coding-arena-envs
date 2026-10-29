@@ -972,7 +972,10 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         release_blockers.write_context(bundle, measured or bundle, release)
         brief += release_blockers.brief(release, measured or bundle)
     if repairs or release:
-        brief += REVIEW_REPAIR.format(items="\n".join(f"  - {text[:2400]}" for text in repairs[:12])
+        # EVERY finding, whole (2026-10-30 audit: 30 reviews carried 13-33 findings and the first 12 were kept, so
+        # the substantive gaps, listed last, never reached the repair). The reviewer reports all at once; the
+        # repair patches all at once.
+        brief += REVIEW_REPAIR.format(items="\n".join(f"  - {text}" for text in repairs)
                                       or "  (none from the reviewer -- the protocol applies to every blocker above)",
                                       bar=policy.STEP_PASS_RATE_MAX)
     if kind != "repair":
@@ -1915,7 +1918,7 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
                 # A revision was proposed and checking it failed: that is a finding.
                 new = [f"{type(exc).__name__}: {exc}"]
             outcome_row = {**row, "outcome": "invalid" if new else "valid",
-                           "findings": [f[:300] for f in new[:12]]}
+                           "findings": [f[:2000] for f in new]}
             pending = next((i for i, a in enumerate(ledger["attempts"])
                             if a.get("attempt") == number and a.get("outcome") == "in-progress"), None)
             if pending is None:

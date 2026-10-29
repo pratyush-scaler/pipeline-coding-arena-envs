@@ -108,8 +108,7 @@ def revise(bundle: Path, findings: list[str], max_steps: int | None = None) -> d
                    if author else {'initial_spec': spec,
                        'max_steps': max_steps if max_steps is not None else policy.REVISION_MAX_STEPS})
         candidate = agent_designer.design(row, extraction, bundle, **options, revision=True,
-            feedback=["Repair the professional assignment using these verified defects. Preserve genuine difficulty, public fairness and source fidelity. Do not weaken checks just to pass or tune against individual solver answers. "
-                      "PATCH FIRST: when a finding names one assertion or one condition, change exactly that (stage_spec with edit={old,new}) and the check's basis. Every finding with a counterexample is a probe: run_probes on it BEFORE your fix (it must not hold) and AFTER (it must hold), together with every earlier probe; then run_controls, use your one pre_review, submit; do not redesign, re-read the whole trace or re-solve the task.", *findings])
+            feedback=[policy.PATCH_FIRST, *findings])
     build.build(candidate, bundle)
     traps = strict_json((bundle / "authoring/traps.json").read_text())
     traps["usable_corrections"] = row["classification"]["usable_moments"]

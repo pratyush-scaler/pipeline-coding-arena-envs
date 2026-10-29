@@ -62,7 +62,8 @@ def _live_root() -> Path:
 
 
 LIVE = _live_root()
-os.environ.setdefault("ARENA_DUMP", str(Path.home() / "Downloads/arena-dumps"))  # config reads it at import
+# No ARENA_DUMP default here (2026-10-30 audit): pipeline.config resolves the dump lazily, and the old default
+# (~/Downloads/arena-dumps, a folder of dumps) overrode workspace.toml and failed every launch's remote_env.
 
 from pipeline import arena_v01 as conv_mod  # noqa: E402
 from pipeline import arena_v01_evidence as ev  # noqa: E402
@@ -239,6 +240,9 @@ def _start(ws: str, dest: Path, sha: str, args: list[str]) -> str:
                       if os.environ.get(k)}}),
                "keys": coder_run.keys_values(LIVE / "keys.env"), "code_sha": sha, "keys_dir": KEYS_DIR}
     _ssh(ws, f"mkdir -p -m 700 {q(KEYS_DIR)}", timeout=120)
+    # The qualification preflight reads the trace: a dump mount dropped by a restart failed releases hours later
+    # (2026-10-21). Refuse the launch now instead.
+    coder_run.ensure_dump(ws, request["env"]["ARENA_DUMP"])
     coder_mod.ssh(ws, coder_mod._with_docker(f"python3 -c {q(coder_run.LAUNCHER)}"),
                   stdin=json.dumps(request).encode(), timeout=300)
     return rid

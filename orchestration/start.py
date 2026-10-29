@@ -47,10 +47,13 @@ def say(ok: bool | None, what: str, fix: str = "") -> bool:
     return bool(ok) or ok is None
 
 
-def env_for(cfg: dict) -> dict:
+def env_for(cfg: dict, tree: str | None = None) -> dict:
+    """The environment for a step of `tree`'s batch: ITS dump when it names one (2026-10-30 audit: a second batch on
+    another dump was classified from the global dump, and launch then found none of its sessions)."""
     env = dict(os.environ)
-    if cfg.get("dump"):
-        env["ARENA_DUMP"] = cfg["dump"]
+    dump = ((cfg.get("batches") or {}).get(tree) or {}).get("dump") if tree else None
+    if dump or cfg.get("dump"):
+        env["ARENA_DUMP"] = dump or cfg["dump"]
     return env
 
 
@@ -123,12 +126,23 @@ def seeds(cfg: dict, tree: str) -> bool:
             used |= {r["seed_key"] for r in json.loads(path.read_text())["rows"] if r["classification"].get("survives")}
     need = int(batch.get("seeds") or 40) + len(used)
     print(f"  classifying the dump until {need} seeds survive (model calls; cached across runs)", flush=True)
-    code = subprocess.run(["./arena", "select", "--need", str(need)], cwd=ROOT, env=env_for(cfg)).returncode
+    env = env_for(cfg, tree)
+    code = subprocess.run(["./arena", "select", "--need", str(need)], cwd=ROOT, env=env).returncode
     classified = ARTIFACTS / "classified.json"
     if code != 0 or not classified.is_file():
         return say(False, "seed selection", "see the output above; re-run ./start to resume")
     doc = json.loads(classified.read_text())
     rows = [r for r in doc["rows"] if r.get("seed_key") not in used and not r["classification"].get("error")]
+    if batch.get("track") == "bash_rle":
+        # A bash RLE batch: the surviving seeds richest in failed shell decisions, stamped for the track
+        # (pipeline/select/bash_rle.py), so the designer leads with bash_rle.MANDATE.
+        from pipeline import policy
+        from pipeline.select import bash_rle
+        picked, skipped = bash_rle.compose(rows, Path(env["ARENA_DUMP"]) / "sessions",
+                                           int(batch.get("min_failed") or policy.BASH_RLE_MIN_FAILED_SHELL_CALLS))
+        print(f"  bash RLE track: {len(picked)} seed(s) with enough failed shell decisions, {len(skipped)} skipped",
+              flush=True)
+        rows = picked
     config.WAVES.mkdir(parents=True, exist_ok=True)
     wave.write_text(json.dumps({"schema": "arena-pipeline/classified/wave", "model": doc.get("model"), "rows": rows}))
     survivors = sum(1 for r in rows if r["classification"].get("survives"))
@@ -154,7 +168,7 @@ def prepared(cfg: dict) -> bool:
 
 
 def launched(cfg: dict, tree: str) -> bool:
-    code = subprocess.run([PY, "orchestration/launch.py", tree], cwd=ROOT, env=env_for(cfg)).returncode
+    code = subprocess.run([PY, "orchestration/launch.py", tree], cwd=ROOT, env=env_for(cfg, tree)).returncode
     return say(code == 0, f"builds launched for {tree}", "see the output above; re-run ./start to launch the rest")
 
 

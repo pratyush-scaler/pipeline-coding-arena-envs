@@ -625,8 +625,13 @@ def _build_one(row: dict, index: int, out_root: Path, designer: Callable,
                     # and a stalled first design's continuation do not.
                     options['revision'] = bool(gate_round > 0 or (
                         resumed and resumed.get('stage') == 'repair'))
+                    feedback = gate_feedback or None
+                    if options['revision'] and not retained_author:
+                        # A repair is a patch (policy.PATCH_FIRST, policy.REVISION_MAX_STEPS), as in repair.revise.
+                        options['max_steps'] = _policy.REVISION_MAX_STEPS
+                        feedback = [_policy.PATCH_FIRST, *(gate_feedback or [])]
                     spec = designer(row, extraction, bundle, budget=budget,
-                                    feedback=gate_feedback or None, **options)
+                                    feedback=feedback, **options)
                     break
                 except (SeedRejected, AuthoringStalled):
                     raise
@@ -1195,6 +1200,13 @@ def _apply_build_flags(args) -> None:
         os.environ["ARENA_CONTINUE_STALLED"] = "1"
 
 
+def wave_order(row: dict) -> tuple:
+    """The ONE survivor ordering: `build` ranks by it and every script that names a seed by its rank
+    (orchestration/launch.py survivors, driver.wave_rank) must too -- the 2026-10-30 audit found launch.py and the
+    driver omitting track_priority, so on a bash RLE wave they pushed and repaired different seeds than build ran."""
+    return (row.get("tier", 4), -row.get("track_priority", 0), -hardness_prior(row), -row.get("dispute", 0))
+
+
 def hardness_prior(row: dict) -> float:
     """What the trace offers to make a task hard, before anything is authored.
 
@@ -1283,7 +1295,7 @@ def main(argv: list[str] | None = None) -> int:
     # premise with). A PRIOR, not a measurement: the first real task cleared
     # every floor from one usable correction and screened at pass@1 1.00.
     # A bash RLE wave (pipeline/select/bash_rle.py) orders by its seeds' shell failures first; 0 elsewhere.
-    rows.sort(key=lambda r: (r.get("tier", 4), -r.get("track_priority", 0), -hardness_prior(r), -r.get("dispute", 0)))
+    rows.sort(key=wave_order)
     # Rank is 1-based over the sorted survivors and is the only stable handle a
     # human has on a seed. Taking a prefix is fine for a first batch, but it
     # cannot express "build the ones we skipped" -- which is how rank 4 went

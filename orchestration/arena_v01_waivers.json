@@ -13,6 +13,10 @@
   "Q37": "Arena's supplier-identity scan (Q37) matches the word `scaler` here because the task's own code uses a `MinMaxScaler` class the exercise asks for, which recurs in the rubric, traps and captured run files. It is the standard name of a feature-scaling algorithm, not anyone's identity; the code is the session user's and is not renamed. Delivered under a waiver approved by the supplier on 2026-10-24."
  },
  "a_f2_sports-data-pipeline": {
-  "Q25": "Arena's leak scan (Q25) reports a placeholder home-directory path (`/home/` followed by `moi`, French for 'me') that Claude Fable 5.1 wrote in one calibration run, as an example cron line in its final message (`/home/moi/ma_liste.txt`). It names no machine or person and comes from no supplier system; the captured bytes are delivered exactly as run, so they are not edited, and no run was dropped or repeated. Delivered under a waiver approved by the supplier on 2026-10-24."
+  "Q25": "Arena's leak scan (Q25) reports a placeholder home-directory path (the folder name is the French word for 'me') that Claude Fable 5.1 wrote in one calibration run, as an example cron line in its final message. It names no machine or person and comes from no supplier system; the captured bytes are delivered exactly as run, so they are not edited, and no run was dropped or repeated. Delivered under a waiver approved by the supplier on 2026-10-24."
+ },
+ "a_f2_textforge-build": {
+  "Q25": "Arena's leak scan (Q25) reports two public Google Docs and Google Drive URL prefixes as internal links. They are part of the session user's own importer code, which imports text from documents shared that way; every calibration run's captured repository carries that code unchanged. They name no internal system of the supplier or of Arena. Captured bytes are delivered exactly as run. Delivered under a waiver approved by the supplier on 2026-10-25.",
+  "Q37": "Arena's supplier-identity scan (Q37) matches the supplier's name inside a common Spanish word (the word for 'staircase') in the task's own word list, which recurs in every calibration run's captured files. It is ordinary vocabulary, not anyone's identity. Delivered under a waiver approved by the supplier on 2026-10-25."
  }
 }

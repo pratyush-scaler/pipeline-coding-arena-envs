@@ -235,8 +235,9 @@ def launch(ws: str, argv: list[str], dry: bool) -> str | None:
         log(f"DRY {ws}: {' '.join(argv)}")
         return None
     env = {k: v for k, v in __import__("os").environ.items() if k != "ANTHROPIC_AUTH_TOKEN"}
-    for prefix, dump in TREE_DUMPS.items():
-        if any(prefix in str(a) for a in argv):
+    for tree, dump in TREE_DUMPS.items():
+        # a whole path component: tree "envs-b1" must not match argv under "envs-b10" (2026-10-30 audit)
+        if any(f"/{tree}/" in str(a) or str(a).endswith(f"/{tree}") or str(a) == tree for a in argv):
             env["ARENA_DUMP"] = dump        # remote_env forwards the launcher's dump
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=1200, env=env)
     run = next((line.split()[-1] for line in r.stdout.splitlines() if "coder watch" in line), None)
@@ -288,10 +289,10 @@ TREE_DUMPS = cfgmod.dumps(CFG)
 
 def wave_rank(tree: str, session_id: str, seed_index) -> int | None:
     """The seed's 1-based rank in its wave file, ordered exactly as `build` orders survivors."""
-    from pipeline.orchestrate import hardness_prior
+    from pipeline.orchestrate import wave_order
     doc = json.loads((ROOT / "pipeline-artifacts/waves" / WAVES[tree]).read_text())
     rows = [r for r in doc["rows"] if r["classification"].get("survives") and r.get("tier", 4) <= 4]
-    rows.sort(key=lambda r: (r.get("tier", 4), -hardness_prior(r), -r.get("dispute", 0)))
+    rows.sort(key=wave_order)
     for i, r in enumerate(rows, 1):
         if r["session_id"] == session_id and str(r["seed_index"]) == str(seed_index):
             return i
@@ -400,6 +401,11 @@ def _release_earlier_hard(row, entry, versions, releases_running, summary, name,
 
 
 def cycle(dry: bool) -> dict:
+    if not WORKSPACES:
+        # No orchestration/config.json yet (./start or Kiln's batch writes it): nothing to drive, never a crash
+        # ("max_workers must be greater than 0" on every cycle, 2026-10-30 audit).
+        log("no workspaces configured (orchestration/config.json); nothing to drive")
+        return {"idle": "no workspaces configured"}
     state = json.loads(STATE.read_text()) if STATE.is_file() else {"lineages": {}}
     rows = []
     from concurrent.futures import ThreadPoolExecutor
