@@ -366,7 +366,9 @@ def _executed_counterexamples(bundle: Path, doc: dict) -> list[str]:
             state = f"NOT reproduced: the shipped grader already scores it as the finding demands (reward {r.get('reward')})"
         else:
             state = f"not executable: {r.get('error')}"
-        out.append(f"Counterexample {r.get('finding') or r.get('id')} ({r.get('kind')}): {state}")
+        # "Semantic review ..." so repair.finding_stage files the line with the review that raised it, never as a
+        # gate finding that makes the review repair look like churn (non-coding audit, 2026-10-30).
+        out.append(f"Semantic review counterexample {r.get('finding') or r.get('id')} ({r.get('kind')}): {state}")
     return out
 
 
@@ -374,11 +376,16 @@ def _executed_counterexamples(bundle: Path, doc: dict) -> list[str]:
 #: "unverified" on "OpenAI stream reported a provider error"). Infra loss is re-run, once.
 _PROVIDER_LOSS = ("provider error", "stream ended without a terminal response", "_StreamInterrupted",
                   "_HTTPProviderError", "_TransientProviderError", "timed out", "Connection")
+#: Losses a retry cannot outlive: credit or authentication (the non-coding audit, 2026-10-30: 50 of 54 unverified
+#: reviews were credit_balance_exhausted, 2 were HTTP 401). The task stays resumable; the operator fixes the account.
+_ACCOUNT_LOSS = ("credit_balance", "insufficient_quota", "billing", "401", "authentication", "Unauthorized",
+                 "invalid_api_key", "permission_denied")
 
 
 def _provider_loss(finding) -> bool:
     return (isinstance(finding, str) and finding.startswith("semantic review could not be verified:")
-            and any(token in finding for token in _PROVIDER_LOSS))
+            and any(token in finding for token in _PROVIDER_LOSS)
+            and not any(token in finding for token in _ACCOUNT_LOSS))
 
 
 def _review_candidate(bundle: Path, budget: Budget) -> dict:

@@ -574,6 +574,12 @@ MAX_REPAIR_PASSES = 2
 #: author cannot see what the reviewer sees, and another pass will not change
 #: that.
 REQUIRE_MONOTONE_REPAIR = True
+#: Whether the "finding set must shrink" comparison also applies to semantic-review findings (user, 2026-10-30: "the
+#: reviewer should flag all the potential issues together"; "don't have any extremely strict ... blocker"). Each
+#: review is a fresh, exhaustive read whose findings are new text, so a later review's COUNT says nothing about
+#: churn: 13 non-coding repairs were refused on it. Off: review findings are bounded by the pass budget and by the
+#: repeated-finding rule, which still ends a lineage whose given finding comes back.
+REVIEW_FINDINGS_MUST_SHRINK = False
 
 #: Local decision: a finding must cite a concrete artifact location to be
 #: actionable. "The task is too easy" is not repairable; "checks.json line 40

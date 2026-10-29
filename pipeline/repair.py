@@ -263,6 +263,12 @@ def admissible(bundle: Path, findings: list[str]) -> tuple[bool, str]:
     # 13 review findings) refused the budgeted repair of a candidate that had
     # just done everything asked of it (e2e build, 2026-09-26).
     stages = {finding_stage(f) for f in now}
+    if not policy.REVIEW_FINDINGS_MUST_SHRINK:
+        # a fresh exhaustive review is not a count of the last one (policy.REVIEW_FINDINGS_MUST_SHRINK)
+        stages.discard("semantic-review")
+        now = {f for f in now if finding_stage(f) != "semantic-review"}
+        if not stages:
+            return True, ""
     earlier = [p for p in anchored if stages & {finding_stage(f) for f in p["fingerprints"]}]
     if not earlier:
         return True, ""                    # this stage's first findings

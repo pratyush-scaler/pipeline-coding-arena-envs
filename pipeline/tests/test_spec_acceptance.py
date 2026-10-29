@@ -340,13 +340,21 @@ class RepairTerminates(unittest.TestCase):
         self.assertIn("ship-readiness", why)
 
     def test_shrinking_is_still_required_within_a_stage(self):
+        repair.record_pass(self.bundle, ["grader.data: obj_a x [tests/checks.json]",
+                                         "grader.data: obj_b y [tests/checks.json]"], "charged")
+        ok, why = repair.admissible(self.bundle, ["grader.data: obj_c z [tests/checks.json]",
+                                                  "grader.data: obj_d w [tests/checks.json]"])
+        self.assertFalse(ok)
+        self.assertIn("did not shrink", why)
+        self.assertIn("gates", why)
+
+    def test_a_fresh_review_is_not_held_to_the_last_ones_count(self):
+        # policy.REVIEW_FINDINGS_MUST_SHRINK (2026-10-30): each review is a fresh exhaustive read
         repair.record_pass(self.bundle, ["Semantic review obj_a: x [tests/checks.json]",
                                          "Semantic review obj_b: y [tests/checks.json]"], "charged")
         ok, why = repair.admissible(self.bundle, ["Semantic review obj_c: z [tests/checks.json]",
                                                   "Semantic review obj_d: w [tests/checks.json]"])
-        self.assertFalse(ok)
-        self.assertIn("did not shrink", why)
-        self.assertIn("semantic-review", why)
+        self.assertTrue(ok, why)
 
     def test_a_finding_repeated_from_any_earlier_stage_is_terminal(self):
         repair.record_pass(self.bundle, ["checks.json chk_window omits the ceiling",
