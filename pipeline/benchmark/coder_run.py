@@ -75,9 +75,14 @@ AUTHORING_PYTHON = "3.12"            # .python-version: the control fingerprints
 #: designer then tuned drafts against a different reviewer than the gate: in 21 of 23 cases a pre-review
 #: pass was followed by a gate revise of the same version (2026-10-15). They now use the gate's own
 #: reviewer (agent_designer.pre_review); set ARENA_PRE_REVIEW_MODEL again if Astra's TPM saturates.
+#: The designer is claude-opus-5-5 (user decision, 2026-10-26). transport.py reads ARENA_DESIGNER_MODEL and falls
+#: back to config.ARENA_MODEL (claude-opus-5); both are harness-identity files, so the choice travels with every
+#: remote run here instead -- Kiln's batch launcher (orchestration/launch.py) set nothing and its builds would have
+#: designed on the older model. `--env ARENA_DESIGNER_MODEL=...` still overrides it per run.
 DEFAULT_REMOTE_ENV = {"ARENA_NATIVE_BACKEND": "local", "ARENA_NATIVE_CONCURRENCY": "20",
                       "ARENA_LOCAL_WORKERS": "1",
                       "ARENA_CODEX_SLOTS": "10", "ARENA_TRIAL_SLOTS": "24",
+                      "ARENA_DESIGNER_MODEL": "claude-opus-5-5",
                       "PYTHONUNBUFFERED": "1"}
 
 

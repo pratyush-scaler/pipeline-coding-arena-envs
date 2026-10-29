@@ -37,5 +37,12 @@ class ProviderLossRetry(unittest.TestCase):
         self.assertEqual(self.run_with([blocked]), (blocked, 1))
 
 
+class RemoteDesignerModel(unittest.TestCase):
+    def test_every_remote_run_designs_on_opus_5_5_unless_overridden(self):
+        from pipeline.benchmark import coder_run
+        self.assertEqual(coder_run.remote_env()["ARENA_DESIGNER_MODEL"], "claude-opus-5-5")
+        self.assertEqual(coder_run.remote_env({"ARENA_DESIGNER_MODEL": "x"})["ARENA_DESIGNER_MODEL"], "x")
+
+
 if __name__ == "__main__":
     unittest.main()
