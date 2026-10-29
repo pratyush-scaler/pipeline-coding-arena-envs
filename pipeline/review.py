@@ -69,6 +69,38 @@ when a reviewer missed it:
 - two parts of the grader that model the same thing differently, so one
   accepts what the other rejects (a hidden test's own model against a
   verifier-side script, a prerequisite against the check it guards).
+Arena's own rubric review (2026-10-16) found these in shipped tasks; each is a
+LENIENT grader (a false pass) unless stated otherwise:
+- a check that walks only what the candidate produced or kept, so an omitted
+  required item passes vacuously (compare against EVERY required item; a
+  missing one fails);
+- a requirement chosen from the REFERENCE's answer instead of the candidate's
+  own output (evidence or a follow-on field checked only where the reference
+  needs it): when the candidate's verdict differs, the rule for ITS verdict
+  must still be checked;
+- trusting the candidate's own helpers, reports or summaries for a fact the
+  grader can observe directly (assert the live state, files or process);
+- comparing a projection (a mapping, a key set, a count, a name) when the
+  published rule protects the whole content (bodies, values, bytes);
+- an oracle that filters or normalises away more than the published rule
+  allows before comparing (remove only the known fixed part, then require
+  exact equality of the rest);
+- a substring or presence test where the rule needs exactness, exactly-once,
+  or agreement between two outputs (what is shown versus what is stored);
+- a self-consistency test whose values are recomputed from the candidate's
+  own possibly wrong input, with no independent bound from the published rule;
+- STRICT: a private bound, tolerance, correction or convention the public
+  material never states deciding a graded outcome (publish it, or accept every
+  reading the public record supports).
+Arena's coverage review (2026-10-08: 17 of 22 findings were coverage gaps) --
+for EVERY published clause ask which plausible wrong implementation still
+passes: a branch or exclusion tested on one side only (the fallback path, the
+optional extras absent, each named exclusion); a 'leave X unchanged' rule no
+test compares; a displayed or formatted value never exercised; an end state
+never graded (the final send or load, state saved while still running); a
+supplied script only checked to exist; a function only ever tested after
+another call prepared its data; a set answer with no extras, duplicate or
+numeric-equality (91 vs 91.0) check; an ordered output graded as a set.
 Every finding must be EXECUTABLE: the controller runs your counterexample
 through the shipped grader before anyone repairs the task, and a finding whose
 counterexample does not apply or does not reproduce carries that result.

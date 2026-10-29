@@ -240,7 +240,28 @@ REVIEWER_OBJECTIONS = (
     "verifier owns (copy them before agent code runs), never from objects, reports or streams agent code "
     "can touch; keep hidden inputs inside the repository's documented formats; assert a boundary only "
     "where a careful human reaches it from the instruction and the repository, else state it in the "
-    "user's words or drop it.")
+    "user's words or drop it.\n"
+    "  13. ARENA'S OWN REVIEWS of shipped tasks (2026-09-27 to 10-16; 17 of 22 findings on 10-08 were coverage "
+    "gaps). COVERAGE, each a false pass Arena found: every published clause, branch and exclusion has a case "
+    "on BOTH sides (the fallback path when the main service fails; the optional extras absent; each named "
+    "exclusion such as node_modules and .git; the no-match case); a 'leave X unchanged' rule compares X with "
+    "the original; displayed or formatted values are exercised, not only the stored ones; the end state is "
+    "graded (the final send, the last load, the saved state while the program still runs, not only after a "
+    "clean exit); a supplied script or tool is RUN, never only found to exist; each function is tested on "
+    "its own right after load, not only after another call prepared its data. A check walks the REQUIRED "
+    "items, so an omitted one fails, and a set answer also rejects extras and duplicates (91 and 91.0 are one "
+    "number). Requirements follow the CANDIDATE's own verdicts and upstream choices (its earlier plan, the "
+    "words it chose, the state it actually loaded), never the reference's. Observe state yourself instead of "
+    "trusting the candidate's helpers, reports or values recomputed from its own possibly wrong inputs; bound "
+    "positions and quantities (a unit leaving 'by the building' is near it; a simulated one-second request "
+    "has positive latency; the footer comes after the last block); compare whole content, not a mapping, "
+    "count or key set; an oracle removes only the known fixed part before requiring exact equality; ordered "
+    "outputs are checked for order. SOUNDNESS, each a false rejection Arena found: a private bound, "
+    "tolerance, clock correction or citation whitelist the public material never states; normalising more "
+    "than the rule allows (a soft hyphen is not whitespace); a guard keyed on text instead of behaviour. "
+    "FIDELITY: never alter a source fact or example, keep the user's corrections from the trace, add no claim "
+    "the source lacks, make the fixture obey the task's own stated limits, and define every degenerate input "
+    "a published rule reaches (a zero divisor).")
 
 #: User, 2026-10-04: "aim that we meet the score criteria genuinely in the baseline
 #: task creation itself ... target to achieve pass@1<=0.5 in the baseline task".

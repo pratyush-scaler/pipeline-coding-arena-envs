@@ -370,8 +370,27 @@ def _executed_counterexamples(bundle: Path, doc: dict) -> list[str]:
     return out
 
 
+#: The reviewer's provider dropped the rollout (the non-coding audit, 2026-10-30: 15% of build attempts ended
+#: "unverified" on "OpenAI stream reported a provider error"). Infra loss is re-run, once.
+_PROVIDER_LOSS = ("provider error", "stream ended without a terminal response", "_StreamInterrupted",
+                  "_HTTPProviderError", "_TransientProviderError", "timed out", "Connection")
+
+
+def _provider_loss(finding) -> bool:
+    return (isinstance(finding, str) and finding.startswith("semantic review could not be verified:")
+            and any(token in finding for token in _PROVIDER_LOSS))
+
+
 def _review_candidate(bundle: Path, budget: Budget) -> dict:
-    """Review before measurement; retain an intact rejection until redesign."""
+    """Review before measurement; retain an intact rejection until redesign. A review the provider dropped
+    is run once more."""
+    first = _review_candidate_once(bundle, budget)
+    if first.get("verdict") == "unverified" and any(_provider_loss(f) for f in first.get("findings", [])):
+        return _review_candidate_once(bundle, budget)
+    return first
+
+
+def _review_candidate_once(bundle: Path, budget: Budget) -> dict:
     from . import review as critic
     from .author.contracts import contained, strict_json
     try:
