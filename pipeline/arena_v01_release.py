@@ -65,6 +65,61 @@ def target(bundle: Path) -> dict | None:
     return dict(params)
 
 
+#: Arena's checker pattern for [metadata] prompt_language (BCP 47) and domain (snake_case).
+LANGUAGE_TAG = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+#: Scripts that name one language without asking (anything else -- Latin, Arabic, Cyrillic -- needs a reader).
+_SCRIPT_LANGUAGE = (("\u3040", "\u30ff", "ja"), ("\uac00", "\ud7af", "ko"), ("\u0e00", "\u0e7f", "th"),
+                    ("\u0590", "\u05ff", "he"), ("\u0370", "\u03ff", "el"), ("\u0980", "\u09ff", "bn"),
+                    ("\u0b80", "\u0bff", "ta"), ("\u0c00", "\u0c7f", "te"))
+
+
+def instruction_text(bundle: Path) -> str:
+    return "\n\n".join(p.read_text(errors="replace") for p in sorted(Path(bundle).glob("steps/*/instruction.md")))
+
+
+def detect_prompt_language(bundle: Path, ask=None) -> str:
+    """The BCP 47 tag of the language the task's instructions are written in (the user's, by the authoring rules).
+
+    The driver releases unattended (2026-10-30 audit: choosing domain and language was a human step), so `auto`
+    asks a model once -- `ask(text) -> str`, by default one low-effort call -- and checks the answer against
+    Arena's pattern; without an answer only an unambiguous script decides. Refuses rather than guesses."""
+    text = instruction_text(bundle)
+    if not text.strip():
+        raise ValueError("no instruction to read the prompt language from")
+    tag = None
+    try:
+        tag = (ask or _ask_language)(text[:6000])
+    except Exception:                                # noqa: BLE001 -- the script check below decides alone
+        tag = None
+    tag = (tag or "").strip().strip(".`'\"")
+    if tag and LANGUAGE_TAG.fullmatch(tag):
+        return tag
+    letters = [ch for ch in text if ch.isalpha()]
+    for lo, hi, code in _SCRIPT_LANGUAGE:
+        if letters and sum(lo <= ch <= hi for ch in letters) / len(letters) > 0.3:
+            return code
+    raise ValueError(f"cannot settle the prompt language (answer {tag!r}); pass prompt_language explicitly")
+
+
+def _ask_language(text: str) -> str:
+    from .select.classify import _call
+    body = {"model": "claude-opus-5-5", "max_tokens": 32, "output_config": {"effort": "low"},
+            "messages": [{"role": "user", "content": (
+                "Reply with ONLY the BCP 47 language tag (lowercase primary subtag, e.g. en, ru, pt-BR, zh-Hans) "
+                "of the language the following task instruction is written in. Code, file names and quoted "
+                "data do not count; the language of the prose does.\n\n<<<\n" + text + "\n>>>")}]}
+    out = _call(body)
+    return "".join(b.get("text", "") for b in out.get("content") or [] if b.get("type") == "text")
+
+
+def domain_slug(text: str) -> str:
+    """Arena's snake_case domain from a free-text topic ('html/js single-page app' -> 'html_js_single_page_app')."""
+    slug = re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
+    if not slug or not slug[0].isalnum():
+        raise ValueError(f"no snake_case domain in {text!r}")
+    return slug
+
+
 def write_target(bundle: Path, *, domain: str, prompt_language: str, level: str | None = None,
                  version: str | None = None, lineage: str | None = None) -> dict:
     """Record the target. The level defaults to the one the version measures NOW (before its calibration, F1's
@@ -85,6 +140,9 @@ def write_target(bundle: Path, *, domain: str, prompt_language: str, level: str 
                                       or "1.0.0")
     if not re.fullmatch(r"\d+\.\d+\.\d+", str(version)):
         raise ValueError(f"not an X.Y.Z version: {version!r}")
+    if prompt_language == "auto":
+        prompt_language = detect_prompt_language(bundle)
+    domain = domain_slug(domain)
     params = {"lineage": lineage or default_lineage(bundle), "level": level, "version": str(version),
               "domain": str(domain), "prompt_language": str(prompt_language)}
     if not all(params.values()):

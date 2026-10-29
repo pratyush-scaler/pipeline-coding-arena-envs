@@ -152,6 +152,7 @@ for lineage in sorted(p for t in trees for p in glob.glob(os.path.join(root, t, 
                 if "fable" in str(rep.get("requested_model") or rep.get("model") or ""):
                     fable = camp
         rows.append({"path": v, "task": os.path.isfile(os.path.join(v, "task.toml")), "steps": steps, "fable_campaign": fable,
+                     "arena_v01": os.path.isfile(os.path.join(v, "verification/arena-v01.json")),
                      "status": st.get("status"), "stage": st.get("stage_reached"), "error": str(st.get("error") or "")[:600],
                      "session_id": st.get("session_id"), "seed_index": st.get("seed_index"), "blockers": (st.get("blockers") or "")[:400] if isinstance(st.get("blockers"), str) else st.get("blockers"),
                      "screen": pm, "screen_complete": scr.get("measurement_complete"), "step_rates": scr.get("step_pass_rates"),
@@ -248,9 +249,68 @@ def launch(ws: str, argv: list[str], dry: bool) -> str | None:
 PACKAGE = "--package" in sys.argv
 
 
+def wave_row(tree: str, session_id, seed_index) -> dict | None:
+    try:
+        doc = json.loads((ROOT / "pipeline-artifacts/waves" / WAVES[tree]).read_text())
+    except (KeyError, OSError, ValueError):
+        return None
+    return next((r for r in doc["rows"] if r["session_id"] == session_id
+                 and str(r["seed_index"]) == str(seed_index)), None)
+
+
+def v01_args(row: dict, version_path: str) -> list[str]:
+    """`--arena-v01 {...}` for a release: Arena v0.1 is the delivery format and its 10 x 2 on Harbor 0.24 the release
+    qualification (user, 2026-10-24); the driver launched releases without it, so nothing it shipped was a v0.1
+    package (2026-10-30 audit). The domain comes from the batch (`domain`) or the seed's classification, the language
+    is detected from the instruction (`auto`). A batch with "arena_v01": false keeps the old packaging."""
+    tree = Path(row["lineage"]).parents[1].name
+    batch = (CFG.get("batches") or {}).get(tree) or {}
+    if batch.get("arena_v01") is False:
+        return []
+    first = row["versions"][0] if row.get("versions") else {}
+    seed = wave_row(tree, first.get("session_id"), first.get("seed_index")) or {}
+    domain = batch.get("domain") or (seed.get("classification") or {}).get("domain")
+    if not domain:
+        log(f"v0.1 target for {Path(version_path).name}: no domain (set batches[{tree!r}].domain); releasing without")
+        return []
+    return ["--arena-v01", json.dumps({"domain": domain, "prompt_language": batch.get("prompt_language") or "auto"})]
+
+
+def release_finish(rows: list[dict], state: dict) -> None:
+    """Ready versions qualified on their Arena v0.1 package: `arena_v01_ship.py release-finish` builds the package on
+    the workspace, assembles the release's own campaigns as evidence and ships the zip only when Arena's checker
+    passes it (LIVE = this checkout, one record: arena-v01-packages/ship.json). The cited export archive is the
+    batch's `archive` (a hard link in arena-v01-archives) and its sessions the batch's dump."""
+    env = {k: v for k, v in __import__("os").environ.items() if k != "ANTHROPIC_AUTH_TOKEN"}
+    env["ARENA_LIVE_ROOT"] = str(ROOT)
+    for r in rows:
+        batch = (CFG.get("batches") or {}).get(r.get("tree")) or {}
+        archive, dump = batch.get("archive"), batch.get("dump") or CFG.get("dump")
+        if not archive or not dump:
+            log(f"V01 HELD {r['name']}: batches[{r.get('tree')!r}] needs `archive` (the cited export archive's name in "
+                "arena-v01-archives) and `dump`")
+            state["lineages"][r["key"]]["package_held"] = "v0.1: batch archive/dump not configured"
+            continue
+        cmd = [str(ROOT / ".venv/bin/python"), str(ROOT / "orchestration/arena_v01_ship.py"), "release-finish",
+               r["bundle"], r["ws"], "--archive", archive, "--sessions", str(Path(dump) / "sessions")]
+        if batch.get("batch_id"):
+            cmd += ["--batch", batch["batch_id"]]
+        out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=14400,
+                             env={**env, "ARENA_DUMP": dump})
+        log(f"V01 FINISH {r['name']} rc={out.returncode}: " + (out.stdout + out.stderr)[-1200:].replace("\n", " | "))
+        if out.returncode == 0:
+            state["lineages"][r["key"]]["packaged"] = "arena-v01"
+        else:
+            state["lineages"][r["key"]]["package_held"] = "v0.1 release-finish failed; see the driver log"
+
+
 def package(ready_rows: list[dict], state: dict) -> None:
     """package_ready.py (spec audit, package_remote with TURNS.md for multi-turn, privacy, the packaging sweep,
     zip into ship-zips/), then the Arena reproduction gate on every new zip, in the background."""
+    v01 = [r for r in ready_rows if r.get("arena_v01")]
+    if v01:
+        release_finish(v01, state)
+    ready_rows = [r for r in ready_rows if not r.get("arena_v01")]
     seen, batch = set(), []
     for r in ready_rows:
         if r["name"] in seen or not r.get("fable_campaign"):
@@ -392,7 +452,7 @@ def _release_earlier_hard(row, entry, versions, releases_running, summary, name,
         if releases_running.get(row["ws"], 0) >= MAX_RELEASES_PER_WS:
             summary["hard_validated"].append(f"{name} {Path(v['path']).name} (earlier hard revision, waiting for a slot)")
             return True
-        run = launch(row["ws"], ["shipfix", v["path"], "--release"], dry)
+        run = launch(row["ws"], ["shipfix", v["path"], "--release", *v01_args(row, v["path"])], dry)
         entry["actions"].append({"kind": "release", "version": v["path"], "run": run, "at": time.time(), "earlier": True})
         releases_running[row["ws"]] = releases_running.get(row["ws"], 0) + 1
         summary["releasing"].append(f"{name} {Path(v['path']).name} (earlier hard revision)")
@@ -447,7 +507,8 @@ def cycle(dry: bool) -> dict:
             entry["ready"] = shipped["path"]
             if not entry.get("packaged"):
                 ready_rows.append({"ws": row["ws"], "bundle": shipped["path"], "name": name,
-                                   "fable_campaign": shipped.get("fable_campaign"), "key": key})
+                                   "fable_campaign": shipped.get("fable_campaign"), "key": key,
+                                   "arena_v01": shipped.get("arena_v01"), "tree": Path(row["lineage"]).parents[1].name})
             continue
         if row["busy"] and any(a["kind"] in ("harden", "harden_full") for a in entry["actions"][-1:]) \
                 and not any(a["kind"] == "release" for a in entry["actions"]):
@@ -467,7 +528,8 @@ def cycle(dry: bool) -> dict:
             entry["ready"] = latest["path"]
             if not entry.get("packaged"):
                 ready_rows.append({"ws": row["ws"], "bundle": latest["path"], "name": name,
-                                   "fable_campaign": latest.get("fable_campaign"), "key": key})
+                                   "fable_campaign": latest.get("fable_campaign"), "key": key,
+                                   "arena_v01": latest.get("arena_v01"), "tree": Path(row["lineage"]).parents[1].name})
             continue
         status = row["versions"][0].get("status") if latest is versions[0] else "validated"
         if latest is versions[0] and status in (None, "running"):
@@ -549,7 +611,7 @@ def cycle(dry: bool) -> dict:
                     # (2026-10-19 c-012-react-web-app v4 sat 6 h with every qualification flag ruled benign).
                     if _qualify_flags(flagged) and not flagged.get("hack_flags") and not any(
                             a["kind"] == "release_after_triage" and a.get("version") == flagged["path"] for a in entry["actions"]):
-                        run = launch(row["ws"], ["shipfix", flagged["path"], "--release"], dry)
+                        run = launch(row["ws"], ["shipfix", flagged["path"], "--release", *v01_args(row, flagged["path"])], dry)
                         entry["actions"].append({"kind": "release_after_triage", "version": flagged["path"], "run": run, "at": time.time()})
                         summary["releasing"].append(f"{name} {Path(flagged['path']).name} (re-released after benign triage)")
                         continue
@@ -562,7 +624,7 @@ def cycle(dry: bool) -> dict:
                                     for st in ((v.get("release") or {}).get("steps") or {}).values())), None)
             if crashed is not None and crashed is versions[-1] and not any(
                     a["kind"] == "release_retry" and a.get("version") == crashed["path"] for a in entry["actions"]):
-                run = launch(row["ws"], ["shipfix", crashed["path"], "--release"], dry)
+                run = launch(row["ws"], ["shipfix", crashed["path"], "--release", *v01_args(row, crashed["path"])], dry)
                 entry["actions"].append({"kind": "release_retry", "version": crashed["path"], "run": run, "at": time.time()})
                 summary["releasing"].append(f"{name} {Path(crashed['path']).name} (release re-run after a crashed step)")
                 continue
@@ -740,7 +802,7 @@ def cycle(dry: bool) -> dict:
             if releases_running.get(row["ws"], 0) >= MAX_RELEASES_PER_WS:
                 summary["hard_validated"].append(f"{name} (waiting for a release slot)")
                 continue
-            run = launch(row["ws"], ["shipfix", latest["path"], "--release"], dry)
+            run = launch(row["ws"], ["shipfix", latest["path"], "--release", *v01_args(row, latest["path"])], dry)
             entry["actions"].append({"kind": "release", "version": latest["path"], "run": run, "at": time.time()})
             releases_running[row["ws"]] = releases_running.get(row["ws"], 0) + 1
             summary["releasing"].append(name)
