@@ -49,6 +49,7 @@ secrets.env.*
 
 # Local Python/tool state
 .venv/
+.venv
 .venv-harbor/
 venv/
 __pycache__/
