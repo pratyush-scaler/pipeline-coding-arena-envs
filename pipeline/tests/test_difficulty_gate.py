@@ -66,9 +66,15 @@ class HardnessGate(unittest.TestCase):
         self.solve("astra", {"o_a": False, "o_b": False, "o_c": False, "o_d": True}, 0.3)
         self.solve("fable", {"o_a": True, "o_b": False, "o_c": False, "o_d": False}, 0.4)
         self.probe("o_a", "o_b", "o_c", "o_d")
-        self.assertEqual(gate.requirement(_spec(), self.bundle), [])      # o_b and o_c bite both
-        with patch.object(policy, "MIN_BINDING_BITING_TYPES", 4):
-            self.assertIn("span 3 type(s)", " ".join(gate.requirement(_spec(), self.bundle)))
+        # The label-based bar on its own; the failure-mode floors (test_failure_modes.py) are relaxed to what
+        # this four-check fixture plants: 4 single-check modes in 2 classes, 2 shared (o_b, o_c), 3 per family.
+        relaxed = {"MIN_PLANTED_FAILURE_MODES": 4, "MIN_PLANTED_MODE_CLASSES": 2, "MIN_SHARED_FAILURE_MODES": 2,
+                   "MIN_SHARED_MODE_CLASSES": 1, "MIN_FAILURE_MODES_PER_FAMILY": 3}
+        with patch.multiple(policy, **relaxed):
+            self.assertEqual(gate.requirement(_spec(), self.bundle), [])      # o_b and o_c bite both
+            with patch.object(policy, "MIN_BINDING_BITING_TYPES", 4):
+                self.assertIn("span 3 type(s)", " ".join(gate.requirement(_spec(), self.bundle)))
+        self.assertIn("failure mode(s) planted (need 6)", " ".join(gate.requirement(_spec(), self.bundle)))
 
     def test_checks_of_one_decision_count_once(self):
         gate.arm(self.bundle, "creation")

@@ -267,7 +267,7 @@ class ContextFits(unittest.TestCase):
         for i in range(turns):
             messages.append({"role": "assistant", "content": [
                 {"type": "thinking", "thinking": "t", "signature": "sig"},
-                {"type": "tool_use", "id": f"c{i}", "name": "read_fixture", "input": {"path": "a"}}]})
+                {"type": "tool_use", "id": f"c{i}", "name": "sandbox_run", "input": {"command": "true"}}]})
             messages.append({"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": f"c{i}", "content": "x" * size}]})
         return messages
@@ -278,12 +278,35 @@ class ContextFits(unittest.TestCase):
         self.assertEqual(author.fit_context(messages), 0)
         self.assertEqual(json.dumps(messages), before)
 
+    def test_a_large_json_below_the_token_limit_is_untouched(self):
+        """2026-10-27: signed thinking and an evidence image put 1.5 MB of JSON in a 180k-token prompt; the
+        byte trigger cut the first fourteen results and nine requests re-wrote the whole cache."""
+        messages = self.conversation(60, 30_000)
+        before = json.dumps(messages)
+        self.assertGreater(len(before), 1_500_000)
+        self.assertEqual(author.fit_context(messages, 180_000), 0)
+        self.assertEqual(json.dumps(messages), before)
+
+    def test_the_cut_starts_at_the_newest_eligible_result_and_spares_the_evidence(self):
+        messages = self.conversation(120, 20_000)
+        messages[2]["content"][0]["tool_use_id"] = "trace"
+        messages[1]["content"][1].update(id="trace", name="read_trace")
+        cut = author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS)
+        self.assertGreater(cut, 0)
+        self.assertNotIn("elided", messages[2]["content"][0]["content"][:80], "an evidence read is never cut")
+        cut_at = [i for i, m in enumerate(messages) if m["role"] == "user" and isinstance(m["content"], list)
+                  and m["content"][0]["content"].startswith("[earlier tool output elided")]
+        whole_before = [i for i, m in enumerate(messages[:cut_at[0]]) if m["role"] == "user" and isinstance(m["content"], list)]
+        self.assertTrue(whole_before, "the oldest results stay whole: the cache survives up to the first cut")
+        self.assertEqual(cut_at[-1], len(messages) - author.CONTEXT_KEEP_RECENT - 1, "the newest eligible result goes first")
+
     def test_old_tool_results_shrink_and_signed_turns_and_recent_ones_stay(self):
         messages = self.conversation(120, 20_000)
         before = [json.dumps(m) for m in messages]
-        cut = author.fit_context(messages)
+        start = len(json.dumps(messages))
+        cut = author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS)
         self.assertGreater(cut, 0)
-        self.assertLessEqual(len(json.dumps(messages)), author.CONTEXT_TARGET_BYTES + 25_000)
+        self.assertLessEqual(len(json.dumps(messages)), start * author.CONTEXT_TARGET_SHARE + 25_000)
         for old, new in zip(before, messages):
             if new["role"] == "assistant":
                 self.assertEqual(json.dumps(new), old)          # signed thinking untouched
@@ -292,4 +315,4 @@ class ContextFits(unittest.TestCase):
         ids = [b["tool_use_id"] for m in messages if m["role"] == "user" and isinstance(m["content"], list)
                for b in m["content"]]
         self.assertEqual(len(ids), 120)                         # every tool_use keeps its result
-        self.assertEqual(author.fit_context(messages), 0)       # idempotent below the threshold
+        self.assertEqual(author.fit_context(messages, 100_000), 0)   # idempotent below the threshold

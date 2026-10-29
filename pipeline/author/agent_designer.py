@@ -29,8 +29,10 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -50,6 +52,7 @@ from . import traps as traps_mod
 from . import trap_research
 from . import bites as bites_mod
 from . import difficulty_gate
+from . import failure_modes
 from . import validate as validate_mod
 from .contracts import ContractError, contained, strict_json
 from .outcomes import AuthoringStalled, SeedRejected
@@ -72,28 +75,53 @@ MAX_CONSECUTIVE_TOOL_ERRORS = 6
 
 #: The conversation is the designer's whole working memory and it only grows.
 #: 2026-10-03: a design died at its 181st request with a 2.7 MB conversation
-#: (HTTP 400) while 1.6-1.8 MB sessions ran on. Past CONTEXT_COMPACT_BYTES the
-#: OLDEST tool results (never the designer's own turns, whose thinking is
-#: signed) are cut to an excerpt until the conversation is back under
-#: CONTEXT_TARGET_BYTES; the last CONTEXT_KEEP_RECENT messages stay whole.
-CONTEXT_COMPACT_BYTES = 1_500_000
-CONTEXT_TARGET_BYTES = 1_000_000
+#: (HTTP 400) while 1.6-1.8 MB sessions ran on. Old tool results (never the
+#: designer's own turns, whose thinking is signed, never the evidence tools of
+#: policy.DESIGNER_EVIDENCE_TOOLS, never the last CONTEXT_KEEP_RECENT messages)
+#: are cut to an excerpt once the previous prompt reached
+#: policy.DESIGNER_COMPACT_TOKENS, newest first, until it is estimated at
+#: CONTEXT_TARGET_SHARE of that. Every cut re-writes the prompt cache from the
+#: cut onward, so it is rare and as late in the conversation as it can be
+#: (2026-10-27: a byte trigger at 1.5 MB cut the first fourteen results at
+#: 180k tokens and nine requests re-wrote the whole cache). The byte bound is
+#: only a safety net for the request size.
+CONTEXT_COMPACT_BYTES = 12_000_000
+CONTEXT_TARGET_BYTES = 8_000_000
+CONTEXT_TARGET_SHARE = 0.6
 CONTEXT_KEEP_RECENT = 40
 _ELIDED = ("[earlier tool output elided to keep the conversation inside the model's context window; "
            "re-run the tool if you need it again]\n")
 
 
-def fit_context(messages: list[dict]) -> int:
-    """Shorten the oldest tool results in place; return how many were cut."""
+def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
+    """Shorten old tool results in place when the prompt nears the model's limit; return how many were cut.
+
+    `prompt_tokens` is the previous request's whole prompt as the API reported it. The cut
+    starts at the NEWEST eligible result, so the prompt cache stays valid up to it.
+    """
     size = len(json.dumps(messages, ensure_ascii=False))
-    if size <= CONTEXT_COMPACT_BYTES:
+    by_tokens = bool(prompt_tokens) and prompt_tokens >= policy.DESIGNER_COMPACT_TOKENS
+    if not by_tokens and size <= CONTEXT_COMPACT_BYTES:
         return 0
+    start = size
+
+    def done() -> bool:
+        if by_tokens and prompt_tokens * size / start > CONTEXT_TARGET_SHARE * policy.DESIGNER_COMPACT_TOKENS:
+            return False
+        return size <= CONTEXT_TARGET_BYTES
+
+    names = {block.get("id"): block.get("name") for message in messages if message.get("role") == "assistant"
+             and isinstance(message.get("content"), list) for block in message["content"] if isinstance(block, dict)
+             and block.get("type") == "tool_use"}
+    evidence = set(policy.DESIGNER_EVIDENCE_TOOLS)
     cut = 0
-    for message in messages[:max(0, len(messages) - CONTEXT_KEEP_RECENT)]:
+    for message in reversed(messages[:max(0, len(messages) - CONTEXT_KEEP_RECENT)]):
         if message.get("role") != "user" or not isinstance(message.get("content"), list):
             continue
         for block in message["content"]:
             if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            if names.get(block.get("tool_use_id")) in evidence:
                 continue
             content = block.get("content")
             text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
@@ -102,7 +130,7 @@ def fit_context(messages: list[dict]) -> int:
             block["content"] = _ELIDED + text[:400]
             size -= len(text) - len(block["content"])
             cut += 1
-            if size <= CONTEXT_TARGET_BYTES:
+            if done():
                 return cut
     return cut
 
@@ -218,8 +246,9 @@ REVIEWER_OBJECTIONS = (
 #: task creation itself ... target to achieve pass@1<=0.5 in the baseline task".
 DIFFICULTY_LOOP = (
     "THE DIFFICULTY LOOP (the bar is met HERE, at creation, not by later hardening). Once check_draft is clean "
-    "and the controls pass, solve your own draft with BOTH calibration families: blind_solve(model='astra') and "
-    "blind_solve(model='fable'). Each sees only the instruction and the repository, exactly as a screen episode "
+    "and the controls pass, solve your own draft with BOTH calibration families in ONE call: blind_solve() runs "
+    "Astra and Fable at the same time, each in its own container (model='astra' or 'fable' runs one). Each sees "
+    "only the instruction and the repository, exactly as a screen episode "
     "does, and the shipped grader scores what it leaves. GPT-6 Astra's five screen episodes converge on nearly "
     "the same code, so one Astra blind solve is a strong preview of its screen; Fable varies more. For EVERY "
     "step either solver fully passes, the step is too easy: add an interlocked hidden case where that family's "
@@ -287,7 +316,32 @@ HARDNESS_GATE = (
     "agent's own upstream output, so one upstream miss neither masks nor cascades into it (measured: one miss "
     "failed eight checks of a release, and the traps behind it were never exercised).")
 
-DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT + "\n\n" + HARDNESS_GATE
+#: User, 2026-10-27: "a lot of diverse trap modes that defeats both the models" (author/failure_modes.py).
+FAILURE_MODES = failure_modes.brief()
+
+DIFFICULTY_LOOP = DIFFICULTY_LOOP + "\n\n" + BITE_AUDIT + "\n\n" + HARDNESS_GATE + "\n\n" + FAILURE_MODES
+
+#: Hardness-gate gaps that say a measurement is MISSING rather than that one fell short: never conceded.
+_UNMEASURED_GAPS = ("a graded blind_solve(", "a regrade_episodes of the current")
+
+
+def idle_concession(state: dict, spec: dict, missing: list) -> bool:
+    """True when this submission is the `policy.HARDNESS_GATE_IDLE_SUBMITS`-th identical one in a row, held
+    only by hardness gaps the current solves or re-grade measured (2026-10-27: a hardening designer with nothing
+    left to try resubmitted one draft 22 times until the turn budget waived the gate). `state` carries the
+    previous held submission between calls; any other outcome resets it."""
+    gaps = sorted(str(g) for g in missing or [])
+    held = bool(gaps) and all(g.startswith("HARDNESS GATE: ") for g in gaps) \
+        and not any(marker in g for g in gaps for marker in _UNMEASURED_GAPS)
+    if not held:
+        state.clear()
+        return False
+    sha = hashlib.sha256(json.dumps(spec, sort_keys=True, default=str).encode()).hexdigest()
+    if state.get("sha") == sha and state.get("gaps") == gaps:
+        state["n"] = state.get("n", 0) + 1
+    else:
+        state.update(sha=sha, gaps=gaps, n=1)
+    return state["n"] >= policy.HARDNESS_GATE_IDLE_SUBMITS
 
 
 def _resume_guidance(messages: list[dict], updates: list[tuple[str, str]]) -> list[str]:
@@ -520,8 +574,8 @@ mutant:<id> -- per-check pass/fail with each failing test's output.
   - run_controls: every executed control (nop 0, golden 1.0 x3 identical, alternative \
 1.0, every mutant fails exactly what it declares, empty/destructive 0, tampering on the \
 untouched fixture stays 0). Optional during creation; authoritative in validation.
-  - pre_review: the INDEPENDENT REVIEWER (a different model) over your staged draft, exactly as the gate runs it after submission -- verdict and every finding. Run it once your controls are clean, address every finding, and run it again if you changed the tests. Advisory, never required; every finding you leave is a repair round you will spend.
-  - blind_solve: a DIFFERENT vendor's model fixes every step in sequence from the instruction and repository alone. Inspect independent failures for genuine misreadings or over-fit tests. The bounded probe records cutoffs; one pass is not a success-rate estimate. Optional.
+  - pre_review: the INDEPENDENT REVIEWER (a different model) over your staged draft, exactly as the gate runs it after submission -- verdict and every finding. Run it once your controls are clean, address every finding, and run it again if you changed the tests. Advisory, never required; every finding you leave is a repair round you will spend. If the draft you submit has not been pre-reviewed, submit_draft's preflight runs one for you beside the full controls and hands back its findings.
+  - blind_solve: BOTH calibration families fix every step in sequence from the instruction and repository alone, at the same time in their own containers (model='astra' or 'fable' runs one). Inspect independent failures for genuine misreadings or over-fit tests. The bounded probe records cutoffs; one pass is not a success-rate estimate. Optional.
   - probe_patch: exercise an unregistered plausible shortcut or alternative at a named step before deciding how to declare it as a mutant. Earlier steps use the reference; later steps carry its code without repair. Optional; retains per-check diagnostics.
   - difficulty_profile: advisory causal diversity and interaction feedback over any draft.
   - stage_spec / read_draft / creation_status / check_draft / submit_draft / reject_seed: the draft \
@@ -688,6 +742,20 @@ trap appears as planted.
   AND quality.lever_plan (the doctrine's interlocks, one entry per hidden decision, every \
 step covered, both families aimed at; check_draft audits it, advisory).
 
+TURN ECONOMY: every request re-sends the whole conversation, and a turn costs the same \
+whether it stages one field or six. Put independent calls in ONE response (several \
+stage_spec, read_fixture or sandbox_run calls together); stage a whole section per call, \
+not a field at a time; after staging, do not read_draft what you just wrote -- the result \
+carries the section's size and sha256; change part of a long text with stage_spec's edit \
+(old, new) instead of re-staging it; read_draft with a path, never the whole draft. As the \
+session grows, old tool results and your earlier thinking are cleared from what you see \
+(the TRACE FAILURE DIGEST, the trace, the workspace history and the fixture are never \
+cleared): keep what you learned in the draft's fields and re-run a tool rather than \
+hunting for an old result. Long tools asked for in ONE response run AT THE SAME TIME \
+(run_controls, pre_review, blind_solve, research_traps, sandbox_run, sandbox_grade, \
+determinacy_probe, probe_patch, check_draft): whenever they do not depend on each \
+other, ask for them together; a turn that also stages runs in sequence.
+
 WORKFLOW THAT WORKS: (1) read the corrections and the rejected turns; (2) find the \
 defect pair in the workspace history and read both trees; (3) materialize_fixture at \
 the right turn, remove anything that leaks the fix; (4) stage toolchain + deps, \
@@ -695,7 +763,7 @@ sandbox_run the program to REPRODUCE the defect; (4b) research_traps on the stac
 fixture pins and verify each finding with sandbox_run; (5) write the instruction and the \
 hidden tests, sandbox_run them against the fixture (they fail) and against the \
 reference patch (they pass); (6) write the alternative and a mutant per trap and \
-sandbox_grade each when useful; (7) check_draft and run_controls, and read every ADVISORY check_draft returns: each names a shape the independent reviewer rejects (a test using a name only the reference introduces, a file budget no sentence publishes, a test trusting a child process's output, a mutable oracle, asserted DOM structure, an imitated runtime); (8) optionally blind_solve across every step and classify failures; (9) pre_review once the controls are clean -- the same reviewer the gate runs; a batch that skipped it validated 0 of 10 tasks (census 2026-10-03) -- and fix every finding structurally, not locally; (10) self-audit, submit. submit_draft runs a one-time deterministic preflight (static validation and the executed controls) and hands back what validation would reject, so you can fix it within this session. No optional check is required for submission; downstream validation owns rejection.
+sandbox_grade each when useful; (7) check_draft and run_controls, and read every ADVISORY check_draft returns: each names a shape the independent reviewer rejects (a test using a name only the reference introduces, a file budget no sentence publishes, a test trusting a child process's output, a mutable oracle, asserted DOM structure, an imitated runtime, output bytes required to differ from a previous build, a directory listing required to match an earlier one, a verdict gated on a regex of words, file timestamps as evidence, an expected result read from a writable input AFTER the submitted program ran on it -- decide the expectation first, or on a pristine copy); (8) optionally blind_solve (both families at once) across every step and classify failures; (9) pre_review once the controls are clean -- the same reviewer the gate runs; a batch that skipped it validated 0 of 10 tasks (census 2026-10-03) -- and fix every finding structurally, not locally; (10) self-audit, submit. submit_draft runs a one-time preflight (static validation, the full executed controls and, beside them, the independent reviewer when this exact draft has not been pre-reviewed) and hands back what validation would reject, so you can fix it within this session. No optional check is required for submission; downstream validation owns rejection.
 {QUALITY_PROMPT}
 {EXTREME_PROMPT}"""
 
@@ -823,21 +891,34 @@ def _tools(n_msgs: int) -> list[dict]:
                           "required": ["step", "patch"]}},
         {"name": "run_controls", "description": "Run every executed control over the current draft (nop, golden x3, "
          "alternative, every mutant, empty, destructive, test_tamper, neutral_additions, coverage). Returns errors "
-         "and advisories.",
+         "and advisories. Incremental: a trial whose inputs are unchanged since your last run is served from its "
+         "record, so after editing one mutant only that mutant executes (editing a suite or the fixture "
+         "re-executes everything); submit_draft's preflight and validation execute the full matrix.",
          "input_schema": obj},
         {"name": "pre_review", "description": "Run the INDEPENDENT REVIEWER (a different model) over your staged draft, "
          "exactly as the gate will after submission: verdict, every finding, harness problems. Needs a draft that "
-         "passes check_draft. Costs one review; at most MAX_PRE_REVIEWS_PER_SESSION per session. Advisory: submit_draft "
-         "never requires it, but every finding you leave is a repair round you will spend.",
+         "passes check_draft. Costs one review; MAX_PRE_REVIEWS_PER_SESSION per session, of which the last is "
+         "reserved for submit_draft's preflight, which reviews exactly what you submit (beside the full controls, or "
+         "alone at the next submission when static problems kept it from running). Advisory: submit_draft never "
+         "requires it, but every finding you leave is a repair round you will spend.",
          "input_schema": obj},
-        {"name": "blind_solve", "description": "A calibration model fixes the task from the instruction and the "
-         "repository alone (it never sees tests, solution or traps); the shipped grader scores its diff. model: "
-         "'astra' (GPT-6 Astra) or 'fable' (Fable 5.1); default the other vendor. Returns the diff and per-check "
-         "results. Every check it fails is either a trap (record the misreading) or an over-fit test (rewrite "
-         "it); every step it fully passes is too easy (THE DIFFICULTY LOOP). At most policy.BASELINE_BLIND_SOLVES "
-         "per session; advisory, never required.",
-         "input_schema": {"type": "object", "properties": {"model": {"type": "string", "enum": ["astra", "fable"]}},
+        {"name": "blind_solve", "description": "The calibration models fix the task from the instruction and the "
+         "repository alone (they never see tests, solution or traps); the shipped grader scores each diff. model: "
+         "'both' (default: GPT-6 Astra and Fable 5.1 at the same time, each in its own container over one export) "
+         "or 'astra' / 'fable' for one. Returns each family's diff and per-check results (under `families` when "
+         "both run). Every check a solver fails is either a trap (record the misreading) or an over-fit test "
+         "(rewrite it); every step it fully passes is too easy (THE DIFFICULTY LOOP). Each family counts one of "
+         "the policy.BASELINE_BLIND_SOLVES per session; advisory, never required.",
+         "input_schema": {"type": "object", "properties": {"model": {"type": "string", "enum": ["both", "astra", "fable"]}},
                           "required": []}},
+        {"name": "run_probes", "description": "Run executable counterexamples through the shipped grader on your "
+         "current draft. A probe: {id, finding, kind: false_negative (a correct implementation; holds when it scores "
+         "1.0) | false_positive | forgery (a wrong one; holds when it scores below 1.0 and fails expect_fails), step, "
+         "base: reference | fixture | alternative | mutant:<id>, edits: [{file, old, new}] (old occurs exactly once "
+         "in the file as the base leaves it) or [{file, content}], expect_fails}. A review finding's counterexample "
+         "is a ready-made probe: run it before your fix (it must NOT hold) and after (it must hold).",
+         "input_schema": {"type": "object", "properties": {"probes": {"type": "array", "items": {"type": "object"}}},
+                          "required": ["probes"]}},
         {"name": "determinacy_probe", "description": "Ask BOTH calibration families one direct question about one "
          "concrete input, from the step's instruction alone. `expected` is what the reference computes. "
          "determinate=true only when every family answers exactly that; anything else means the instruction does "
@@ -853,9 +934,16 @@ def _tools(n_msgs: int) -> list[dict]:
                                                          "linked to a check lets its trap count toward the hardness gate"}},
              "required": ["case", "question", "expected", "answer_form"]}},
         {"name": "stage_spec", "description": "Assemble the spec incrementally: set a nested field by key/index path; "
-         "append=true extends an array or updates an object. Empty path replaces the root.",
+         "append=true extends an array or updates an object. Empty path replaces the root. edit={old, new} replaces "
+         "exactly one occurrence of `old` inside an already staged string: send the changed span, not the whole "
+         "text again. The result carries the stored section's size and sha256, so do not read_draft what you just "
+         "staged; put several independent stage_spec calls in one response.",
          "input_schema": {"type": "object", "properties": {"path": {"type": "array", "items": {}}, "value": {},
-                                                           "append": {"type": "boolean"}}, "required": ["path", "value"]}},
+                                                           "append": {"type": "boolean"},
+                                                           "edit": {"type": "object", "properties": {
+                                                               "old": {"type": "string"}, "new": {"type": "string"}},
+                                                               "required": ["old", "new"]}},
+                          "required": ["path"]}},
         {"name": "read_draft", "description": "Read a section of your staged draft (empty path lists sections).",
          "input_schema": {"type": "object", "properties": {"path": {"type": "array", "items": {}}}, "required": []}},
         {"name": "check_draft", "description": "Static validation of the complete draft against the fixture.", "input_schema": obj},
@@ -984,6 +1072,53 @@ def _fixture_language(path: str) -> str | None:
 BLIND_FAMILIES = {"astra": "gpt-6-astra", "fable": "claude-fable-5-1"}
 
 
+def _blind_families(model: str | None) -> list[str]:
+    """The families one blind_solve call runs: both (the default) or the one named."""
+    choice = str(model or "both").strip().casefold()
+    if choice == "both":
+        return sorted(BLIND_FAMILIES)
+    if choice in BLIND_FAMILIES:
+        return [choice]
+    raise ValueError(f"model must be one of {sorted(BLIND_FAMILIES)} or 'both'")
+
+
+#: Server-side context editing (policy.DESIGNER_CONTEXT_EDITING): the beta the
+#: transport lifts into the `anthropic-beta` header, and the two strategies the
+#: design loop sends. Thinking clearing must be listed first.
+CONTEXT_EDITING_BETA = "context-management-2025-06-27"
+
+#: Tools that may run at the same time when one response asks for several
+#: (policy.DESIGNER_CONCURRENT_TOOLS): each works on its own scratch export or
+#: reads the staged draft; none writes it. stage_spec and the fixture writers
+#: keep a turn sequential.
+CONCURRENT_TOOLS = frozenset({"run_controls", "pre_review", "blind_solve", "sandbox_run", "sandbox_grade",
+                              "probe_patch", "determinacy_probe", "research_traps", "check_draft", "run_probes"})
+
+#: Scratch exports kept on disk per design session (`_handlers._scratch`). Three
+#: until 2026-10-27; the long tools of one turn now run concurrently, each on its
+#: own export, so pruning keeps the newest eight and never one a running tool reads.
+SCRATCH_KEEP = 8
+
+
+def _context_edits() -> list[dict]:
+    """The edits one designer request carries; thresholds are policy's.
+
+    Thinking clearing always; tool-result clearing only under
+    policy.DESIGNER_TOOL_CLEARING, because every clear invalidates the cache
+    from the cleared block (measured 2026-10-26: $73 of a $91 session).
+    """
+    edits = [{"type": "clear_thinking_20251015",
+              "keep": {"type": "thinking_turns", "value": policy.DESIGNER_THINKING_KEEP_TURNS}}]
+    if policy.DESIGNER_TOOL_CLEARING:
+        edits.append({"type": "clear_tool_uses_20250919",
+                      "trigger": {"type": "input_tokens", "value": policy.DESIGNER_TOOL_CLEAR_TRIGGER_TOKENS},
+                      "keep": {"type": "tool_uses", "value": policy.DESIGNER_TOOL_RESULTS_KEEP},
+                      "clear_at_least": {"type": "input_tokens", "value": policy.DESIGNER_TOOL_CLEAR_AT_LEAST_TOKENS},
+                      "exclude_tools": list(policy.DESIGNER_EVIDENCE_TOOLS),
+                      "clear_tool_inputs": True})
+    return edits
+
+
 def _family_of(model: str | None) -> str:
     return next((family for family, name in BLIND_FAMILIES.items() if name == str(model).split("/")[-1]), "other")
 
@@ -1019,7 +1154,7 @@ FAST_TOOLS = [
 
 def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = None, *,
               level: str | None = None, row: dict | None = None,
-              log: Path | None = None) -> dict[str, Callable]:
+              log: Path | None = None, revision: bool = False) -> dict[str, Callable]:
     row = row or {}
     log = Path(log) if log is not None else Path(bundle) / "authoring" / "log"
     repo = bundle / "environment" / "repo"
@@ -1088,11 +1223,35 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             cur = cur[key]
         return copy.deepcopy(cur)
 
-    def stage_spec(path, value, append=False, **_):
+    def stage_spec(path, value=None, append=False, edit=None, **_):
         nonlocal draft
         if not isinstance(path, list) or any(type(k) not in (str, int) for k in path):
             raise ValueError("draft path must be a list of keys or integer indexes")
-        _require_shape(value, _draft_field_schema(path), "draft" + "".join(f"[{k!r}]" for k in path))
+        where = "draft" + "".join(f"[{k!r}]" for k in path)
+        if edit is not None:
+            # An in-place edit of one string field: the designer sends the
+            # changed span, not the whole text again (44% of staged keys were
+            # re-staged whole; every copy stays in every later request).
+            if value is not None or append:
+                raise ValueError("edit takes the path of a string field and no value or append")
+            if (not isinstance(edit, dict) or not isinstance(edit.get("old"), str) or not edit["old"]
+                    or not isinstance(edit.get("new"), str)):
+                raise ValueError("edit needs {old, new} strings; old must not be empty")
+            if not path:
+                raise ValueError("edit needs the path of a string field")
+            try:
+                current = read_draft(path)
+            except (KeyError, IndexError, TypeError):
+                raise ValueError(f"{where} is not staged yet; stage the string before editing it") from None
+            if not isinstance(current, str):
+                raise ValueError(f"{where} is not a string; stage the structure instead")
+            occurrences = current.count(edit["old"])
+            if occurrences != 1:
+                raise ValueError(f"edit: `old` occurs {occurrences} times in {where}; it must occur exactly once")
+            value = current.replace(edit["old"], edit["new"], 1)
+        elif value is None:
+            raise ValueError("stage_spec needs a value, or edit={old, new} for a staged string")
+        _require_shape(value, _draft_field_schema(path), where)
         from .patch_format import normalize_staged_patches
         value, patch_format_updates = normalize_staged_patches(path, value)
         changed = copy.deepcopy(draft)
@@ -1133,7 +1292,11 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             changed["toolchain"].setdefault("login_shell_path", True)
         draft = changed
         _persist_draft()
-        response = {"stored": path, "sections": list(draft)}
+        stored = json.dumps(read_draft(path) if path else draft, ensure_ascii=False, default=str, sort_keys=True)
+        response = {"stored": path, "sections": list(draft), "size_bytes": len(stored.encode("utf-8")),
+                    "sha256": hashlib.sha256(stored.encode("utf-8")).hexdigest()[:16]}
+        if edit is not None:
+            response["edited"] = True
         if patch_format_updates:
             response["patch_header_normalization"] = patch_format_updates
         return response
@@ -1362,13 +1525,16 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
     # -- sandbox -------------------------------------------------------------
     scratch_root = log / "scratch"
     scratch_n = {"n": 0}
+    scratch_lock = threading.Lock()
+    budget_lock = threading.Lock()
 
     def _scratch(complete: bool) -> Path:
-        scratch_n["n"] += 1
-        dest = scratch_root / f"{scratch_n['n']:03d}"
-        if dest.exists():
-            shutil.rmtree(dest)
-        (dest / "environment").mkdir(parents=True)
+        with scratch_lock:
+            scratch_n["n"] += 1
+            dest = scratch_root / f"{scratch_n['n']:03d}"
+            if dest.exists():
+                shutil.rmtree(dest)
+            (dest / "environment").mkdir(parents=True)
         shutil.copytree(repo, dest / "environment/repo")
         spec = draft_spec()
         spec.setdefault("source", {"session_id": session_id, "seed_index": extraction.seed_index,
@@ -1385,10 +1551,10 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             build_mod.build(spec, dest)
         else:
             build_mod.environment_only(spec, dest)
-        # Keep only the last three scratch exports.
-        older = sorted(p for p in scratch_root.iterdir() if p.is_dir())[:-3]
-        for p in older:
-            shutil.rmtree(p, ignore_errors=True)
+        with scratch_lock:
+            older = sorted(p for p in scratch_root.iterdir() if p.is_dir())[:-SCRATCH_KEEP]
+            for p in older:
+                shutil.rmtree(p, ignore_errors=True)
         return dest
 
     def sandbox_run(command: str, patch: str | None = None, timeout_s: int = 600, **_):
@@ -1457,31 +1623,45 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                                   "verifier_stderr": (entry.get("verifier_stderr") or "")[-1500:]}
         return out
 
-    def run_controls(**_):
+    def run_controls(full: bool = False, **_):
+        """In-session runs are incremental (unchanged trials served from their records);
+        the submit preflight passes full=True so validation's matrix is executed once here."""
         ok, why = sandbox.available()
         if not ok:
             return {"error": why}
         try:
             dest = _scratch(complete=True)
             receipt = controls_mod.run(dest, work=dest / "controls-work",
-                                       cache_root=bundle / "verification/control-cache")
+                                       cache_root=bundle / "verification/control-cache", incremental=not full)
         except (ContractError, ValueError, sandbox.SandboxError) as exc:
             return {"error": str(exc)[-4000:]}
         summary = {k: {"reward": v.get("reward"), "valid": v.get("valid")} if isinstance(v, dict) and "reward" in v else v
                    for k, v in receipt["results"].items() if k not in ("mutants", "tamper_files")}
         summary["mutants"] = {mid: {"reward": m.get("reward"), "failed": m.get("failed"), "declared": m.get("declared")}
                               for mid, m in receipt["results"].get("mutants", {}).items()}
+        execution = receipt.get("execution") or {}
         return {"ok": receipt["ok"], "errors": receipt["errors"], "advisories": receipt["advisories"],
-                "seconds": receipt["seconds"], "results": summary}
+                "seconds": receipt["seconds"],
+                "execution": {"mode": execution.get("mode", "full"), "reused_whole_run": bool(execution.get("reused")),
+                              "trials_reused": len(execution.get("trials_reused") or []),
+                              "trials_executed": execution.get("trials_executed", execution.get("executed_new_trials"))},
+                "results": summary}
 
     def submit_preflight(spec: dict) -> list[str]:
-        """What validation would reject, found deterministically before the session ends."""
+        """What validation would reject, found deterministically before the session ends.
+
+        Static validation, the full control matrix and -- in a thread beside the
+        controls, so it adds findings and not wall time -- the independent
+        reviewer (policy.SUBMIT_PREFLIGHT_REVIEW). The gate's own review is
+        unchanged and still decides.
+        """
         problems: list[str] = []
         checked = check_spec(spec)
         problems += [f"static: {p}" for p in checked.get("problems") or []]
+        review = _start_preflight_review() if policy.SUBMIT_PREFLIGHT_REVIEW and not problems else None
         ok, why = sandbox.available()
         if ok:
-            controls = run_controls()
+            controls = run_controls(full=True)
             if controls.get("error"):
                 problems.append(f"controls could not run: {str(controls['error'])[:800]}")
             else:
@@ -1491,6 +1671,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                     if declared and failed != declared:
                         problems.append(f"mutant {mid}: declares fails {sorted(declared)} but actually fails "
                                         f"{sorted(failed)}")
+        if review is not None:
+            problems += _preflight_review_problems(review)
         problems += difficulty_advisories(spec)
         return problems
 
@@ -1504,7 +1686,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 record = json.loads((bundle / f"verification/blind-solve-{family}.json").read_text())
             except (OSError, ValueError):
                 out.append(f"difficulty (advisory): no {family} blind solve yet -- the bar is met at creation "
-                           f"(THE DIFFICULTY LOOP); blind_solve(model='{family}')")
+                           f"(THE DIFFICULTY LOOP); blind_solve() runs both families at once, model='{family}' this one")
                 continue
             stale = " (solved an earlier draft)" if record.get("draft_sha256") != current else ""
             for step in steps:
@@ -1517,6 +1699,27 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         except Exception:  # noqa: BLE001  advisory only
             pass
         return out
+
+    def run_probes(probes: list | None = None, **_):
+        """Executable counterexamples through the shipped grader on the current draft
+        (counterexamples.py): a correct implementation must score 1.0, a wrong one or a
+        forgery below it. The review's own counterexamples are ready-made probes."""
+        from . import counterexamples
+        from ..artifacts import atomic_json
+        if not isinstance(probes, list) or not probes:
+            return {"error": "probes is a non-empty list of counterexamples"}
+        ok, why = sandbox.available()
+        if not ok:
+            return {"error": why}
+        try:
+            dest = _scratch(complete=True)
+            results = counterexamples.run(dest, probes, work=dest / "probe-work")
+        except (ContractError, ValueError, sandbox.SandboxError) as exc:
+            return {"error": str(exc)[-2000:]}
+        atomic_json(log / f"probes-{uuid.uuid4().hex[:8]}.json", results)
+        return {"all_hold": all(r.get("holds") is True for r in results),
+                "results": [{k: r.get(k) for k in ("id", "finding", "kind", "holds", "reward", "failing", "error")}
+                            for r in results]}
 
     def probe_patch(step: str, patch: str, hypothesis: str = "", expected_fails: list | None = None, **_):
         ok, why = sandbox.available()
@@ -1594,7 +1797,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(step["instruction"].strip() + "\n")
             rel = f"authoring/oracles/{uuid.uuid4().hex}"
-            blind_n["n"] += 1
+            with budget_lock:
+                blind_n["n"] += 1
             result = oracle.derive(dest, solver_mod.solver_model_for(MODEL), MODEL, bundle / rel)
             return {**result, "provenance_reference": {"path": rel},
                     "usage": "stage the independently derived patches as alternative and this reference as quality.independent_oracle; "
@@ -1621,20 +1825,59 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "plan": str(root / "experiment"), "plan_id": plan["id"],
                 "note": "drafts retained; research validate and research run happen after creation"}
 
-    def blind_solve(model: str | None = None, **_):
-        """A calibration model fixes the task from the instruction and the repository alone;
-        the shipped grader scores its diff. Every check it fails is a trap or an over-fit
-        test, and the designer decides which with the diff in hand. Advisory."""
+    def _solve_family(dest: Path, family: str, n: int, draft_sha: str) -> dict:
+        """One family's solve over the export `dest`, recorded as solve `n`; the tool's view of it."""
         from . import blind_solve as solver_mod
         from ..artifacts import atomic_json
+        model = BLIND_FAMILIES[family]
+        work = log / f"blind-solve-{n:03d}"
+        try:
+            record = solver_mod.solve(dest, model, work)
+        except (ContractError, ValueError, sandbox.SandboxError) as exc:
+            return {"model": model, "family": family, "n": n, "error": str(exc)[-2000:]}
+        except Exception as exc:  # noqa: BLE001
+            return {"model": model, "family": family, "n": n,
+                    "error": f"the independent solve did not complete: {type(exc).__name__}: {exc}"[:2000]}
+        spec = draft_spec()
+        record["n"] = n
+        record["draft_sha256"] = draft_sha
+        record["grading_sha256"] = difficulty_gate.grading_sha(spec)
+        atomic_json(log / f"blind-solve-{n:03d}.json", record)
+        atomic_json(bundle / f"verification/blind-solve-{family}.json", record)
+        patch = (work / "blind.patch").read_text() if (work / "blind.patch").is_file() else ""
+        return {"model": record["model"], "family": family, "n": n, "reward": record.get("reward"),
+                "checks": record.get("checks"), "by_step": record.get("by_step"),
+                "step_names": record.get("step_names"), "complete": record.get("complete"),
+                "limits": record.get("limits"), "failing": record.get("failing"), "steps": record.get("steps"),
+                "tool_calls": record.get("tool_calls"), "seconds": record.get("seconds"),
+                "error": record.get("error"), "note": record.get("note"), "patch": patch[:20000],
+                "too_easy_steps": [name for name, row in (record.get("by_step") or {}).items()
+                                   if row.get("reward") == 1.0],
+                "trap_bites": bites_mod.summary_line(spec, record)}
+
+    def blind_solve(model: str | None = None, **_):
+        """The calibration models fix the task from the instruction and the repository alone;
+        the shipped grader scores each diff. Every check a solver fails is a trap or an
+        over-fit test, and the designer decides which with the diff in hand. Advisory.
+
+        Both families run at once by default, each in its own container over one
+        export (2026-10-26: run one after the other they took 7.8 minutes a family,
+        a tenth of a session's wall clock). Both images are built here, once, so
+        the two solvers never race to build the same tag.
+        """
+        try:
+            families = _blind_families(model)
+        except ValueError as exc:
+            return {"error": str(exc)}
         MAX_BLIND_SOLVES_PER_SESSION = _blind_budget()
-        if blind_n["n"] >= MAX_BLIND_SOLVES_PER_SESSION:
+        remaining = MAX_BLIND_SOLVES_PER_SESSION - blind_n["n"]
+        if remaining <= 0:
             difficulty_gate.waive(bundle, "blind-solve budget spent")
             return {"error": f"blind_solve budget spent ({MAX_BLIND_SOLVES_PER_SESSION} per session); the hardness "
                              "gate is waived for this session"}
-        family = str(model or "").strip().casefold()
-        if family and family not in BLIND_FAMILIES:
-            return {"error": f"model must be one of {sorted(BLIND_FAMILIES)}"}
+        if len(families) > remaining:
+            return {"error": f"blind_solve budget allows {remaining} more solve ({MAX_BLIND_SOLVES_PER_SESSION} per "
+                             "session, one per family); choose model='astra' or model='fable'"}
         ok, why = sandbox.available()
         if not ok:
             difficulty_gate.waive(bundle, f"sandbox unavailable: {why}"[:200])
@@ -1643,67 +1886,94 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         if not verdict["clean"]:
             return {"error": "the draft does not pass check_draft yet; the solver needs a complete package",
                     "problems": verdict["problems"][:12]}
-        blind_n["n"] += 1
         try:
             dest = _scratch(complete=True)
-            model = BLIND_FAMILIES[family] if family else solver_mod.solver_model_for(MODEL)
-            record = solver_mod.solve(dest, model, log / f"blind-solve-{blind_n['n']:03d}")
+            for role in ("agent", "verifier"):
+                sandbox.build_image(dest, role)
         except (ContractError, ValueError, sandbox.SandboxError) as exc:
             return {"error": str(exc)[-2000:]}
-        except Exception as exc:  # noqa: BLE001
-            return {"error": f"the independent solve did not complete: {type(exc).__name__}: {exc}"[:2000]}
-        record["n"] = blind_n["n"]
-        record["draft_sha256"] = hashlib.sha256(json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest()
-        record["grading_sha256"] = difficulty_gate.grading_sha(draft_spec())
-        atomic_json(log / f"blind-solve-{blind_n['n']:03d}.json", record)
-        atomic_json(bundle / "verification/blind-solve.json", record)
-        atomic_json(bundle / f"verification/blind-solve-{_family_of(record.get('model'))}.json", record)
-        patch = (log / f"blind-solve-{blind_n['n']:03d}" / "blind.patch").read_text() if (log / f"blind-solve-{blind_n['n']:03d}" / "blind.patch").is_file() else ""
-        return {"model": record["model"], "reward": record.get("reward"), "checks": record.get("checks"),
-                "by_step": record.get("by_step"), "step_names": record.get("step_names"),
-                "complete": record.get("complete"), "limits": record.get("limits"),
-                "failing": record.get("failing"), "steps": record.get("steps"), "tool_calls": record.get("tool_calls"),
-                "error": record.get("error"), "note": record.get("note"), "patch": patch[:20000],
-                "remaining": MAX_BLIND_SOLVES_PER_SESSION - blind_n["n"],
-                "too_easy_steps": [name for name, row in (record.get("by_step") or {}).items()
-                                   if row.get("reward") == 1.0],
-                "trap_bites": bites_mod.summary_line(draft_spec(), record),
-                "hardness_gate": difficulty_gate.creation_status(draft_spec(), bundle)["missing"],
-                "how_to_read": "For each failing check decide: TRAP (the solver adopted the misreading the task is "
-                               "built on; record it in quality.difficulty_case) or OVER-FIT (the solver's fix is "
-                               "correct under the instruction and the test asserts your reference's convention; "
-                               "rewrite the test to observe behaviour). Inspect step diagnostics and completeness; "
-                               "a truncated probe is not a capability failure, and one pass cannot establish an easy task."}
+        draft_sha = hashlib.sha256(json.dumps(draft_spec(), sort_keys=True).encode()).hexdigest()
+        numbers = {}
+        with budget_lock:
+            if MAX_BLIND_SOLVES_PER_SESSION - blind_n["n"] < len(families):
+                return {"error": "another blind solve in this turn took the remaining budget"}
+            for family in families:
+                blind_n["n"] += 1
+                numbers[family] = blind_n["n"]
+        started = time.monotonic()
+        if len(families) == 1:
+            results = {families[0]: _solve_family(dest, families[0], numbers[families[0]], draft_sha)}
+        else:
+            with ThreadPoolExecutor(max_workers=len(families), thread_name_prefix="blind-solve") as pool:
+                futures = {family: pool.submit(_solve_family, dest, family, numbers[family], draft_sha)
+                           for family in families}
+                results = {family: future.result() for family, future in futures.items()}
+        # verification/blind-solve.json stays the newest complete record: the
+        # reviewer's staging and the release reader expect one file there.
+        (bundle / "verification").mkdir(parents=True, exist_ok=True)
+        for family in families:
+            if not results[family].get("error"):
+                shutil.copyfile(log / f"blind-solve-{numbers[family]:03d}.json", bundle / "verification/blind-solve.json")
+        remaining = MAX_BLIND_SOLVES_PER_SESSION - blind_n["n"]
+        hardness_gate = difficulty_gate.creation_status(draft_spec(), bundle)["missing"]
+        modes_seen = _blind_failure_modes()
+        how_to_read = ("For each failing check decide: TRAP (the solver adopted the misreading the task is "
+                       "built on; record it in quality.difficulty_case) or OVER-FIT (the solver's fix is "
+                       "correct under the instruction and the test asserts your reference's convention; "
+                       "rewrite the test to observe behaviour). Inspect step diagnostics and completeness; "
+                       "a truncated probe is not a capability failure, and one pass cannot establish an easy task.")
+        if len(families) == 1:
+            return {**results[families[0]], "remaining": remaining, "hardness_gate": hardness_gate,
+                    "failure_modes": modes_seen, "how_to_read": how_to_read}
+        return {"families": results, "remaining": remaining, "seconds": round(time.monotonic() - started, 1),
+                "too_easy_steps": {family: result.get("too_easy_steps") or [] for family, result in results.items()},
+                "hardness_gate": hardness_gate, "failure_modes": modes_seen, "how_to_read": how_to_read}
+
+    def _blind_failure_modes() -> dict:
+        """FAILURE-MODE DIVERSITY over each family's latest graded solve of the current tests (every failed
+        check, determinate or not; the hardness gate counts determinate ones)."""
+        try:
+            spec = draft_spec()
+            current = difficulty_gate.grading_sha(spec)
+            failed = {}
+            for family in difficulty_gate.FAMILIES:
+                try:
+                    record = json.loads((bundle / f"verification/blind-solve-{family}.json").read_text())
+                except (OSError, ValueError):
+                    continue
+                if bites_mod.graded(record) and record.get("grading_sha256") == current:
+                    failed[family] = {cid for cid, ok in (record.get("checks") or {}).items() if ok is False}
+            return failure_modes.summary(spec, failed)
+        except Exception as exc:  # noqa: BLE001  advisory only
+            return {"error": f"{type(exc).__name__}: {exc}"}
 
     # -- pre-review ----------------------------------------------------------
-    pre_review_n = {"n": 0}
+    #: `n` counts the reviews spent; `artifacts` maps the identity of every
+    #: reviewed artifact (artifacts.identity of the frozen export) to its
+    #: pre-review number, so the submit preflight never spends a review on
+    #: bytes one already read.
+    pre_review_n = {"n": 0, "artifacts": {}}
 
-    def pre_review(**_):
-        """The independent reviewer over the staged draft, exactly as the gate runs it.
+    def _export_for_review() -> Path:
+        """A complete export with its provenance ledger: what the reviewer reads."""
+        from ..artifacts import atomic_json
+        from ..ledger import faithfulness
+        dest = _scratch(complete=True)
+        atomic_json(dest / "provenance/ledger.json", faithfulness.build(dest, session_id, extraction.seed_index, root))
+        return dest
 
-        Strengthens authoring without adding a blocker: the designer sees the
-        real bar before submitting, and every finding it addresses is a repair
-        round it does not spend. Costs one review per call.
+    def _run_pre_review(dest: Path, n: int, origin: str) -> dict:
+        """The independent reviewer over the export `dest`, recorded as pre-review `n`.
+
+        `origin` says who asked: the designer (pre_review) or the submit preflight.
+        Safe to run in a thread beside the controls: it reads its own export and
+        writes only under its own pre-review directory.
         """
         import os
         from contextlib import nullcontext
         from .. import review as critic
         from ..artifacts import atomic_json
         from ..config import MAX_PRE_REVIEWS_PER_SESSION
-        from ..ledger import faithfulness
-        if pre_review_n["n"] >= MAX_PRE_REVIEWS_PER_SESSION:
-            return {"error": f"pre_review budget spent ({MAX_PRE_REVIEWS_PER_SESSION} per session); "
-                             "submit_draft remains available without clean controls or a pre-review"}
-        verdict = check_spec(draft_spec())
-        if not verdict["clean"]:
-            return {"error": "the draft does not pass check_draft yet; the reviewer reads a valid package only",
-                    "problems": verdict["problems"][:12]}
-        pre_review_n["n"] += 1
-        try:
-            dest = _scratch(complete=True)
-            atomic_json(dest / "provenance/ledger.json", faithfulness.build(dest, session_id, extraction.seed_index, root))
-        except Exception as exc:  # noqa: BLE001
-            return {"error": f"the draft could not be packaged for review: {type(exc).__name__}: {exc}"[:2000]}
         producer = MODEL
         # ARENA_PRE_REVIEW_MODEL moves only this advisory pass (about three in four
         # reviews) to another OpenAI model's rate bucket: on 2026-10-04 gpt-6-astra's
@@ -1736,7 +2006,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         # The scratch export is pruned after three more exports; keep what a
         # later reader needs to compare pre-reviews: the checks, the suite
         # hashes, the instruction hashes and the reviewer's deliverable.
-        keep = log / f"pre-review-{pre_review_n['n']:03d}"
+        keep = log / f"pre-review-{n:03d}"
         keep.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copyfile(dest / "tests/checks.json", keep / "checks.json")
@@ -1749,10 +2019,14 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             atomic_json(keep / "package-hashes.json", hashes)
         except OSError:
             pass
-        record = {"schema": "arena-coding/pre-review/1", "n": pre_review_n["n"], "model": model,
-                  "verdict": doc.get("verdict"), "findings": findings, "harness_problems": harness,
-                  "review_dir": str(dest.relative_to(bundle)), "kept": str(keep.relative_to(bundle))}
-        atomic_json(log / f"pre-review-{pre_review_n['n']:03d}.json", record)
+        artifact = report.get("artifact_sha256")
+        if artifact:
+            pre_review_n["artifacts"][artifact] = n
+        record = {"schema": "arena-coding/pre-review/1", "n": n, "origin": origin, "model": model,
+                  "artifact_sha256": artifact, "verdict": doc.get("verdict"), "findings": findings,
+                  "harness_problems": harness, "review_dir": str(dest.relative_to(bundle)),
+                  "kept": str(keep.relative_to(bundle))}
+        atomic_json(log / f"pre-review-{n:03d}.json", record)
         return {"verdict": doc.get("verdict"), "findings": findings, "harness_problems": harness,
                 "difficulty_assessment": doc.get("difficulty_assessment"),
                 "novelty_assessment": doc.get("novelty_assessment"),
@@ -1760,6 +2034,103 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 "note": "Address every finding in the tests or the instruction, then pre_review again if the tests "
                         "changed. The gate runs its own review after submission; a finding you leave is a repair "
                         "round you will spend."}
+
+    def pre_review(**_):
+        """The independent reviewer over the staged draft, exactly as the gate runs it.
+
+        Strengthens authoring without adding a blocker: the designer sees the
+        real bar before submitting, and every finding it addresses is a repair
+        round it does not spend. Costs one review per call.
+        """
+        from ..config import MAX_PRE_REVIEWS_PER_SESSION
+        reserved = policy.SUBMIT_PREFLIGHT_RESERVED_REVIEWS if policy.SUBMIT_PREFLIGHT_REVIEW else 0
+        yours = min(policy.REVISION_PRE_REVIEWS, MAX_PRE_REVIEWS_PER_SESSION - reserved) if revision \
+            else MAX_PRE_REVIEWS_PER_SESSION - reserved
+        if pre_review_n["n"] >= yours:
+            return {"error": f"pre_review budget spent ({yours} {'in a repair session' if revision else 'of'} "
+                             f"{'' if revision else str(MAX_PRE_REVIEWS_PER_SESSION) + ' per session'} are yours; "
+                             f"the last {reserved} is reserved for the submit preflight, which reviews exactly what "
+                             "you submit); submit_draft remains available without clean controls or a pre-review"}
+        verdict = check_spec(draft_spec())
+        if not verdict["clean"]:
+            return {"error": "the draft does not pass check_draft yet; the reviewer reads a valid package only",
+                    "problems": verdict["problems"][:12]}
+        with budget_lock:
+            pre_review_n["n"] += 1
+        try:
+            dest = _export_for_review()
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"the draft could not be packaged for review: {type(exc).__name__}: {exc}"[:2000]}
+        return _run_pre_review(dest, pre_review_n["n"], "designer")
+
+    def submit_preflight_review(spec: dict) -> list[str]:
+        """The reserved review alone, at a later submission, when the first preflight's
+        static problems kept it from running (policy.SUBMIT_PREFLIGHT_RESERVED_REVIEWS)."""
+        checked = check_spec(spec)
+        problems = [f"static: {p}" for p in checked.get("problems") or []]
+        if problems or not policy.SUBMIT_PREFLIGHT_REVIEW:
+            return problems
+        return _preflight_review_problems(_start_preflight_review())
+
+    def _start_preflight_review() -> dict:
+        """Export the submitted draft for the reviewer and start the review in a thread.
+
+        Skipped, with the reason recorded, when the session's pre-review budget
+        is spent or a pre-review already read this exact artifact (the designer
+        ran pre_review and changed nothing the reviewer sees since). The export
+        happens here, on the calling thread, so the scratch counter is never
+        touched from two threads.
+        """
+        from ..artifacts import atomic_json, identity
+        from ..config import MAX_PRE_REVIEWS_PER_SESSION
+        started: dict = {"schema": "arena-coding/preflight-review/1", "n": None, "skipped": None}
+        if pre_review_n["n"] >= MAX_PRE_REVIEWS_PER_SESSION:
+            started["skipped"] = f"pre_review budget spent ({MAX_PRE_REVIEWS_PER_SESSION} per session)"
+        else:
+            try:
+                dest = _export_for_review()
+                artifact = identity(dest)
+            except Exception as exc:  # noqa: BLE001
+                started["skipped"] = f"the draft could not be packaged for review: {type(exc).__name__}: {exc}"[:400]
+            else:
+                earlier = pre_review_n["artifacts"].get(artifact)
+                if earlier:
+                    started["skipped"] = f"pre-review {earlier:03d} already read this exact artifact"
+                else:
+                    pre_review_n["n"] += 1
+                    started["n"] = pre_review_n["n"]
+                    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preflight-review")
+                    started["pool"] = pool
+                    started["future"] = pool.submit(_run_pre_review, dest, started["n"], "preflight")
+        atomic_json(log / "preflight-review.json", {k: v for k, v in started.items() if k not in ("future", "pool")})
+        return started
+
+    def _preflight_review_problems(started: dict) -> list[str]:
+        """The findings the gate's review would raise, once the review thread has finished.
+
+        A review that could not run is recorded and never holds the submission;
+        a pass holds nothing; a revision holds it once, like a control failure.
+        """
+        from ..artifacts import atomic_json
+        if "future" not in started:
+            return []
+        result = started["future"].result()
+        started["pool"].shutdown()
+        summary = {k: v for k, v in started.items() if k not in ("future", "pool")}
+        summary.update({"verdict": result.get("verdict"), "error": result.get("error"),
+                        "findings": len(result.get("findings") or []),
+                        "harness_problems": len(result.get("harness_problems") or [])})
+        atomic_json(log / "preflight-review.json", summary)
+        if result.get("error"):
+            return []
+        problems: list[str] = []
+        if result.get("verdict") != "pass":
+            problems += [f"review ({result.get('verdict')}): {f.get('id')}: {f.get('reason')}"
+                         for f in result.get("findings") or []]
+            if not problems:
+                problems.append(f"review ({result.get('verdict')}): the reviewer requested revision")
+        problems += [f"review harness: {p}" for p in result.get("harness_problems") or []]
+        return problems
 
     # -- validation ----------------------------------------------------------
     def check_spec(spec: dict, **_):
@@ -1800,6 +2171,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             advisories += trap_research.advisories(spec, bundle)
             advisories += bites_mod.advisories(spec, bundle)
             advisories += bites_mod.announcement_advisories(spec)
+            advisories += failure_modes.advisories(spec)
         except Exception as exc:  # noqa: BLE001  advisories never block
             advisories.append(f"ADVISORY suite load scan unavailable: {type(exc).__name__}: {exc}")
         try:
@@ -1863,8 +2235,19 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                                                      if t in graded and not any(r.values()))}
         except Exception as exc:  # noqa: BLE001  advisory only
             trap_bites = {"error": f"{type(exc).__name__}: {exc}"}
+        try:
+            # FAILURE-MODE DIVERSITY: a mode defeats a model when 2+ of its episodes fail a check of it.
+            spec_now = draft_spec()
+            by_mode = failure_modes.regrade_modes(spec_now, summary)
+            modes_seen = {**failure_modes.summary(spec_now, {}), "biting": {m: sorted(v) for m, v in by_mode.items()},
+                          "shared": sorted(set.intersection(*by_mode.values())) if len(by_mode) >= 2 else [],
+                          "missing": failure_modes.planted_missing(spec_now) + failure_modes.biting_missing(
+                              spec_now, by_mode, where="re-graded episodes")}
+        except Exception as exc:  # noqa: BLE001  advisory only
+            modes_seen = {"error": f"{type(exc).__name__}: {exc}"}
         return {"in_sample": True, "provisional_meets_bar": summary["provisional_meets_bar"],
                 "by_model": summary["by_model"], "problems": summary["problems"][:20], "trap_bites": trap_bites,
+                "failure_modes": modes_seen,
                 "note": "provisional: these trees were in view when the cases were chosen; only a fresh screen counts"}
 
     def read_episode(model: str, index: int, path: str | None = None, offset: int = 0, **_):
@@ -2021,6 +2404,7 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             "retain_draft": retain_draft, "creation_status": creation_status,
             "check_spec": check_spec, "check_draft": lambda **_: check_spec(draft_spec()),
             "submit_check": submit_check, "submit_preflight": submit_preflight,
+            "submit_preflight_review": submit_preflight_review, "run_probes": run_probes,
             "research_traps": trap_research.make_tool(bundle)}
 
 
@@ -2332,7 +2716,8 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     level = row.get("authoring_target_level") or target_level(row.get("category")) or row.get("target_level")
     if level == "F3" and not policy.HARDENING_PRESERVE_LEVEL:
         level = "F2"  # Source category stays intact; the ledger measures the final level.
-    handlers = _handlers(bundle, extraction, trace, log / "draft.json", level=level, row=row, log=log)
+    handlers = _handlers(bundle, extraction, trace, log / "draft.json", level=level, row=row, log=log,
+                         revision=revision)
     if revision and initial_spec is not None:
         handlers["check_draft"] = _with_revision_invariants(handlers["check_draft"], copy.deepcopy(initial_spec),
                                                             log / "draft.json")
@@ -2342,8 +2727,28 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     opening = _opening(row, extraction, bundle, level, trace)
     if level in TRAP_POLICY:
         opening += "\n\n" + TRAP_POLICY[level]
-    research_floor = 0 if revision else policy.MIN_RESEARCHED_TRAPS
-    trap_research.begin(bundle, research_floor)
+    # A hardening round (harden / extend / fast) researches NEW traps too (user, 2026-10-28: "add a lot of
+    # diverse trap modes using web search and thorough research"); the traps it started with never count.
+    hardening_round = bool(revision and row.get("_harden_kind") not in (None, "repair"))
+    research_floor = (policy.MIN_RESEARCHED_TRAPS if not revision
+                      else policy.MIN_RESEARCHED_TRAPS_HARDENING if hardening_round else 0)
+    # The trace origin from the FIRST design (user, 2026-10-28): capped by the moments the trace actually holds
+    # -- corrections the user wrote and failed tool calls -- so a quiet trace is never asked for invented ones.
+    if not revision:
+        try:
+            material = sum(1 for m in extraction.moments if str(m.get("user") or "").strip())
+            material += len(failures_digest(trace, extraction.session_id, getattr(extraction, "source_root", None),
+                                            getattr(extraction, "span", None)).get("failures") or [])
+        except Exception:  # noqa: BLE001  a digest that cannot be read asks for nothing
+            material = 0
+        trace_floor = min(policy.MIN_TRACE_TRAPS_AT_CREATION, material)
+    else:
+        trace_floor = policy.MIN_TRACE_TRAPS_HARDENING if hardening_round else 0
+    trap_research.begin(bundle, research_floor,
+                        baseline=[t.get("id") for t in (initial_spec or {}).get("traps") or []
+                                  if isinstance(t, dict) and t.get("id")] if revision else None,
+                        trace_required=trace_floor)
+    creation.record_requested(bundle, list(row.get("_requested_traps") or []) if hardening_round else [])
     # Creation never needs Docker: the gate waives itself when a blind solve finds no sandbox. It arms for
     # fresh designs and hardening rounds; a validity repair or a review repair fixes findings and is not
     # pushed toward stricter tests.
@@ -2371,7 +2776,9 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                    "or replace it with write_fixture_file using placeholder values.\n\n" + opening)
     messages: list[dict[str, Any]] = [{"role": "user", "content": opening}]
     request_config = {"model": MODEL, "effort": ARENA_EFFORT, "max_steps": max_steps, "max_tokens": 48000,
-                      "tools": tools, "system": SYSTEM}
+                      "tools": tools, "system": SYSTEM,
+                      "context_editing": _context_edits() if policy.DESIGNER_CONTEXT_EDITING else None,
+                      "cache_ttl": policy.DESIGNER_CACHE_TTL}
     if retained:
         original = retained["config"]
         retired = [tool["name"] for tool in original.get("tools") or []
@@ -2380,7 +2787,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         comparable = dict(original, tools=[tool for tool in original.get("tools") or []
                                            if not (isinstance(tool, dict) and tool.get("name") in retired)])
         changed = sorted(key for key, value in request_config.items()
-                         if key != "max_steps" and comparable.get(key) != value)
+                         if key not in ("max_steps", "context_editing", "cache_ttl") and comparable.get(key) != value)
         if changed:
             atomic_json(log / "continuation-invalidated.json", {
                 "from": resume_session, "changed": changed, "remaining_steps": max_steps,
@@ -2396,6 +2803,8 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                 updates.append(("THE BITE AUDIT", BITE_AUDIT))
             if gate_mode == "creation":
                 updates.append(("THE HARDNESS GATE IS BINDING", HARDNESS_GATE))
+            if gate_mode:
+                updates.append(("FAILURE-MODE DIVERSITY IS MEASURED", FAILURE_MODES))
             if added := _resume_guidance(messages, updates):
                 atomic_json(log / "resume-guidance.json", {"appended": added})
         atomic_json(log / "continuation.json", resume_session)
@@ -2404,9 +2813,11 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     checked_clean = False
     consecutive_errors = 0
     accepted_submissions = 0
+    idle_hold: dict = {}
     import sys as _sys
     preflight_pending = bool(policy.SUBMIT_PREFLIGHT and "submit_preflight" in handlers and (
         "unittest" not in _sys.modules or os.environ.get("ARENA_TEST_SUBMIT_PREFLIGHT") == "1"))
+    review_pending = preflight_pending and bool(policy.SUBMIT_PREFLIGHT_REVIEW)
 
     def prepare(spec):
         spec = copy.deepcopy(spec)
@@ -2445,24 +2856,35 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         progress.author_boundary(bundle, log, stage="stalled")
         raise AuthoringStalled(report)
 
+    last_prompt_tokens = None
     for step in range(max_steps):
         if step == max_steps - 3:
             messages.append({"role": "user", "content": "Three response turns remain. Prioritize writing the "
                              "remaining task components and submit your strongest candidate even if checks or "
                              "controls have not passed. Validation runs after submission. Preserve completed "
                              "work; unfinished work will be recorded as unfinished."})
-        fit_context(messages)            # each shortened result carries its own note
+        fit_context(messages, last_prompt_tokens)   # each shortened result carries its own note
         atomic_json(log / "conversation.json", messages)
         progress.author_boundary(bundle, log)
         body = {"model": MODEL, "max_tokens": 48000, "system": SYSTEM, "output_config": {"effort": ARENA_EFFORT},
                 "tools": tools, "messages": messages}
+        if policy.DESIGNER_CONTEXT_EDITING:
+            # Server-side clearing of old thinking and old tool uses from
+            # what the model reads; `messages` and the stored conversation
+            # keep every block, and the evidence tools are never cleared.
+            body["context_management"] = {"edits": _context_edits()}
+            body["betas"] = [CONTEXT_EDITING_BETA]
         # The markers go on a per-request copy; `body`, `messages` and the
         # stored conversation stay unmarked (see `with_cache_breakpoints`).
+        request = with_cache_breakpoints(body, ttl=policy.DESIGNER_CACHE_TTL)
         if budget is not None:
             with budget:
-                response = call_with_retained_submit(_designer_call, with_cache_breakpoints(body), handlers, max_steps=max_steps)
+                response = call_with_retained_submit(_designer_call, request, handlers, max_steps=max_steps)
         else:
-            response = call_with_retained_submit(_designer_call, with_cache_breakpoints(body), handlers, max_steps=max_steps)
+            response = call_with_retained_submit(_designer_call, request, handlers, max_steps=max_steps)
+        usage = response.get("usage") or {}
+        last_prompt_tokens = sum(int(usage.get(k) or 0) for k in
+                                 ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
         progress.update(bundle, stage="authoring-tools")
         atomic_json(log / f"response-{step + 1:03d}.json", response)
         if response.get("stop_reason") == "max_tokens":
@@ -2507,6 +2929,11 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                     from .. import release_blockers
                     release_blockers.waive(bundle, f"turn budget: {max_steps - (step + 1)} turns left")
                 status = creation.inventory(spec, bundle)
+                conceded = idle_concession(idle_hold, spec, status["missing_components"])
+                if conceded:
+                    difficulty_gate.waive(bundle, f"conceded: the same measured draft was submitted "
+                                                  f"{idle_hold['n']} times in a row with the same hardness gaps")
+                    status = creation.inventory(spec, bundle)
                 atomic_json(log / "submissions" / f"{step + 1:03d}.json", spec)
                 atomic_json(log / "submissions" / f"{step + 1:03d}-creation.json", status)
                 messages.append({"role": "assistant", "content": blocks})
@@ -2515,6 +2942,16 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                     "next": "Write the missing components with stage_spec and fixture tools, then submit again. "
                             "No quality check, control or difficulty result is required." if not status["components_present"]
                             else "All authored components are present; validation is next."}
+                if conceded:
+                    acknowledgement["hardness_gate_hold"] = ("conceded and recorded: the hardness gate is waived for "
+                                                             "this session; its measured gaps stay on record")
+                elif idle_hold.get("n"):
+                    acknowledgement["hardness_gate_hold"] = (
+                        f"identical held submission {idle_hold['n']} of {policy.HARDNESS_GATE_IDLE_SUBMITS}: resubmitting "
+                        "an unchanged draft changes nothing. Strengthen the tests (THE DIVERGENCE HUNT, a new mode on "
+                        "another published clause) and measure again; if nothing the instruction settles can defeat "
+                        f"these models, {policy.HARDNESS_GATE_IDLE_SUBMITS} identical submissions in a row record a "
+                        "concession and the gate waives.")
                 findings: list[str] = []
                 if (preflight_pending and status["components_present"] and emit["name"] == "submit_draft"
                         and step < max_steps - policy.SUBMIT_PREFLIGHT_RESERVE_STEPS):
@@ -2525,13 +2962,37 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
                         findings = []
                         acknowledgement["preflight_error"] = f"{type(exc).__name__}: {exc}"[:400]
                     atomic_json(log / "submissions" / f"{step + 1:03d}-preflight.json", {"problems": findings})
+                    # The reserved review reads a draft only once its static checks are
+                    # clean; when they were not, the next submission gets it alone.
+                    review_pending = review_pending and any(str(f).startswith("static: ") for f in findings)
                     if findings:
                         acknowledgement.update({
                             "preflight": findings[:40],
                             "next": "SAVED -- and the one-time submit preflight found problems validation will "
-                                    "reject (static validation and the executed controls). Fix them now with the "
-                                    "same tools, re-run run_controls, then call submit_draft again; the next "
-                                    "submission finishes this session whatever it shows."})
+                                    "reject (static validation, the full executed controls and the independent "
+                                    "review's findings). Fix them now with the same tools, re-run run_controls, "
+                                    "then call submit_draft again; the next submission finishes this session "
+                                    "whatever it shows."})
+                elif (review_pending and status["components_present"] and emit["name"] == "submit_draft"
+                        and "submit_preflight_review" in handlers and not (log / "preflight-review.json").is_file()
+                        and step < max_steps - policy.SUBMIT_PREFLIGHT_RESERVE_STEPS):
+                    # The first preflight's static problems kept the reserved review
+                    # from reading the draft; this submission gets it alone.
+                    review_pending = False
+                    try:
+                        findings = handlers["submit_preflight_review"](spec)
+                    except Exception as exc:  # noqa: BLE001  never blocks a submission
+                        findings = []
+                        acknowledgement["preflight_error"] = f"{type(exc).__name__}: {exc}"[:400]
+                    atomic_json(log / "submissions" / f"{step + 1:03d}-preflight.json",
+                                {"problems": findings, "review_only": True})
+                    if findings:
+                        acknowledgement.update({
+                            "preflight": findings[:40],
+                            "next": "SAVED -- and the submit preflight's reserved review of exactly this draft "
+                                    "found what the gate's review will raise. Fix them now with the same tools, "
+                                    "then call submit_draft again; the next submission finishes this session "
+                                    "whatever it shows."})
                 messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": emit["id"],
                     "content": json.dumps(acknowledgement)}]})
                 if not findings and (status["components_present"] or emit["name"] == "reject_seed"
@@ -2551,12 +3012,25 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
             continue
         results = []
         turn_failed = True
-        for call in calls:
+
+        def execute(call):
             fn = handlers.get(call["name"])
             try:
-                out = fn(**call["input"]) if fn else {"error": "no such tool"}
+                return fn(**call["input"]) if fn else {"error": "no such tool"}
             except Exception as exc:  # noqa: BLE001
-                out = {"error": f"{type(exc).__name__}: {exc}"}
+                return {"error": f"{type(exc).__name__}: {exc}"}
+
+        if (policy.DESIGNER_CONCURRENT_TOOLS and len(calls) > 1
+                and all(call["name"] in CONCURRENT_TOOLS for call in calls)):
+            # Long tools asked for together run together (2026-10-27: a turn asking
+            # for run_controls and blind_solve took 10 minutes in sequence). Results
+            # keep the order the model asked in; a turn that writes the draft or
+            # the fixture is executed in sequence as before.
+            with ThreadPoolExecutor(max_workers=len(calls), thread_name_prefix="designer-tool") as pool:
+                outputs = list(pool.map(execute, calls))
+        else:
+            outputs = [execute(call) for call in calls]
+        for call, out in zip(calls, outputs):
             failed = isinstance(out, dict) and bool(out.get("error"))
             turn_failed = turn_failed and failed
             if call["name"] in {"check_draft", "check_spec"} and isinstance(out, dict) and out.get("clean"):

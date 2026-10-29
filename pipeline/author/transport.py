@@ -207,8 +207,27 @@ def _consume_stream(resp, deadline: float | None = None, progress=None) -> dict:
             return message
     raise _StreamInterrupted('Anthropic stream ended without message_stop')
 
+def _beta_header(headers: dict, betas) -> dict:
+    """`headers` with the request's `betas` merged into `anthropic-beta`.
+
+    A body key `betas` (a list of beta names) is lifted into the header here
+    and never sent in the JSON body; an existing header value is kept and
+    duplicates collapse.
+    """
+    if betas is None:
+        return headers
+    if not isinstance(betas, list) or not all(isinstance(b, str) and b for b in betas):
+        raise ValueError("betas must be a list of non-empty strings")
+    merged = [value for value in (headers.get("anthropic-beta") or "").split(",") if value]
+    for beta in betas:
+        if beta not in merged:
+            merged.append(beta)
+    return {**headers, "anthropic-beta": ",".join(merged)} if merged else headers
+
+
 def _call(body: dict, retries: int = 5) -> dict:
     body = {**body, "stream": True}
+    betas = body.pop("betas", None)
     data = json.dumps(body).encode()
     last: Exception | None = None
     observe = _transport_observer()
@@ -222,9 +241,9 @@ def _call(body: dict, retries: int = 5) -> dict:
         remaining = left()
         if remaining is not None and remaining <= 0:
             raise _CallTimeout('Anthropic call exceeded its deadline across attempts')
-        req = urllib.request.Request(API_URL, data=data, method="POST", headers={
+        req = urllib.request.Request(API_URL, data=data, method="POST", headers=_beta_header({
             "anthropic-version": "2023-06-01",
-            "content-type": "application/json", **_auth_headers()})
+            "content-type": "application/json", **_auth_headers()}, betas))
         try:
             observe('request-start', attempt=attempt + 1)
             with request_slot():

@@ -254,7 +254,7 @@ class BaselineDifficultyLoop(unittest.TestCase):
         self.assertIn("determinacy_probe", a.DIFFICULTY_LOOP)
         self.assertGreaterEqual(a._blind_budget(), policy.BASELINE_BLIND_SOLVES)
         spec = next(t for t in a._tools(0) if t["name"] == "blind_solve")
-        self.assertEqual(set(spec["input_schema"]["properties"]["model"]["enum"]), {"astra", "fable"})
+        self.assertEqual(set(spec["input_schema"]["properties"]["model"]["enum"]), {"both", "astra", "fable"})
 
     def test_families_map_to_the_calibration_models(self):
         from pipeline import policy

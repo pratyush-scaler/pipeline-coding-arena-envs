@@ -125,6 +125,7 @@ def read(path: Path, inputs: dict, labels, steps: list, checks: dict) -> dict:
             or receipt.get("steps") != steps
             or receipt.get("ok") is not True or receipt.get("errors") != []
             or receipt.get("execution", {}).get("reused") is not False
+            or receipt.get("execution", {}).get("mode", "full") != "full"
             or receipt.get("execution", {}).get("executed_new_trials") != len(records)
             or receipt.get("policy", {}).get("determinism_runs") != old["determinism_runs"]
             or set(records) != set(labels)):

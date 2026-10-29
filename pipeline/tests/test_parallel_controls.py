@@ -124,9 +124,9 @@ class ParallelControls(unittest.TestCase):
         self.assertFalse((self.bundle / controls.RECEIPT).exists())
 
     def test_unbounded_or_invalid_concurrency_is_refused_before_execution(self):
-        for workers in (0, 5, True, "2"):
+        for workers in (0, 9, True, "2"):
             with self.subTest(workers=workers), patch.object(sandbox, "verify") as verify:
-                with self.assertRaisesRegex(ValueError, "workers must be 1..4"):
+                with self.assertRaisesRegex(ValueError, "workers must be 1..8"):
                     controls.run(self.bundle, workers=workers)
                 verify.assert_not_called()
 

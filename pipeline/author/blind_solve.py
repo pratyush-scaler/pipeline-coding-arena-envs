@@ -126,9 +126,26 @@ class SandboxTools:
         host_dir = Path(host_dir)
         self.container.capture("/tmp/d", ["blind.patch"], [], host_dir)
         patch = (host_dir / "blind.patch").read_text(encoding="utf-8", errors="replace") if (host_dir / "blind.patch").is_file() else ""
-        if patch.strip() and not patch.lstrip().startswith(("diff ", "--- ")):
+        if not looks_like_unified_diff(patch):
             raise ValueError("the captured diff does not start like a unified diff; refusing to grade a partial patch")
         return patch
+
+
+#: Lines `diff -ruN` writes before the first hunk when the solver touched a
+#: binary or added a file the exclusions hide: they are not a sign of a patch
+#: captured mid-hunk. 2026-10-26: a docx-generator task's solvers regenerated
+#: the .docx and .png outputs, every capture began "Binary files a/... differ",
+#: and both families' first solves were refused and their budget spent.
+_DIFF_PREAMBLE = ("Binary files ", "Only in ", "File ")
+
+
+def looks_like_unified_diff(patch: str) -> bool:
+    """An empty capture, or one whose first real line opens a unified diff."""
+    for line in patch.splitlines():
+        if not line.strip() or line.startswith(_DIFF_PREAMBLE):
+            continue
+        return line.startswith(("diff ", "--- "))
+    return True
 
 
 class CapturedVariant(sandbox.Variant):

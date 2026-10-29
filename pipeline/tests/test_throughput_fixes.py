@@ -165,15 +165,40 @@ class SandboxImagePresence(unittest.TestCase):
 
 
 class ControlWorkers(unittest.TestCase):
-    def test_the_environment_sets_the_default(self):
+    """2026-10-26: the count is derived from the machine unless the environment sets it."""
+
+    def machine(self, cores, mem_gb, load):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(patch.dict("os.environ", {"ARENA_CONTROL_WORKERS": ""}))
+        stack.enter_context(patch.object(controls.os, "cpu_count", return_value=cores))
+        stack.enter_context(patch.object(controls, "_memory_gb", return_value=mem_gb))
+        stack.enter_context(patch.object(controls.os, "getloadavg", return_value=(load, load, load)))
+        return stack
+
+    def test_the_environment_sets_the_default_within_the_cap(self):
         with patch.dict("os.environ", {"ARENA_CONTROL_WORKERS": "3"}):
             self.assertEqual(controls.default_workers(), 3)
-        with patch.dict("os.environ", {"ARENA_CONTROL_WORKERS": "lots"}):
+        with patch.dict("os.environ", {"ARENA_CONTROL_WORKERS": "40"}):
+            self.assertEqual(controls.default_workers(), policy.MAX_CONTROL_WORKERS)
+        with patch.dict("os.environ", {"ARENA_CONTROL_WORKERS": "lots"}), self.machine(4, 8, 0.0):
             self.assertEqual(controls.default_workers(), 1)
 
-    def test_coder_runs_ask_for_three(self):
+    def test_the_machine_derives_the_default(self):
+        with self.machine(32, 128, 2.0):
+            self.assertEqual(controls.default_workers(), 8)       # cores / 4, under the cap
+        with self.machine(32, 40, 2.0):
+            self.assertEqual(controls.default_workers(), 4)       # RAM / 9 GB binds
+        with self.machine(32, 128, 30.0):
+            self.assertEqual(controls.default_workers(), 4)       # halved above 85% load
+        with self.machine(4, 8, 0.0):
+            self.assertEqual(controls.default_workers(), 1)       # a laptop
+        with self.machine(64, 256, 0.0):
+            self.assertEqual(controls.default_workers(), policy.MAX_CONTROL_WORKERS)
+
+    def test_coder_runs_leave_the_count_to_the_machine(self):
         from pipeline.benchmark import coder_run
-        self.assertEqual(coder_run.DEFAULT_REMOTE_ENV["ARENA_CONTROL_WORKERS"], "3")
+        self.assertNotIn("ARENA_CONTROL_WORKERS", coder_run.DEFAULT_REMOTE_ENV)
         self.assertLessEqual(3, policy.MAX_CONTROL_WORKERS)
 
 

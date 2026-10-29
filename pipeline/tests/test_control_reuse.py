@@ -233,7 +233,7 @@ class ControlReuse(unittest.TestCase):
             source_receipt = json.loads((source / controls.RECEIPT).read_text())
             exported = self.root / "exported"
             shutil.copytree(source, exported)
-            for _ in range(3):
+            for _ in range(agent_designer.SCRATCH_KEEP):   # one more than the exports kept
                 handlers["sandbox_run"](command="true")
             self.assertFalse(source.exists())
         self.bundle = exported

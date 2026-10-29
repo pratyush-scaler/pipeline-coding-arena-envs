@@ -155,13 +155,53 @@ def steps_too_easy(record: dict) -> dict[str, list[str]] | None:
 
 def lineage_target_met(record: dict) -> bool:
     """The lineage's stopping rule: the extreme whole-task target AND every step
-    at or under the per-step bar on every model (user, 2026-10-03). A whole-task
-    zero carried by one step does not end hardening; unreadable per-step rates
-    never meet it."""
+    at or under the per-step bar on every model (user, 2026-10-03) AND, with
+    `policy.HARDENING_TARGET_NEEDS_DIVERSE_MODES`, enough different failure
+    modes defeating both models (user, 2026-10-27). A whole-task zero carried by
+    one step -- or by one mode -- does not end hardening; unreadable per-step
+    rates or failure modes never meet it."""
     if not extreme_target_met(record):
         return False
     easy = steps_too_easy(record)
-    return easy is not None and not any(easy.values())
+    if easy is None or any(easy.values()):
+        return False
+    return diverse_modes_met(record)
+
+
+def _shared_modes_required() -> int:
+    return policy.MIN_SHARED_FAILURE_MODES if policy.HARDENING_TARGET_NEEDS_DIVERSE_MODES else 0
+
+
+def obsolete_target_stop(ledger: dict) -> bool:
+    """A target-met stop judged under an older, weaker rule (a general pass@1 target, no per-step bar, or no
+    failure-mode floor): it does not certify the current goal, so the lineage reopens with every attempt kept."""
+    return (ledger.get("target_pass_at_1", 1.) > policy.EXTREME_TARGET_PASS_AT_1
+            or ledger.get("step_pass_rate_max", 1.) > policy.STEP_PASS_RATE_MAX
+            or ledger.get("shared_failure_modes_min", 0) < _shared_modes_required())
+
+
+def screen_failure_modes(record: dict) -> dict | None:
+    """The screen's failure-mode census: recorded, or computed from its per-check counts and the screened
+    bundle's spec for a screen that predates it."""
+    if record.get("failure_modes"):
+        return record["failure_modes"]
+    try:
+        from .author import failure_modes
+        spec = json.loads((Path(record["bundle_path"]) / "authoring/spec.json").read_text())
+        return failure_modes.census(spec, record.get("per_model") or {})
+    except (KeyError, OSError, ValueError, TypeError):
+        return None
+
+
+def diverse_modes_met(record: dict) -> bool:
+    """At least MIN_SHARED_FAILURE_MODES modes defeated both models, spanning MIN_SHARED_MODE_CLASSES classes."""
+    if not policy.HARDENING_TARGET_NEEDS_DIVERSE_MODES:
+        return True
+    census = screen_failure_modes(record)
+    if not census:
+        return False
+    return (len(census.get("defeated_both") or []) >= policy.MIN_SHARED_FAILURE_MODES
+            and len(census.get("defeated_both_classes") or []) >= policy.MIN_SHARED_MODE_CLASSES)
 
 
 def _step_target_text(version: Path) -> str:
@@ -806,11 +846,14 @@ def _requested_text(requested: list[str]) -> str:
                 "   every step must stay at or under the per-step bar on both models. Never drop or\n"
                 "   weaken a check.\n" + "\n".join(f"   - {fix}" for fix in fixes) + "\n\n")
     if traps:
-        items = "\n".join(f"   - {idea}" for idea in traps)
+        numbered = "\n".join(f"   [{i}] {idea}" for i, idea in enumerate(traps))
         out += ("4b. TRAPS THE OPERATOR ASKED FOR. Build each one if this source genuinely\n"
                 "   supports it, under every rule in 4 and within the budget in 5. If one\n"
                 "   cannot be made legitimate here, leave it out; never bend a rule for it.\n"
-                f"{items}\n\n")
+                "   Account for EVERY one in quality.requested_traps: {idea: <its number>, status: 'built',\n"
+                "   traps: [the trap ids]} or {idea: <its number>, status: 'declined', reason: why this\n"
+                "   source cannot support it legitimately}. creation_status lists the unaccounted ones.\n"
+                f"{numbered}\n\n")
     return out
 
 
@@ -899,6 +942,10 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         from . import learning_signal as _learning_signal
         brief += "\n" + _learning_signal.guidance() + _signal_text(measured or bundle)
         brief += _lever_text(measured or bundle, spec, row)
+        # FAILURE-MODE DIVERSITY (user, 2026-10-27): the rule, and which modes the measured version's screen
+        # shows defeating each model.
+        from .author import failure_modes as _failure_modes
+        brief += "\n\n" + _failure_modes.brief() + _failure_modes.measured_text(measured or bundle)
         if kind == "extend":
             from .author.cases import checkpoint_template
             brief += ("\nNEW CHECKPOINT LINEAGE: retain every existing step, public instruction, check and behavioral requirement. "
@@ -943,8 +990,10 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         brief = (fastharden.FAST_BRIEF + "\n" + fastharden.episode_summary(
             episodes, _screen.current(measured or bundle)) + "\n\n" + brief)
     source = spec["source"]
-    # The hardness gate arms in hardening rounds (harden, extend, fast), never in a review repair.
-    row = dict(row, _harden_kind=kind)
+    # The hardness gate arms in hardening rounds (harden, extend, fast), never in a review repair. Requested
+    # trap ideas are accounted for one by one (creation.requested_trap_gaps, user 2026-10-28).
+    row = dict(row, _harden_kind=kind,
+               _requested_traps=[r for r in requested or [] if not str(r).startswith((FIX_PREFIX, RELEASE_PREFIX))])
     revised = agent_designer.design(
         row, extract.extract(source["session_id"], source["seed_index"]), bundle,
         initial_spec=staged, feedback=[brief, *(findings or [])], revision=True, **options)
@@ -1487,7 +1536,8 @@ LEDGER = "hardened/hardening.json"
 
 #: Lineage states that end hardening for good. `open` is the only live one.
 TERMINAL = {"target-met": "a clean screen observed pass@1 <= 0.05 on each model with every step at or "
-                          "under the per-step bar (provisional)",
+                          "under the per-step bar and enough diverse failure modes defeating both models "
+                          "(provisional)",
             "exhausted": "its hardening attempts are spent",
             "no-progress": "an informative exploratory comparison showed regression on every model",
             "stopped": "a validity finding repeated or the finding set did not shrink",
@@ -1521,6 +1571,7 @@ def _save(root: Path, ledger: dict) -> None:
     from .artifacts import atomic_json
     ledger["target_pass_at_1"] = policy.EXTREME_TARGET_PASS_AT_1
     ledger["step_pass_rate_max"] = policy.STEP_PASS_RATE_MAX
+    ledger["shared_failure_modes_min"] = _shared_modes_required()
     atomic_json(Path(root) / LEDGER, ledger)
 
 
@@ -1706,9 +1757,7 @@ def run_lineage(bundle: Path, report: dict, requested: list[str], screen: bool =
             # Historical equal small screens did not establish futility.
             ledger["previous_progress_status"] = "no-progress"
             ledger["status"] = "open"
-        if ledger.get("status") == "target-met" and (
-                ledger.get("target_pass_at_1", 1.) > policy.EXTREME_TARGET_PASS_AT_1
-                or ledger.get("step_pass_rate_max", 1.) > policy.STEP_PASS_RATE_MAX):
+        if ledger.get("status") == "target-met" and obsolete_target_stop(ledger):
             # An old general-target stop, or one judged without the per-step
             # bar, does not certify the current goal.
             # Keep every spent attempt; only reconsider the obsolete stop label.

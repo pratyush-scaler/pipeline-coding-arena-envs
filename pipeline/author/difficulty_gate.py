@@ -33,7 +33,7 @@ from pathlib import Path
 
 from .. import policy
 from ..artifacts import atomic_json
-from . import bites
+from . import bites, failure_modes
 
 RECORD = "verification/difficulty-gate.json"
 LINKS = "verification/determinacy-links.json"
@@ -146,8 +146,17 @@ def creation_status(spec: dict, bundle: Path) -> dict:
     if solves and len(kinds) < policy.MIN_BINDING_BITING_TYPES:
         missing.append(f"the biting traps span {len(kinds)} type(s) {sorted(kinds)}; need "
                        f"{policy.MIN_BINDING_BITING_TYPES} (one principle learned must not pass every trap)")
+    # Failure modes (author/failure_modes.py, 2026-10-27): the labels above can be satisfied by one mistake;
+    # modes are read from the grading surface. A family's mode bites when a determinate check of it fails.
+    table = failure_modes.modes(spec)
+    missing += failure_modes.planted_missing(spec)
+    failed_sure = {family: {cid for cid, ok in (record.get("checks") or {}).items() if ok is False and cid in sure}
+                   for family, record in solves.items()}
+    mode_bites = failure_modes.biting(spec, failed_sure, table)
+    if len(solves) == len(FAMILIES):
+        missing += failure_modes.biting_missing(spec, mode_bites, table=table)
     return {"missing": missing, "biting": {f: sorted(v) for f, v in biting.items()}, "types": sorted(kinds),
-            "solved_by": sorted(solves)}
+            "solved_by": sorted(solves), "failure_modes": {f: sorted(v) for f, v in mode_bites.items()}}
 
 
 def fast_status(spec: dict, bundle: Path) -> dict:
@@ -178,7 +187,14 @@ def fast_status(spec: dict, bundle: Path) -> dict:
         if len(kinds) < policy.MIN_BINDING_BITING_TYPES:
             missing.append(f"the biting traps span {len(kinds)} type(s) {sorted(kinds)}; need "
                            f"{policy.MIN_BINDING_BITING_TYPES}")
-    return {"missing": missing}
+    # Failure modes over the re-graded episodes (author/failure_modes.py): a mode defeats a model when
+    # FAILURE_MODE_MIN_FAILING_EPISODES of its episodes fail a check of it.
+    table = failure_modes.modes(spec)
+    missing += failure_modes.planted_missing(spec)
+    mode_bites = failure_modes.regrade_modes(spec, receipt, table)
+    if len(mode_bites) >= 2:
+        missing += failure_modes.biting_missing(spec, mode_bites, where="re-graded episodes", table=table)
+    return {"missing": missing, "failure_modes": {m: sorted(v) for m, v in mode_bites.items()}}
 
 
 def requirement(spec: dict, bundle: Path) -> list[str]:

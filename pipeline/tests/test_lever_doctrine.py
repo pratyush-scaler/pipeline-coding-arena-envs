@@ -188,6 +188,10 @@ class PerStepBar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             record = self._record(tmp, {"a/fable": {"01": 0.2, "02": 0.0},
                                         "b/astra": {"01": 0.4, "02": 0.0}})
+            # and, since 2026-10-27, only when diverse failure modes defeated both models (test_failure_modes.py)
+            self.assertFalse(harden.lineage_target_met(record))
+            record["failure_modes"] = {"defeated_both": ["m1", "m2", "m3"],
+                                       "defeated_both_classes": ["scope", "representation"]}
             self.assertTrue(harden.lineage_target_met(record))
 
     def test_unreadable_rates_never_meet_it(self):

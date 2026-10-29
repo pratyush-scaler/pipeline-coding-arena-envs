@@ -422,6 +422,14 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
                  and worst < policy.CALIBRATION_TARGET_PASS_AT_1)
 
     census = _census(per_model, guard_ids)
+    # FAILURE-MODE DIVERSITY (author/failure_modes.py, 2026-10-27): which different mistakes each model paid for.
+    try:
+        from .author import failure_modes as _failure_modes
+        from .author.contracts import strict_json as _strict_json
+        failure_mode_census = _failure_modes.census(
+            _strict_json((bundle / "authoring/spec.json").read_text()), per_model)
+    except (OSError, ValueError, KeyError, TypeError):
+        failure_mode_census = None
 
     shippable = list(problems)
     if len(set(wanted)) < 2:
@@ -489,6 +497,7 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
         "extreme_confirmation": confirmation,
         "measurement_complete": measurement_complete,
         "census": census,
+        "failure_modes": failure_mode_census,
         "signal": learning_signal,
         "signal_problems": _signal.problems(learning_signal) if learning_signal else [],
         "signal_advisories": _signal.advisories(learning_signal) if learning_signal else [],
@@ -737,6 +746,7 @@ def report(records: list[dict], not_screened: list[dict] | None = None) -> dict:
                "outlook": (record.get("outlook") or {}).get("verdict"),
                "outlook_reasons": (record.get("outlook") or {}).get("reasons", []),
                "census": record.get("census"), "models": {},
+               "failure_modes": record.get("failure_modes"),
                "step_pass_rates": record.get("step_pass_rates"),
                "review_advisories": record.get("review_advisories") or []}
         for model, data in (record.get("per_model") or {}).items():
@@ -818,6 +828,8 @@ def markdown(doc: dict) -> str:
         for row in members:
             lines.append(f"- **{row['bundle']}**")
             lines += [f"  - {reason}" for reason in row["outlook_reasons"]]
+            from .author import failure_modes as _failure_modes
+            lines += [f"  - {reason}" for reason in _failure_modes.census_reasons(row)]
             lines += [f"  - reviewer difficulty advisory: {text[:240]}"
                       for text in row.get("review_advisories", [])[:3]]
         lines.append("")

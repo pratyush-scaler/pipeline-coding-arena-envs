@@ -331,6 +331,53 @@ _SUITE_SHAPES = (
                               r"[\s\S]{0,80}\.(?:match|includes)\(|inspect\.getsource", re.S),
      "regex-scans source or output bytes for structure. Behaviour, not wording, is graded; parse the output "
      "format or observe the behaviour."),
+    # The first bash RLE build (2026-10-26/27) lost six review rounds to the three
+    # shapes below, each a correct-fix false negative the reviewer named exactly.
+    ("byte-novelty", re.compile(r"read_bytes\(\)\s*!=|!=\s*[\w.]+\.read_bytes\(\)|\.digest\(\)\s*!=|"
+                                r"sha256\([^)]*\)\.hexdigest\(\)\s*!=", re.S),
+     "requires output bytes to DIFFER from a previous output as proof that work happened. A correct, "
+     "reproducible build can publish byte-identical output; observe the required stages or validate the "
+     "content instead, and keep byte comparison for what must stay unchanged."),
+    ("listing-equality", re.compile(r"(?:rglob|listdir|iterdir|scandir|glob)\([^\n]*\n(?:[^\n]*\n){0,8}?[^\n]*"
+                                    r"(?:==\s*(?:sorted|set|list)\(|set\(\w+\)\s*-\s*set\(|"
+                                    r"assert\s+(?:not\s+)?(?:extra|missing)\b)", re.S),
+     "compares a directory listing for equality with an earlier one. Stable names for generated files are "
+     "not a published rule; a correct implementation that regenerates assets under fresh names fails. Assert "
+     "the published property (no leftovers, the required files present) rather than path-set identity."),
+    ("homemade-format-reader", re.compile(r"word/document\.xml|schemas\.openxmlformats\.org/wordprocessingml|"
+                                          r"ppt/slides/|xl/worksheets/|word/media/|w:pageBreakBefore|w:numPr", re.S),
+     "reads an office document's XML itself. Every representation the format allows (page breaks, numbering, "
+     "relationships, media paths, hidden text, cropping) is then a false negative or a false positive: one "
+     "docx task's single exhaustive review found 19, all reproduced by execution (2026-10-27). Grade what a real "
+     "renderer shows (LibreOffice headless -> PDF, pdfinfo for pages, pdftotext for visible text, pdftoppm for "
+     "pictures), or the behaviour of the code that writes the document."),
+    ("forgeable-metadata", re.compile(r"st_mtime|st_ctime|st_atime|getmtime\(|getctime\(|os\.utime\(", re.S),
+     "trusts file timestamps as evidence. The code under test runs as the same user and can rewrite them "
+     "(touch, utime); a reviewer showed a one-line forgery. Judge by paths and contents the test observes "
+     "itself, never by dates."),
+    ("free-form-output-oracle", re.compile(r"\.count\(\s*['\"]\?['\"]\s*\)|['\"]\?['\"]\s+in\s+line|"
+                                           r"Counter\(\s*_?findall\(\s*r?['\"]\\d|"
+                                           r"==\s*_?\w*\(?\s*child\(|child\([^)\n]*\)\s*==|same_output\(", re.S),
+     "grades free-form console text whose format no instruction sentence fixes: a count of a mark ('?') in the "
+     "output, the multiset of numbers printed, or byte-equality of two runs' output. Each is a false negative for "
+     "a correct layout (one joint mark, w06, a card-free incident id) and a false positive for a crafted one (a "
+     "stray 'Questions?', a hex-encoded card under a mask): the cricket task's reviews found six in three rounds "
+     "(2026-10-28). Grade the published decision through return values, raised errors and state; record how it "
+     "is rendered under quality.untested_surfaces unless a sentence publishes the format."),
+    ("text-only-capture", re.compile(r"redirect_(?:stdout|stderr|out|err)\(\s*(?:io\.|_)?StringIO\(\s*\)|"
+                                     r"sys\.std(?:out|err)\s*=\s*(?:io\.|_)?StringIO\(|"
+                                     r"TextIOWrapper\(\s*(?:io\.|_)?BytesIO\(", re.S),
+     "swaps the process's stdout/stderr for an in-memory stream: io.StringIO has no .buffer and "
+     "TextIOWrapper(BytesIO()) has no fileno(), so a correct implementation that writes through "
+     "sys.stdout.buffer or os.write(sys.stdout.fileno()) crashes in the test harness, not in its own code (the "
+     "cricket task's fourth and fifth reviews, both executed: 0.45 instead of 1.0). Capture into a real "
+     "temporary file opened for text (tempfile.TemporaryFile(mode='w+', encoding='utf-8')), pytest's capfd, "
+     "or a child process."),
+    ("vocabulary", re.compile(r"re\.(?:search|match|fullmatch|findall|compile)\(\s*r?['\"][^'\"\n]*\|[^'\"\n]*\|"
+                              r"[^'\"\n]*['\"][^\n]*\n(?:[^\n]*\n){0,3}?[^\n]*assert", re.S),
+     "gates a verdict on a regex of alternative words. Unless the instruction publishes those words, a "
+     "correct text in other words fails; grade the behaviour or the structure the instruction names, or "
+     "publish the vocabulary."),
 )
 _PY_STOPWORDS = {"self", "cls", "None", "True", "False", "test", "main", "setup", "init", "data", "path", "name",
                  "value", "result", "error", "config", "run", "get", "set", "list", "dict", "str", "int"}

@@ -254,12 +254,19 @@ SCREEN_AS_BUILT = True
 #: every step either one still fully passes. GPT-6 Astra's screen episodes
 #: converge on nearly the same code (analysis/ASTRA-EPISODE-MINING.md), so one
 #: Astra blind solve is a strong preview of its five; each costs minutes.
-BASELINE_BLIND_SOLVES = 8
+#: 12 since 2026-10-28 (user: "bake in diversity from the authoring phase itself ... so we don't have to use so
+#: many attempts"): the cricket build spent its 8 before its failure modes diversified and then took five
+#: hardening rounds (~$100-165 each); a blind-solve pair costs ~$4.50.
+BASELINE_BLIND_SOLVES = 12
 
 #: The most trials one control run may execute at once (`controls.run`). Each
-#: trial is two containers capped at the toolchain's CPUs; four keeps a Coder
-#: workspace running ~24 designs inside its 32 cores.
-MAX_CONTROL_WORKERS = 4
+#: trial is two containers capped at the toolchain's CPUs. 4 until 2026-10-26:
+#: run_controls was still 26% of a session's wall clock (8.6 min a run, 3.4
+#: runs a session). `controls.default_workers` now derives the count from the
+#: machine (cores / 4, RAM / 9 GB, halved under load) up to this cap; the
+#: runs are incremental in-session, so the matrix that actually executes after
+#: an edit is small, and validation's full run binds the artifact.
+MAX_CONTROL_WORKERS = 8
 
 #: Spec, "Task-Level checks": "Report pass@1, pass@4, and average reward per
 #: task." pass@k needs at least k episodes to mean anything.
@@ -572,6 +579,24 @@ REQUIRE_MONOTONE_REPAIR = True
 #: actionable. "The task is too easy" is not repairable; "checks.json line 40
 #: omits the journaling ceiling" is.
 REQUIRE_FINDING_CITATION = True
+#: A review whose only defects are its own citations (a quote the reviewer
+#: mistyped, a passing objective quoting the hidden test instead of the fixture)
+#: is asked to re-cite from its retained conversation before a fresh review is
+#: bought (`review.recite_review`, `orchestrate._review_candidate`). 2026-10-26:
+#: the first bash RLE build's gate review was discarded for one mis-quoted check
+#: and a second full review ran (about $15 and 20 minutes); the re-cite
+#: continues the same reviewer for a few turns and keeps every verdict and
+#: reason. At most this many continuations per recorded review.
+REVIEW_RECITE_ATTEMPTS = 1
+#: Passes a finished semantic review is continued for, each looking ONLY for what the
+#: earlier passes missed (`review.sweep`). 2026-10-27: one task went through six review
+#: rounds and every round found exactly one new defect; the reviewer stops at what it
+#: noticed first. The sweep runs inside the same conversation (its prefix is cached), so a
+#: pass costs a fraction of a fresh review and the gate gets the whole list at once.
+REVIEW_SWEEP_PASSES = 1
+#: Execute every counterexample a blocking review carries (`counterexamples.run`) and attach
+#: the result to its finding: reproduced, not reproduced, or not executable.
+REVIEW_EXECUTE_COUNTEREXAMPLES = True
 
 #: User, 2026-09-25: redesign attempts a task may receive from hardening, over
 #: its WHOLE lineage (the original and every revision built from it), across
@@ -871,6 +896,58 @@ FAST_GATE_MAX_FULL_PASSES = 1
 MIN_SHARED_BITES = 2
 DIFFICULTY_GATE_RESERVE_STEPS = 30
 
+#: FAILURE-MODE DIVERSITY (user, 2026-10-27: "a lot of diverse trap modes that defeats both the models ...
+#: multiple traps belonging to a single family but also ... more diverse trap modes"; author/failure_modes.py).
+#: Measured that day on the cricket build (screen 0.0 / 0.0): every point both models lost came from ONE mode,
+#: four refusal checks quoting the same instruction sentence, while the label-based counts above saw three trap
+#: types and four decisions. A mode is computed from the grading surface: objective checks sharing a lever_plan
+#: entry, a quality.decisions entry or the same rule_quote clause are one mode; its class is its levers'
+#: catalogued family. Creation components of the hardness gate (waived with it), check_draft advisories, and the
+#: screen's census. Several traps per mode are welcome; these count modes and classes.
+#:   modes a design must plant, and the classes they span;
+MIN_PLANTED_FAILURE_MODES = 6
+MIN_PLANTED_MODE_CLASSES = 4
+#:   modes that must defeat BOTH families on the current tests (blind solves at creation, 2+ re-graded
+#:   episodes of every model in a hidden-only round), the classes those span, and modes per family;
+MIN_SHARED_FAILURE_MODES = 3
+MIN_SHARED_MODE_CLASSES = 2
+MIN_FAILURE_MODES_PER_FAMILY = 4
+#:   episodes of one model a mode must fail to count as defeating it in a re-grade or a screen (a screen
+#:   also needs SIGNAL_HARD_FAIL_RATE of the valid episodes);
+FAILURE_MODE_MIN_FAILING_EPISODES = 2
+#:   a rule_quote sentence more than this share of the objective checks quote is generic ("all of it has to
+#:   work on any card that can be right") and does not tie checks into one mode;
+FAILURE_MODE_GENERIC_CLAUSE_SHARE = 0.5
+#:   reported when one mode carries more than this share of the objective weight (check_draft) or of the
+#:   points a model lost (screen).
+FAILURE_MODE_LOSS_SHARE_MAX = 0.5
+#: A designer with nothing left to try resubmits the same measured draft until the turn budget waives the
+#: gate (cricket hardening round, 2026-10-27: 22 consecutive identical submissions). This many identical
+#: submissions in a row, held only by hardness gaps the current solves or re-grade measured (never by a missing
+#: solve), record a concession and waive the gate (`agent_designer.idle_concession`).
+HARDNESS_GATE_IDLE_SUBMITS = 3
+#: A hardening lineage meets its target only when its screen ALSO shows MIN_SHARED_FAILURE_MODES modes defeating
+#: both models across MIN_SHARED_MODE_CLASSES classes (user, 2026-10-27: "in all tasks the failure modes should be
+#: diverse"; the cricket lineage met pass@1 0.0 / 0.0 on one mode). A lineage stopped as target-met under the older
+#: rule is reopened (harden.run_lineage), every spent attempt kept.
+HARDENING_TARGET_NEEDS_DIVERSE_MODES = True
+#: TWO ORIGINS of new trap modes in a hardening round (user, 2026-10-28: "1. Extraction from source trace and
+#: 2. Web search and thorough research ... relevant to the source traces"). Creation components of the round:
+#:   NEW researched traps (research_traps, reproduced by sandbox_run) -- the traps it started with never count;
+MIN_RESEARCHED_TRAPS_HARDENING = 6
+#:   NEW trace_derived traps refined from the session's own corrections, failures and retries;
+MIN_TRACE_TRAPS_HARDENING = 3
+#:   failure modes the researched traps must drive (fresh designs and hardening rounds), so research is not
+#:   piled onto one clause.
+MIN_RESEARCHED_FAILURE_MODES = 3
+#: The trace origin at the FIRST design too (user, 2026-10-28: "bake in diversity from the authoring phase itself
+#: and add a lot of diverse traps ... from both the defined sources ... so we don't have to use so many
+#: attempts"): a fresh design plants at least this many trace_derived traps refined from the session's
+#: corrections, failed tool calls and retries -- capped by how many such moments the trace holds -- and they
+#: drive at least MIN_TRACE_FAILURE_MODES modes (hardening rounds: MIN_TRACE_TRAPS_HARDENING new ones).
+MIN_TRACE_TRAPS_AT_CREATION = 3
+MIN_TRACE_FAILURE_MODES = 2
+
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the
 #: designer, check_draft, the reviewer and hardening read; none of them blocks.
@@ -900,6 +977,99 @@ SUBMIT_PREFLIGHT = True
 #: Steps that must remain for the designer to act on preflight findings; with
 #: fewer left, submission finishes without it.
 SUBMIT_PREFLIGHT_RESERVE_STEPS = 12
+#: The preflight also runs the INDEPENDENT REVIEWER over the submitted draft,
+#: in a thread beside the full control run, when the static checks are clean,
+#: the session's pre-review budget (config.MAX_PRE_REVIEWS_PER_SESSION) is not
+#: spent and no pre-review has read this exact artifact. 38% of 597 sessions
+#: never ran a pre-review and the batch that skipped it validated 0 of 10
+#: (census 2026-10-03); run beside the controls it adds findings, not wall
+#: time (2026-10-26). The gate's own review is unchanged and still decides: a
+#: green preflight review is never reused as the gate's.
+SUBMIT_PREFLIGHT_REVIEW = True
+#: Of config.MAX_PRE_REVIEWS_PER_SESSION, this many are kept from the designer's
+#: own pre_review calls so the preflight can review EXACTLY the submitted bytes.
+#: 2026-10-26: the first bash RLE build spent all five on drafts, the gate then
+#: found an unpublished gate in the sixth version and a repair round of about an
+#: hour and a half followed. When the first submission's static problems keep the
+#: reserved review from running, the next complete submission runs it alone.
+SUBMIT_PREFLIGHT_RESERVED_REVIEWS = 1
+#: Pre-reviews a REPAIR session may call itself (plus the reserved one). A repair
+#: works from the gate review's named findings, so one check of its own fix is
+#: the point of diminishing returns; 2026-10-27 each of the first bash RLE
+#: build's two repair sessions spent all five (about $20 and 40 minutes each).
+REVISION_PRE_REVIEWS = 1
+#: Step budget of a repair session (`repair.revise`), against MAX_STEPS 240 for a
+#: first design. A repair works from named findings on a complete task; the
+#: first bash RLE build's repairs took 93, 94 and 55 requests, and each round
+#: costs a full gate afterwards.
+REVISION_MAX_STEPS = 80
+#: Long tools the designer asks for in ONE response run at the same time
+#: (`agent_designer.CONCURRENT_TOOLS`). Measured 2026-10-27 on the first bash RLE
+#: build: run_controls 44 min, pre_review 41, blind_solve 39, research_traps 19 of
+#: a 240-minute session, executed one after another even when asked together (a
+#: turn asking for controls and a blind solve took 10 minutes in sequence). A
+#: turn that writes the draft stays sequential.
+DESIGNER_CONCURRENT_TOOLS = True
+
+# ---------------------------------------------------------------------------
+# Designer cost controls (measured 2026-10-26 over 597 design sessions,
+# 38,284 requests; see the large-dump checkout's analysis/COST-TIME-PROFILE.md)
+# ---------------------------------------------------------------------------
+#: Prompt-cache lifetime of the designer's two breakpoints. The designer pauses
+#: 6-9 minutes whenever it runs run_controls, pre_review or blind_solve; the
+#: 5-minute entry expired during those pauses and the next request re-wrote the
+#: whole prefix at the write price: 3,500 full re-writes carrying 1,605M tokens,
+#: 89% of all cache-write tokens and 48% of designer spend. Expiry rate by gap
+#: since the previous request: 4% under 2 min, 66% at 5-10 min, 98% at 10-20.
+#: The 1-hour entry costs 2x base to write instead of 1.25x and removes the
+#: re-writes: about -40% on the designer bill at the measured mix. The
+#: classifier and the blind solves keep the 5-minute default -- their requests
+#: follow each other within seconds. Read by author/agent_designer.design.
+DESIGNER_CACHE_TTL = "1h"
+
+#: Server-side context editing in the design loop (Anthropic beta
+#: `context-management-2025-06-27`; `agent_designer.CONTEXT_EDITING_BETA`).
+#: Measured: the designer's own replayed thinking is 25% of every prompt (38% at
+#: p90; Opus 5.5 keeps prior thinking in context by default), its staged file
+#: payloads about a third (44% of staged keys were staged twice or more), and
+#: old sandbox output and draft re-reads most of the rest; the trace evidence is
+#: 2-4%. Clearing happens on the server, so the signed thinking blocks stay
+#: valid and the stored conversation is untouched. False sends plain requests.
+DESIGNER_CONTEXT_EDITING = True
+#: Clearing of OLD TOOL RESULTS is OFF (measured 2026-10-26 on the first bash RLE
+#: build that had it on: 31 of 179 requests re-wrote 100k-230k tokens into the
+#: 1-hour cache right after a clear -- $73 of the $91 session -- while the reads
+#: a smaller prompt saves cost $0.20 per million). Each clear invalidates the
+#: cache from the cleared block, and the oldest tool results sit near the start
+#: of the conversation, so almost everything is re-written. Thinking clearing
+#: stays on: between those clears every request wrote only its own new turn.
+#: The three thresholds below apply only when this is True.
+DESIGNER_TOOL_CLEARING = False
+#: The designer's own client-side shortening of old tool results (`agent_designer.fit_context`)
+#: runs only once the previous request's prompt reaches this many tokens. It used to fire on
+#: 1.5 MB of conversation JSON, which signed thinking and base64 evidence images reach at
+#: about 180k tokens: on 2026-10-27 it cut the first 14 tool results (the trace, the
+#: corrections, the evidence image) and the next nine requests re-wrote the whole cache
+#: (about $11 in ten minutes). Measured sessions end around 440k prompt tokens (p90 565k)
+#: without trouble, so the cut is reserved for the model's limit.
+DESIGNER_COMPACT_TOKENS = 700_000
+#: Assistant turns whose thinking stays in context; older thinking is cleared.
+#: Each clear re-writes the cache from the cleared block, i.e. the kept turns.
+DESIGNER_THINKING_KEEP_TURNS = 3
+#: Tool-result clearing starts once the prompt reaches this many input tokens ...
+DESIGNER_TOOL_CLEAR_TRIGGER_TOKENS = 150_000
+#: ... keeps the newest N tool uses whole (their inputs and results) ...
+DESIGNER_TOOL_RESULTS_KEEP = 8
+#: ... and runs only when at least this much would go, because every clear
+#: re-writes the cache from that point.
+DESIGNER_TOOL_CLEAR_AT_LEAST_TOKENS = 20_000
+#: Tools whose calls and results are never cleared: the trace's failures, the
+#: code at the defective and the accepted turns and the fixture the tests run
+#: against. What the designer wrote lives on disk (read_draft) and what it ran
+#: can be re-run; what the source says cannot.
+DESIGNER_EVIDENCE_TOOLS = ("list_corrections", "read_failures", "read_trace", "read_signals",
+                           "snapshot_boundaries", "workspace_at", "read_workspace_file", "diff_workspace",
+                           "read_fixture", "list_fixture", "materialize_fixture")
 
 #: The difficulty self-audit names the mutant that IS a strong model's
 #: first-pass patch (the red-team result); the controls execute it and it

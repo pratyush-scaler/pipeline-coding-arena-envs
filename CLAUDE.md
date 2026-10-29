@@ -98,6 +98,13 @@ the reference plus a local conftest.py, one passing test of the agent's own,
 NOTES.md and an empty __pycache__/ reads check for check as the reference on
 every step, no guardrail failing (a tree-guard's published file budget is an
 advisory). `./arena sandbox <bundle>` runs them without a model.
+The designer's in-session `run_controls` is INCREMENTAL (2026-10-26): every
+executed trial is recorded under the digest of its inputs
+(`verification/control-cache/trials/`), and a re-run executes only the trials
+an edit touched. Such a receipt is never whole-bundle evidence: the submit
+preflight and validation execute the full matrix, and `binding_problems`
+refuses an incremental receipt. Workers derive from the machine
+(`controls.default_workers`, cap `policy.MAX_CONTROL_WORKERS`).
 
 Multi-turn (2+ steps; Spec Appendix A, user 2026-10-12 "at least 3 turns"): prefix_only:<s> -- every
 earlier turn's reference and nothing new passes no objective of s · skip_prior:<s> -- s's reference on the
@@ -207,6 +214,36 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   state) and Astra's (unseen shape or identity, exact predicate, a convention),
   proved by an `m_baseline_` mutant and an `m_partial_` per lever, recorded in
   `quality.lever_plan`. Advisory everywhere; the screen measures.
+- **Diverse failure modes, read from the grading surface** (user, 2026-10-27:
+  "a lot of diverse trap modes that defeats both the models"; many traps per
+  family are fine). The cricket build screened 0.0/0.0 while every lost point
+  of both models came from ONE mode: four refusal checks quoting one sentence,
+  typed absence/temporal/numeric. `author/failure_modes.py` therefore joins
+  objective checks sharing a lever_plan entry, a quality.decisions entry or the
+  same rule_quote clause (generic sentences ignored) into one mode, classed by
+  its levers' catalogued family. The hardness gate (creation and hidden-only)
+  asks for `policy.MIN_PLANTED_FAILURE_MODES` planted modes over
+  `MIN_PLANTED_MODE_CLASSES` classes, `MIN_SHARED_FAILURE_MODES` modes
+  defeating both families over `MIN_SHARED_MODE_CLASSES` classes, and
+  `MIN_FAILURE_MODES_PER_FAMILY` per family; it waives with the gate. blind_solve,
+  regrade_episodes, check_draft, the hardening brief and the screen report
+  (`failure_modes`, loss concentration) show it. Labels alone never count.
+  A hardening lineage meets its target only with those shared modes too
+  (`policy.HARDENING_TARGET_NEEDS_DIVERSE_MODES`, `harden.lineage_target_met`);
+  a target-met stop judged without them reopens (`harden.obsolete_target_stop`).
+  A designer that resubmits one measured draft `HARDNESS_GATE_IDLE_SUBMITS`
+  times in a row, held only by measured hardness gaps, concedes and the gate
+  waives with that reason recorded (`agent_designer.idle_concession`).
+- **Two origins of new trap modes** (user, 2026-10-28). A hardening round
+  adds `policy.MIN_TRACE_TRAPS_HARDENING` NEW trace_derived traps refined from
+  the session's own corrections, failures and retries, and
+  `MIN_RESEARCHED_TRAPS_HARDENING` NEW researched traps (research_traps on the
+  trace's domain, reproduced by sandbox_run); the traps the round started with
+  never count (`trap_research.begin(baseline=...)`). Researched traps must drive
+  `MIN_RESEARCHED_FAILURE_MODES` modes (fresh designs too). Every operator
+  `--trap` idea is accounted for in `quality.requested_traps` (built with trap
+  ids, or declined with a reason): a round once built four requested decisions
+  in scratch and shipped none (`creation.requested_trap_gaps`).
 - **Difficulty mechanisms are hypotheses until measured.** Coding opportunities
   include symptom versus cause, near-equivalent live code with different
   contracts, interacting exceptions, representation collisions, action history,
@@ -219,15 +256,58 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   planted-module shortcut that 649 tests, the controls and 14 gates all passed.
   What it found generically is now enforced (tree-guard per step, mutants must
   change behaviour); what is task-specific goes back to the designer as a repair.
+  A review discarded only for its OWN citations (a mis-typed quote, a passing
+  objective quoting the hidden test) is continued, not re-bought: the same
+  reviewer re-cites from its retained conversation (`review.recite_review`,
+  `policy.REVIEW_RECITE_ATTEMPTS`, 2026-10-26) and only a continuation that
+  still cites wrongly costs a fresh review.
+  A finding that names one assertion is PATCHED, not redesigned: an operator stages
+  the edit through the designer's own tools and re-runs the post-submit chain with
+  `orchestration/patch_submit.py <bundle> <edits.json>` (spec stays the source of
+  truth; full controls, gates, then the gate's review); a repair session gets
+  `policy.REVISION_MAX_STEPS` (80) and a PATCH FIRST brief. The three shapes that
+  cost the first bash RLE build six review rounds are `check_draft` advisories now
+  (`validate._SUITE_SHAPES`): output bytes required to differ, a directory listing
+  required to match an earlier one, a verdict gated on a regex of words, file
+  timestamps as evidence (the build's own process can rewrite them).
+- **One review round, proven patches** (user, 2026-10-27: "the reviewer should flag all the
+  issues in a single round and the patch fixing tool should be able to fix it accurately").
+  The reviewer gets `suite-inventory.json` (every function, module and script of the hidden
+  suite, with the checks that reach it) and `reference/<step>/`; it must give every inventory
+  entry a verdict (`helper_audit`; a gap is a receipt defect the re-cite repairs) and every
+  finding an executable counterexample; a SWEEP continuation (`policy.REVIEW_SWEEP_PASSES`)
+  looks only for what the first pass missed. The gate runs each counterexample through the
+  shipped grader (`author/counterexamples.py`, `verification/review-counterexamples.json`)
+  and attaches reproduced / not reproduced / not executable to its finding. The patch tool
+  (`orchestration/patch_submit.py`) refuses a patch whose edits do not match once, that breaks
+  a suite's syntax or adds an authoring advisory (plan); whose new probes do not reproduce on
+  the current version (reproduce); or whose new and earlier probes do not all hold after it
+  (confirm, `authoring/patches/probes.json`); then controls, gates and the review. Designer
+  repairs have the same `run_probes` tool.
 - **The author is strengthened, never blocked** (user, 2026-09-28). `check_draft` returns
   ADVISORIES for the shapes the reviewer rejects (a test using a name only the
   reference introduces, a tree-guard budget no sentence publishes, a test trusting a
   subprocess's stdout); `pre_review` runs the real reviewer over the staged draft
-  (at most `config.MAX_PRE_REVIEWS_PER_SESSION`); a `shadow-guard` blocks only
-  planted entries that shadow the modules the tests import; `blind_solve` has a
-  different vendor's model fix the task from the instruction and repository alone
-  and grades its diff (a check it fails is a trap or an over-fit test). None of them
-  refuses a draft; the gate's own review still decides.
+  (at most `config.MAX_PRE_REVIEWS_PER_SESSION`), and the submit preflight runs
+  one itself, in a thread beside its full control run, when the submitted
+  artifact has not been pre-reviewed and budget remains
+  (`policy.SUBMIT_PREFLIGHT_REVIEW`, 2026-10-26; a revise verdict holds the
+  submission once, like a control failure); a `shadow-guard` blocks only
+  planted entries that shadow the modules the tests import; `blind_solve` has
+  BOTH calibration families fix the task from the instruction and repository
+  alone, at the same time in their own containers over one export
+  (`model='astra'|'fable'` runs one), and grades each diff (a check it fails
+  is a trap or an over-fit test). None of them refuses a draft; the gate's own
+  review still decides, and a green preflight review is never reused as the gate's.
+  Of the pre-review budget the last one is RESERVED for the submit preflight
+  (`policy.SUBMIT_PREFLIGHT_RESERVED_REVIEWS`), so the gate reads an artifact
+  reviewed exactly as submitted; when static problems kept it from running, the
+  next complete submission runs it alone. A repair session calls one pre-review of
+  its own (`policy.REVISION_PRE_REVIEWS`): it works from named findings, and each
+  repair of the first bash RLE build spent all five. Long tools the designer asks for in ONE
+  response run at the same time (`agent_designer.CONCURRENT_TOOLS`,
+  `policy.DESIGNER_CONCURRENT_TOOLS`, 2026-10-27: controls, pre-reviews, blind
+  solves and trap research were 60% of a 240-minute session, run in sequence).
   `submit_draft` saves incomplete candidates without validation or controls,
   then creation continues writing missing components within the existing budget.
   `creation_status` inventories fixture provenance, all step instructions, checks,
@@ -283,6 +363,21 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
 
 ## Gotchas
 
+- **Designer cost controls (2026-10-26, ported from the large-dump checkout)**:
+  `policy.DESIGNER_*` -- the designer's two cache breakpoints live 1 hour (the
+  5-minute entry expired during every run_controls / pre_review / blind_solve
+  pause: 48% of designer spend was re-writes), old thinking is cleared server-side
+  (tool-result clearing is OFF: on the first bash RLE build each clear re-wrote
+  100k-230k tokens into the 1-hour cache, $73 of a $91 session; the designer's own client-side
+  shortening of old results fires only at `policy.DESIGNER_COMPACT_TOKENS`, newest first, never on
+  evidence tools -- its old 1.5 MB byte trigger cut the first results at 180k tokens; beta `context-management-2025-06-27`, sent as a
+  `betas` body key the transport lifts into the header), the evidence tools
+  (`read_failures`, `read_trace`, the workspace and fixture readers) are never
+  cleared, and `stage_spec` takes `edit={old,new}` for a staged string. The
+  designer model is chosen per run with `ARENA_DESIGNER_MODEL`
+  (claude-opus-5-5 for the 2026-10-26 measurement); config.py is untouched.
+  transport.py is a harness-identity file: reviews recorded before this change
+  report `harness_stable: false`, which is expected at this batch boundary.
 - The grader's hidden-tree guard matches only ROOTED paths (`/tests/...`,
   `../tests`, `/./tests`); `pkg/tests/x.cjs` in a comment once zeroed two honest
   episodes (C-044). An agent-added `conftest.py` is deleted from every grading

@@ -76,7 +76,7 @@ AUTHORING_PYTHON = "3.12"            # .python-version: the control fingerprints
 #: pass was followed by a gate revise of the same version (2026-10-15). They now use the gate's own
 #: reviewer (agent_designer.pre_review); set ARENA_PRE_REVIEW_MODEL again if Astra's TPM saturates.
 DEFAULT_REMOTE_ENV = {"ARENA_NATIVE_BACKEND": "local", "ARENA_NATIVE_CONCURRENCY": "20",
-                      "ARENA_LOCAL_WORKERS": "1", "ARENA_CONTROL_WORKERS": "3",
+                      "ARENA_LOCAL_WORKERS": "1",
                       "ARENA_CODEX_SLOTS": "10", "ARENA_TRIAL_SLOTS": "24",
                       "PYTHONUNBUFFERED": "1"}
 

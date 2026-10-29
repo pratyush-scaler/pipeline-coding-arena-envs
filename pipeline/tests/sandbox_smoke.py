@@ -23,7 +23,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--two-steps", action="store_true", help="the two-step variant (history upload, per-step budgets)")
-    ap.add_argument("--control-workers", type=int, choices=(1, 2, 3, 4), default=1,
+    ap.add_argument("--control-workers", type=int, choices=(1, 2, 3, 4, 5, 6, 7, 8), default=1,
                     help="independent variants to execute concurrently")
     args = ap.parse_args()
     ok, why = sandbox.available()

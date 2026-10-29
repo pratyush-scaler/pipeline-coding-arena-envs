@@ -17,9 +17,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pipeline import policy
 from pipeline.author.agent_designer import (
-    CACHE_MARK, CACHEABLE_BLOCKS, design, with_cache_breakpoints)
+    CACHE_MARK, CACHEABLE_BLOCKS, CONTEXT_EDITING_BETA, design, with_cache_breakpoints)
 from pipeline.author.outcomes import SeedRejected
+from pipeline.author.prompt_cache import cache_mark
+
+#: The designer's marker: the 1-hour entry (policy.DESIGNER_CACHE_TTL).
+DESIGNER_MARK = cache_mark(policy.DESIGNER_CACHE_TTL)
 
 
 def markers(node) -> int:
@@ -167,8 +172,16 @@ class DesignLoopRequests(unittest.TestCase):
             self.assertTrue(spec["_source_capacity_report"]["validation_deferred"])
         self.assertEqual(len(sent), 2)
         for body in sent:
-            self.assertEqual(body["system"][-1]["cache_control"], CACHE_MARK)
+            self.assertEqual(body["system"][-1]["cache_control"], DESIGNER_MARK)
             self.assertLessEqual(markers(body), 4)
+            # Server-side context editing rides on every request: thinking
+            # clearing first, tool clearing with the evidence tools excluded,
+            # and the beta the transport lifts into the header.
+            self.assertEqual(body["betas"], [CONTEXT_EDITING_BETA])
+            edits = body["context_management"]["edits"]
+            expected = ["clear_thinking_20251015"] + (["clear_tool_uses_20250919"] if policy.DESIGNER_TOOL_CLEARING else [])
+            self.assertEqual([e["type"] for e in edits], expected)
+            self.assertEqual(edits[0]["keep"], {"type": "thinking_turns", "value": policy.DESIGNER_THINKING_KEEP_TURNS})
         # Request 1 carries the opening alone, a string: system marker only,
         # and the opening goes out exactly as `_opening` composed it.
         self.assertEqual(markers(sent[0]), 1)
@@ -180,7 +193,7 @@ class DesignLoopRequests(unittest.TestCase):
         self.assertEqual(len(sent[1]["messages"]), 3)
         self.assertEqual(markers(sent[1]), 2)
         self.assertEqual(sent[1]["messages"][0], sent[0]["messages"][0])
-        self.assertEqual(sent[1]["messages"][1]["content"][-1]["cache_control"], CACHE_MARK)
+        self.assertEqual(sent[1]["messages"][1]["content"][-1]["cache_control"], DESIGNER_MARK)
         self.assertIsInstance(sent[1]["messages"][2]["content"], str)
         # What the loop stores never carries a marker, so nothing accumulates
         # across turns and a retained session resumes with the same shape.
@@ -191,6 +204,35 @@ class DesignLoopRequests(unittest.TestCase):
             self.assertEqual(markers(record), 0, name)
         config = json.loads((sessions[0] / "request-config.json").read_text())
         self.assertIsInstance(config["system"], str)
+        self.assertEqual(config["cache_ttl"], policy.DESIGNER_CACHE_TTL)
+        self.assertEqual(config["context_editing"], sent[0]["context_management"]["edits"])
+
+
+class CacheLifetime(unittest.TestCase):
+    """2026-10-26: 89% of cache-write tokens were re-writes after a 5-minute expiry."""
+
+    def test_a_ttl_marks_both_breakpoints_and_changes_nothing_else(self):
+        body = a_body()
+        cached = with_cache_breakpoints(body, ttl="1h")
+        self.assertEqual(cached["system"][-1]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
+        self.assertEqual(cached["messages"][-1]["content"][-1]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
+        self.assertEqual(markers(cached), 2)
+        self.assertEqual(rendered(cached), rendered(body))
+        self.assertEqual(markers(body), 0)
+
+    def test_the_default_stays_the_five_minute_entry(self):
+        self.assertEqual(cache_mark(), CACHE_MARK)
+        self.assertEqual(cache_mark("5m"), {"type": "ephemeral", "ttl": "5m"})
+        self.assertEqual(with_cache_breakpoints(a_body())["system"][-1]["cache_control"], CACHE_MARK)
+
+    def test_an_unknown_lifetime_is_refused(self):
+        for ttl in ("2h", "", 60, "1H"):
+            with self.subTest(ttl=ttl), self.assertRaises(ValueError):
+                with_cache_breakpoints(a_body(), ttl=ttl)
+
+    def test_the_designer_uses_the_policy_lifetime(self):
+        self.assertEqual(policy.DESIGNER_CACHE_TTL, "1h")
+        self.assertEqual(DESIGNER_MARK, {"type": "ephemeral", "ttl": "1h"})
 
 
 if __name__ == "__main__":

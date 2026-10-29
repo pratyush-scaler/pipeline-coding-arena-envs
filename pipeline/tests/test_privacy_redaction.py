@@ -159,7 +159,10 @@ class AccessRedaction(unittest.TestCase):
                  "citations": [{"file": "fixture/sample.csv", "quote": "2024-01-05,120.00,rent\n2024-01-20,35.50,groceries"}]}
                 for c in spec["checks"]], "ambiguities": [], "substantive_gaps": [], "shortcut_risks": [],
                 "privacy_findings": [], "difficulty_assessment": "Synthetic verification only; no empirical difficulty assertion.",
-                "novelty_assessment": "Synthetic verification only; no corpus novelty assertion.", "untested_surfaces": ["No calibration."]})
+                "novelty_assessment": "Synthetic verification only; no corpus novelty assertion.", "untested_surfaces": ["No calibration."],
+                # one exhaustive round (2026-10-27): every inventoried function and script gets a verdict
+                "helper_audit": [{"name": e["name"], "verdict": "pass"} for e in
+                                 json.loads((public / "suite-inventory.json").read_text())["entries"]]})
             return SimpleNamespace(error=None, stop_reason="completed", tool_calls=1), None
         with patch("pipeline.calibrate.run._rollout_for", return_value=critic), \
              patch("pipeline.corpus.review_context", return_value={"peers": []}):

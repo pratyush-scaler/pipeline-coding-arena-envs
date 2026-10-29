@@ -26,6 +26,43 @@ def _rows(value) -> list:
     return value if isinstance(value, list) else []
 
 
+REQUESTED = "verification/requested-traps.json"
+
+
+def record_requested(bundle: Path, ideas: list[str]) -> None:
+    """The operator's requested trap ideas for this session (harden --trap); [] clears them."""
+    path = Path(bundle) / REQUESTED
+    if ideas:
+        atomic_json(path, {"ideas": [str(i) for i in ideas]})
+    elif path.is_file():
+        path.unlink()
+
+
+def requested_trap_gaps(spec: dict, bundle: Path) -> list[str]:
+    """Each requested idea needs a quality.requested_traps row {idea: <index>, status: built, traps: [ids]} or
+    {idea: <index>, status: declined, reason: why the source cannot support it legitimately}."""
+    try:
+        ideas = json.loads((Path(bundle) / REQUESTED).read_text()).get("ideas") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    rows = {}
+    for row in _rows(_object(spec.get("quality")).get("requested_traps")):
+        row = _object(row)
+        if type(row.get("idea")) is int:
+            rows[row["idea"]] = row
+    trap_ids = {_object(t).get("id") for t in _rows(spec.get("traps"))}
+    gaps = []
+    for i, idea in enumerate(ideas):
+        row = rows.get(i, {})
+        built = row.get("status") == "built" and _rows(row.get("traps")) and set(row["traps"]) <= trap_ids
+        declined = row.get("status") == "declined" and _text(row.get("reason")) and len(row["reason"].strip()) >= 40
+        if not (built or declined):
+            gaps.append(f"quality.requested_traps[idea={i}] for the operator's requested trap \"{idea[:90]}...\": "
+                        "status 'built' with the trap ids that implement it, or 'declined' with the reason this "
+                        "source cannot support it legitimately (40+ characters)")
+    return gaps
+
+
 def inventory(spec: dict, bundle: Path) -> dict:
     """Report component presence, not correctness, thresholds or acceptance."""
     spec = _object(spec)
@@ -122,11 +159,41 @@ def inventory(spec: dict, bundle: Path) -> dict:
     # session in verification/trap-research.json; 0 for revisions, waived when the
     # research tool was unavailable). Presence of well-formed, recorded research only.
     from . import trap_research
+    from .. import policy
     floor, on_record = trap_research.requirement(bundle)
     if floor:
-        have = trap_research.researched(traps, on_record)
-        need(f"researched traps ({len(have)}/{floor}): traps carrying research {{research_id, sources, finding, "
-             "executed}} from a successful research_traps call, each verified by sandbox_run", len(have) >= floor)
+        started_with = trap_research.baseline(bundle)
+        have = [t for t in trap_research.researched(traps, on_record) if t not in started_with]
+        need(f"researched traps ({len(have)}/{floor}{' NEW in this round' if started_with else ''}): traps "
+             "carrying research {research_id, sources, finding, executed} from a successful research_traps call, "
+             "each verified by sandbox_run", len(have) >= floor)
+        # Spread over failure modes (user, 2026-10-28: "a lot of diverse trap modes using web search and thorough
+        # research"): researched traps piled on one clause are one mode however many there are.
+        modes = trap_research.researched_modes(spec, have)
+        need(f"researched failure modes ({len(modes)}/{policy.MIN_RESEARCHED_FAILURE_MODES}): the researched traps "
+             f"drive {modes or 'no'} mode(s); each new mode is its own decision on its own published clause "
+             "(author/failure_modes.py)", len(modes) >= policy.MIN_RESEARCHED_FAILURE_MODES)
+    # The second origin, the source trace (user, 2026-10-28), at the first design and in every hardening round:
+    # the session's own corrections, failed tool calls and retries, refined into harder cases of the same
+    # mistake -- several of them, on more than one failure mode. Recorded per session, so it holds even when
+    # web research is unavailable.
+    traced_floor = trap_research.trace_requirement(bundle)
+    if traced_floor:
+        started_with = trap_research.baseline(bundle)
+        traced = [t.get("id") for t in (_object(r) for r in traps)
+                  if t.get("provenance") == "trace_derived" and t.get("id") not in started_with]
+        need(f"trace-derived traps ({len(traced)}/{traced_floor}{' NEW in this round' if started_with else ''}): "
+             "traps refined from the session's corrections, failed tool calls and retries (list_corrections, "
+             "read_failures, read_signals), citing the moment and quoting the user", len(traced) >= traced_floor)
+        mode_floor = min(policy.MIN_TRACE_FAILURE_MODES, traced_floor)
+        traced_modes = trap_research.researched_modes(spec, traced)
+        need(f"trace-derived failure modes ({len(traced_modes)}/{mode_floor}): the trace-derived traps drive "
+             f"{traced_modes or 'no'} mode(s); refine different moments of the trace into different decisions",
+             len(traced_modes) >= mode_floor)
+    # Operator-requested traps (harden --trap; user, 2026-10-28): each is built or declined with a reason,
+    # never dropped silently (a round built four requested decisions in scratch and shipped none of them).
+    for gap in requested_trap_gaps(spec, bundle):
+        need(gap, False)
     # The binding hardness bar (author/difficulty_gate.py): armed per session, waived when the
     # budget runs out; lists what the current blind solves or re-grade still fall short of.
     from . import difficulty_gate

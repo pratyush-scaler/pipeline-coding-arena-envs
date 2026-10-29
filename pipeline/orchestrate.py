@@ -340,6 +340,36 @@ def _ship_readiness(bundle: Path) -> list[dict]:
              "where": where(f)} for f in found]
 
 
+def _executed_counterexamples(bundle: Path, doc: dict) -> list[str]:
+    """Run the blocking review's counterexamples through the shipped grader and say, per
+    finding, whether execution reproduced it (verification/review-counterexamples.json).
+    Evidence for the repair, never a verdict: the review still decides."""
+    from .author import counterexamples, sandbox
+    probes = counterexamples.from_review(doc)
+    if not probes:
+        return []
+    ok, why = sandbox.available()
+    if not ok:
+        return [f"Counterexamples: {len(probes)} not executed ({why})"]
+    try:
+        results = counterexamples.run(bundle, probes, work=bundle / "verification/review-counterexamples-work")
+    except Exception as exc:                                    # noqa: BLE001 -- evidence, never a blocker
+        return [f"Counterexamples: not executed ({type(exc).__name__}: {str(exc)[:200]})"]
+    atomic_json(bundle / "verification/review-counterexamples.json",
+                {"schema": "arena-pipeline/review-counterexamples/1", "artifact_sha256": identity(bundle),
+                 "results": results})
+    out = []
+    for r in results:
+        if r.get("holds") is False:
+            state = f"REPRODUCED by execution (reward {r.get('reward')}, failing {r.get('failing')})"
+        elif r.get("holds") is True:
+            state = f"NOT reproduced: the shipped grader already scores it as the finding demands (reward {r.get('reward')})"
+        else:
+            state = f"not executable: {r.get('error')}"
+        out.append(f"Counterexample {r.get('finding') or r.get('id')} ({r.get('kind')}): {state}")
+    return out
+
+
 def _review_candidate(bundle: Path, budget: Budget) -> dict:
     """Review before measurement; retain an intact rejection until redesign."""
     from . import review as critic
@@ -354,6 +384,17 @@ def _review_candidate(bundle: Path, budget: Budget) -> dict:
                 issues = critic.review_problems(bundle, report)
             except (OSError, ValueError, KeyError, TypeError):
                 issues = ["invalid review receipt"]
+        if report is not None and issues and critic.recitable(issues):
+            # The reviewer's own citations failed verification: the same reviewer
+            # repairs them from its retained conversation before a fresh review is
+            # bought (policy.REVIEW_RECITE_ATTEMPTS). A continuation that cannot run
+            # or still cites wrongly falls through to the full review below.
+            try:
+                with _REVIEW_SLOTS, budget:
+                    report = critic.recite_review(bundle, report)
+                issues = critic.review_problems(bundle, report)
+            except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+                pass
         if issues and not critic.semantic_rejection(issues):
             spec = strict_json((bundle / "authoring/spec.json").read_text())
             producer = spec.get("_producer", {}).get("model", "")
@@ -375,6 +416,8 @@ def _review_candidate(bundle: Path, budget: Budget) -> dict:
                     for c in doc.get("checks", []) if c.get("verdict") != "pass"]
         for key in ("ambiguities", "substantive_gaps", "shortcut_risks", "privacy_findings"):
             findings.extend(f"Semantic review {key}: {item}" for item in doc.get(key, []))
+        if _policy.REVIEW_EXECUTE_COUNTEREXAMPLES:
+            findings += _executed_counterexamples(bundle, doc)
         return {"verdict": "blocked", "findings": findings or issues}
     except Exception as exc:
         return {"verdict": "unverified", "findings": [

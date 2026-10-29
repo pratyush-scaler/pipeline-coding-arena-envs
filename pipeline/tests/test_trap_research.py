@@ -110,7 +110,10 @@ class TrapResearch(unittest.TestCase):
         spec["traps"].append(_trap(9, rid="r_07"))  # not on record: does not count
         self.assertTrue(any("researched traps" in m for m in creation.inventory(spec, self.bundle)["missing_components"]))
         spec["traps"][-1] = _trap(9)
-        self.assertFalse(any("researched traps" in m for m in creation.inventory(spec, self.bundle)["missing_components"]))
+        missing = creation.inventory(spec, self.bundle)["missing_components"]
+        self.assertFalse(any(m.startswith("researched traps (") for m in missing), missing)
+        # 2026-10-28: the floor is met, and the researched traps must also spread over failure modes
+        self.assertTrue(any(m.startswith("researched failure modes (") for m in missing), missing)
 
     def test_revisions_and_unrecorded_bundles_carry_no_floor(self):
         spec = synthetic_code.spec()

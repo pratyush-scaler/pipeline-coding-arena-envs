@@ -162,15 +162,39 @@ def load(bundle: Path) -> dict | None:
     return doc if isinstance(doc, dict) and doc.get("schema") == SCHEMA else None
 
 
-def begin(bundle: Path, required: int) -> dict:
-    """Open (or reopen) the record for a session; `required` is this session's floor."""
+def begin(bundle: Path, required: int, baseline: list[str] | None = None, trace_required: int = 0) -> dict:
+    """Open (or reopen) the record for a session; `required` is this session's researched-trap floor and
+    `trace_required` its trace_derived-trap floor (the two origins, user 2026-10-28). `baseline` names the
+    traps the session started with (a hardening round's revised task): they never count toward either floor,
+    so a round's traps are NEW ones."""
     doc = load(bundle) or {"schema": SCHEMA, "calls": []}
     doc["required"] = int(required)
+    doc["trace_required"] = int(trace_required or 0)
+    if baseline is not None:
+        doc["baseline_traps"] = sorted({str(t) for t in baseline})
     doc.setdefault("calls", [])
     doc.setdefault("unavailable", False)
     doc["opened_at"] = time.time()
     atomic_json(record_path(bundle), doc)
     return doc
+
+
+def trace_requirement(bundle: Path) -> int:
+    """The session's trace_derived-trap floor (0 when unrecorded)."""
+    return int((load(bundle) or {}).get("trace_required") or 0)
+
+
+def baseline(bundle: Path) -> set[str]:
+    """Trap ids the session started with (excluded from its researched-trap floor)."""
+    return set((load(bundle) or {}).get("baseline_traps") or [])
+
+
+def researched_modes(spec: dict, trap_ids: list[str]) -> list[str]:
+    """The failure modes (author/failure_modes.py) the given researched traps drive."""
+    from . import bites, failure_modes
+    owned = bites.owned_checks(spec)
+    owner = failure_modes.mode_of(spec)
+    return sorted({owner[c] for t in trap_ids for c in owned.get(t, set()) if c in owner})
 
 
 def requirement(bundle: Path) -> tuple[int, set[str] | None]:
@@ -479,6 +503,42 @@ def opening_text(bundle: Path, ledger: Path | None, required: int) -> str:
     if required == 0:
         lines[1] = ("  - This is a revision session: research_traps is available, and any trap you ADD should be "
                     "researched and interlocked the same way; the researched-trap floor applies to fresh designs.")
+    elif baseline(bundle):
+        # A hardening round (user, 2026-10-28): new modes from TWO origins, each counted on its own.
+        lines[1] = (
+            f"  - THIS HARDENING ROUND ADDS NEW TRAP MODES FROM TWO ORIGINS (the traps the task already has never "
+            f"count): (1) THE SOURCE TRACE -- at least {policy.MIN_TRACE_TRAPS_HARDENING} new trace_derived traps: "
+            "mine list_corrections, read_failures, read_signals and read_trace for every place the session's agent or "
+            "user got something wrong, was corrected, retried, or hit an error, and REFINE each into a much harder "
+            "case of the same mistake (the general rule the correction implies, its long tail, its interaction with "
+            "another rule) -- cite the moment and quote the user; (2) THE WEB -- at least "
+            f"{required} new researched traps: research_traps on THIS trace's domain (its rules, laws and "
+            "conventions as the user's field defines them; the formats its real data producers emit; the exact "
+            "library versions pinned), each finding reproduced with sandbox_run. Together they must drive at least "
+            f"{policy.MIN_RESEARCHED_FAILURE_MODES} different failure modes by research alone and new modes by the "
+            "trace too: each new mode is its own decision on its own published sentence. A full round MAY add "
+            "sentences to the instruction in the user's own voice when the trace supports the need -- when the "
+            "models already handle every existing clause, a new published decision is the only way to a new mode. "
+            "Every new case still passes the admission test (determinacy_probe; the reference and the alternative "
+            "pass; an m_partial_ mutant fails).")
+    else:
+        # A fresh design (user, 2026-10-28): diversity is built in at authoring, from BOTH origins, so a task
+        # rarely needs hardening rounds afterwards.
+        traced = trace_requirement(bundle)
+        lines.insert(1, (
+            "  - DIVERSITY IS BUILT IN NOW, FROM TWO ORIGINS, NOT IN LATER HARDENING ROUNDS (a build that planted "
+            "one bitten mode needed five hardening rounds at ~$100-165 each; a blind-solve pair costs ~$4.50): "
+            f"(1) THE WEB -- the {required} researched traps below, driving at least "
+            f"{policy.MIN_RESEARCHED_FAILURE_MODES} different failure modes; (2) THE SOURCE TRACE -- "
+            + (f"at least {traced} trace_derived traps, refined from the session's own corrections, failed tool calls "
+               "and retries (list_corrections, read_failures, read_signals, read_trace) into harder cases of the same "
+               f"mistake, driving at least {min(policy.MIN_TRACE_FAILURE_MODES, traced)} modes. "
+               if traced else "the trace holds no correction or failed call to refine, so its scenario grounds the "
+                              "rest. ")
+            + f"Plant MANY traps across at least {policy.MIN_PLANTED_FAILURE_MODES} modes in "
+            f"{policy.MIN_PLANTED_MODE_CLASSES} classes BEFORE the first blind solve, then strengthen until at least "
+            f"{policy.MIN_SHARED_FAILURE_MODES} modes defeat BOTH families (THE HARDNESS GATE measures it). Grade "
+            "every decision through return values, raised errors and state, never free-form console text."))
     prior = [c for c in (load(bundle) or {}).get("calls") or [] if c.get("ok")]
     if prior:
         # A resumed or invalidated session has lost the conversation that held these findings;

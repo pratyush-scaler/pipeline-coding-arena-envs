@@ -539,10 +539,12 @@ def cycle(dry: bool) -> dict:
                         entry["actions"].append({"kind": "resummarize", "version": flagged["path"], "run": run, "at": time.time()})
                         summary["hardening"].append(f"{name}: re-deriving {Path(flagged['path']).name} after benign triage")
                         continue
+                    # Its own marker: a crash re-run of the same version (release_retry) must not use up this one
+                    # (2026-10-19 c-012-react-web-app v4 sat 6 h with every qualification flag ruled benign).
                     if _qualify_flags(flagged) and not flagged.get("hack_flags") and not any(
-                            a["kind"] == "release_retry" and a.get("version") == flagged["path"] for a in entry["actions"]):
+                            a["kind"] == "release_after_triage" and a.get("version") == flagged["path"] for a in entry["actions"]):
                         run = launch(row["ws"], ["shipfix", flagged["path"], "--release"], dry)
-                        entry["actions"].append({"kind": "release_retry", "version": flagged["path"], "run": run, "at": time.time()})
+                        entry["actions"].append({"kind": "release_after_triage", "version": flagged["path"], "run": run, "at": time.time()})
                         summary["releasing"].append(f"{name} {Path(flagged['path']).name} (re-released after benign triage)")
                         continue
         # A release step that CRASHED (an error, no result -- 2026-10-18 c-027-csv v5: qualify's preflight died on a

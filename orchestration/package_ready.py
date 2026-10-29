@@ -22,7 +22,9 @@ DATE = time.strftime("%Y%m%d")
 WAVES = ROOT / "orchestration"   # the packaging scripts live beside this one
 #: Tasks whose independent-oracle authoring files may be redacted in the delivered copy
 #: (user, 2026-10-05 ~23:00 IST: "Then lets redact and zip these tasks").
-REDACT_ORACLE: set = set()
+#: 2026-10-20: c-026-browser-pwa-cors-proxy-worker's oracle transcript quotes the task's own URL-userinfo trap strings
+#: (api.github.com@evil.test, on the reserved .test TLD) -- the synthetic-test-address class approved on 2026-10-05.
+REDACT_ORACLE: set = {"c-026-browser-pwa-cors-proxy-worker"}
 #: Unscannable files closed by visual review (sha256 -> what was seen), 2026-10-05.
 REVIEWED = {
     "1bdd6123c697b350d7080f9b9ae26bb5800330deae1ca2482da0889d6cc09ad7":

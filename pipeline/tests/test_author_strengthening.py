@@ -157,6 +157,77 @@ class OverfitAdvisories(unittest.TestCase):
         out = validate.overfit_advisories(self.spec, self.bundle)
         self.assertTrue(any("forgeable" in a and "test_cli.py" in a for a in out), out)
 
+    def test_the_three_shapes_of_the_first_bash_rle_build_are_flagged(self):
+        """2026-10-27: byte novelty, listing identity and a vocabulary regex each cost a review round."""
+        self.spec["suites"]["test_build.py"] = (
+            "import re\nfrom pathlib import Path\n\n"
+            "def test_rebuilt(tmp_path):\n    before = (tmp_path / 'out.docx').read_bytes()\n"
+            "    run()\n    assert (tmp_path / 'out.docx').read_bytes() != before, 'nothing new'\n\n"
+            "def test_clean(tmp_path):\n    clean = sorted(str(p) for p in tmp_path.rglob('*'))\n    run()\n"
+            "    now = sorted(str(p) for p in tmp_path.rglob('*'))\n    extra = sorted(set(now) - set(clean))\n"
+            "    assert not extra\n\n"
+            "def test_words(tmp_path):\n    text = (tmp_path / 'out.txt').read_text()\n"
+            "    found = re.search(r'(?i)koppel|pair|verbind', text)\n    assert found\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        for kind in ("byte-novelty", "listing-equality", "vocabulary"):
+            self.assertTrue(any(f"ADVISORY {kind}" in a and "test_build.py" in a for a in out), (kind, out))
+
+    def test_a_homemade_office_document_reader_is_flagged(self):
+        """2026-10-27: a docx task's grader parsed word/document.xml itself; one review found 19 executed defects."""
+        self.spec["suites"]["test_doc.py"] = ("import zipfile\ndef test_pages(tmp_path):\n"
+                                             "    xml = zipfile.ZipFile('out.docx').read('word/document.xml')\n"
+                                             "    assert xml.count(b'w:pageBreakBefore') == 1\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertTrue(any("homemade-format-reader" in a and "test_doc.py" in a for a in out), out)
+
+    def test_a_timestamp_as_evidence_is_flagged(self):
+        """2026-10-27 11:10: a leftover rule keyed on st_mtime was forged with one touch line."""
+        self.spec["suites"]["test_clean.py"] = ("def test_clean(tmp_path):\n    floor = max(p.lstat().st_mtime for p in tmp_path.rglob('*'))\n"
+                                               "    run()\n    assert all(p.lstat().st_mtime > floor for p in tmp_path.rglob('*'))\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertTrue(any("forgeable-metadata" in a and "test_clean.py" in a for a in out), out)
+
+    def test_free_form_output_oracles_are_flagged(self):
+        """2026-10-28: the cricket task's three review rounds found six defects in oracles over console text."""
+        self.spec["suites"]["test_report.py"] = (
+            "from collections import Counter\nfrom re import findall as _findall\n\n"
+            "def test_marks():\n    out = report()\n    assert out.count('?') >= 4\n\n"
+            "def test_numbers():\n    full, short = report(), report(left=True)\n"
+            "    assert not Counter(_findall(r'\\d+', full)) - Counter(_findall(r'\\d+', short))\n\n"
+            "def test_silent():\n    assert child(card, 'report') == child(stranger, 'report')\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        hits = [a for a in out if "free-form-output-oracle" in a and "test_report.py" in a]
+        self.assertTrue(hits, out)
+        self.spec["suites"]["test_report.py"] = ("def test_api():\n    assert inn.dismissal_sequence()[3] is None\n"
+                                                 "    report()\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertFalse(any("free-form-output-oracle" in a for a in out), out)
+
+    def test_a_text_only_stdout_capture_is_flagged(self):
+        """2026-10-28: a StringIO stdout made a correct sys.stdout.buffer writer crash in the harness."""
+        self.spec["suites"]["test_quiet.py"] = ("import io\nfrom contextlib import redirect_stdout\n"
+                                                "def test_runs():\n    with redirect_stdout(io.StringIO()):\n"
+                                                "        report()\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertTrue(any("text-only-capture" in a and "test_quiet.py" in a for a in out), out)
+        self.spec["suites"]["test_quiet.py"] = ("import io\nfrom contextlib import redirect_stdout\n"
+                                                "def test_runs():\n    sink = io.TextIOWrapper(io.BytesIO(), "
+                                                "encoding='utf-8', write_through=True)\n"
+                                                "    with redirect_stdout(sink):\n        report()\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertTrue(any("text-only-capture" in a for a in out), out)       # no fileno(): flagged too
+        self.spec["suites"]["test_quiet.py"] = ("import tempfile\nfrom contextlib import redirect_stdout\n"
+                                                "def test_runs():\n    with tempfile.TemporaryFile(mode='w+', "
+                                                "encoding='utf-8') as sink, redirect_stdout(sink):\n        report()\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertFalse(any("text-only-capture" in a for a in out), out)
+
+    def test_byte_comparison_for_what_must_stay_unchanged_is_not_flagged(self):
+        self.spec["suites"]["test_keep.py"] = ("def test_kept(tmp_path):\n    before = (tmp_path / 'out.docx').read_bytes()\n"
+                                              "    run()\n    assert (tmp_path / 'out.docx').read_bytes() == before\n")
+        out = validate.overfit_advisories(self.spec, self.bundle)
+        self.assertFalse(any("byte-novelty" in a and "test_keep.py" in a for a in out), out)
+
     def test_check_draft_carries_advisories_without_blocking(self):
         extraction = SimpleNamespace(session_id="source", seed_index=0, source_root=self.bundle, moments=[])
         handlers = agent_designer._handlers(self.bundle, extraction, {"messages": []}, self.bundle / "draft.json")
@@ -443,8 +514,9 @@ class TheIndependentSolverControl(unittest.TestCase):
                  patch.object(agent_designer.validate_mod, "validate", return_value=[]), \
                  patch("pipeline.ledger.faithfulness.citation_problems", return_value=[]), \
                  patch.object(agent_designer.build_mod, "build", lambda spec, dest: (dest / "task.toml").write_text("x")), \
+                 patch.object(agent_designer.sandbox, "build_image", return_value="tag"), \
                  patch("pipeline.author.blind_solve.solve", return_value=dict(record)):
-                out = handlers["blind_solve"]()
+                out = handlers["blind_solve"](model="astra")
             self.assertEqual(out["checks"], {"o_a": True, "o_b": False})
             self.assertIn("TRAP", out["how_to_read"])
             # The budget is the baseline difficulty loop's (policy.BASELINE_BLIND_SOLVES, 2026-10-04).

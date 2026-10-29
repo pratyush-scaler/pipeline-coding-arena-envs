@@ -41,16 +41,19 @@ bound to the artifact hash. Nothing here decides difficulty.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import posixpath
 import re
 import shlex
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import policy
-from ..artifacts import atomic_json, identity
+from ..artifacts import atomic_json, identity, policy_identity
 from . import control_cache, sandbox
 from .build import load_spec
 from .checks import load_shipped
@@ -58,6 +61,11 @@ from .contracts import contained
 
 SCHEMA = "arena-coding/controls/1"
 RECEIPT = "verification/controls.json"
+#: Per-trial execution records (2026-10-26): every complete trial a run executes
+#: is kept under the digest of its inputs, so an in-session re-run after an
+#: edit executes only the trials the edit touched (`run(incremental=True)`).
+TRIAL_SCHEMA = "arena-coding/control-trial-evidence/1"
+TRIALS = "trials"
 
 #: Per toolchain: prepend an unconditional successful exit to every source file
 #: of the agent's tree (vendored links excluded). Compiled toolchains have no
@@ -532,17 +540,94 @@ def _preflight_errors(records: dict, plan: dict) -> list[str]:
     return errors
 
 
+def trial_key(label: str, variants: dict, agent_tag: str, verifier_tag: str, steps, policy_sha256: str) -> str:
+    """One trial's execution inputs, digested.
+
+    The agent image tag is the content digest of environment/ (fixture,
+    toolchain, deps, Dockerfile); the verifier tag that of tests/ (checks,
+    suites, rubric, grader runtime); the variants carry the patches and shells
+    the trial applies, including the earlier steps' reference patches; the
+    policy digest covers the planting shells and the controls code itself; the
+    label keeps the three golden runs distinct, so determinism is never served
+    from one record.
+    """
+    def inputs(variant):
+        files = {path: (hashlib.sha256(data).hexdigest() if isinstance(data, (bytes, bytearray)) else None)
+                 for path, data in sorted((variant.files or {}).items())}
+        return {"kind": variant.kind, "patch": variant.patch, "shell": variant.shell, "files": files}
+    return control_cache.digest({"schema": TRIAL_SCHEMA, "label": label, "agent_image": agent_tag,
+                                 "verifier_image": verifier_tag, "steps": list(steps),
+                                 "variants": {step: inputs(v) for step, v in variants.items()},
+                                 "policy_sha256": policy_sha256})
+
+
+def _complete_trial(record, steps, agent_tag: str, verifier_tag: str) -> bool:
+    """A record the grader produced in full: every step valid, no error or timeout."""
+    if (not isinstance(record, dict) or record.get("schema") != "arena-coding/sandbox-trial/1"
+            or record.get("valid") is not True or list(record.get("steps") or {}) != list(steps)
+            or record.get("agent_image") != agent_tag or record.get("verifier_image") != verifier_tag
+            or not control_cache._reward(record.get("reward"))):
+        return False
+    for entry in record["steps"].values():
+        grade = entry.get("grade") if isinstance(entry, dict) else None
+        if (not isinstance(entry, dict) or entry.get("valid") is not True or entry.get("error") or entry.get("timed_out")
+                or not isinstance(grade, dict) or not isinstance(grade.get("checks"), dict)
+                or not control_cache._reward(entry.get("reward"))):
+            return False
+    return True
+
+
+def _cached_trial(path: Path, key: str, steps, agent_tag: str, verifier_tag: str) -> dict | None:
+    """The complete record of exactly this trial, or None; a partial or failed run is never reused."""
+    try:
+        if path.is_symlink() or not path.is_file() or path.stem != key:
+            return None
+        evidence = json.loads(path.read_text())
+        if (not isinstance(evidence, dict) or evidence.get("schema") != TRIAL_SCHEMA
+                or evidence.get("key") != key):
+            return None
+        record = evidence.get("record")
+        return record if _complete_trial(record, steps, agent_tag, verifier_tag) else None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _store_trial(path: Path, key: str, label: str, record: dict, steps, agent_tag: str, verifier_tag: str) -> None:
+    if _complete_trial(record, steps, agent_tag, verifier_tag):
+        atomic_json(path, {"schema": TRIAL_SCHEMA, "key": key, "label": label, "record": record})
+
+
 def _execute_trials(bundle: Path, plan: dict, work: Path, agent_tag: str, verifier_tag: str,
-                    workers: int, *, keep_capture: bool = False) -> dict:
+                    workers: int, *, keep_capture: bool = False, trial_store: Path | None = None,
+                    reuse_trials: bool = False, steps: list | None = None, policy_sha256: str | None = None,
+                    reused: list | None = None) -> dict:
+    """Run the plan. With a `trial_store` every complete trial is recorded under its
+    key, and with `reuse_trials` a trial whose key already has a record is served
+    from it (its label is appended to `reused`) instead of executed."""
+    step_names = list(steps) if steps is not None else sandbox._steps(bundle)
+    policy_sha = policy_sha256 or (policy_identity() if trial_store else "")
+    lock = threading.Lock()
+
     def execute(label, variants):
+        key = trial_key(label, variants, agent_tag, verifier_tag, step_names, policy_sha) if trial_store else None
+        if key and reuse_trials:
+            record = _cached_trial(trial_store / f"{key}.json", key, step_names, agent_tag, verifier_tag)
+            if record is not None:
+                with lock:
+                    if reused is not None:
+                        reused.append(label)
+                return record
         try:
-            return sandbox.verify(bundle, variants, work=work / label.replace(":", "-"),
-                                  agent_tag=agent_tag, verifier_tag=verifier_tag, keep_capture=keep_capture)
+            record = sandbox.verify(bundle, variants, work=work / label.replace(":", "-"),
+                                    agent_tag=agent_tag, verifier_tag=verifier_tag, keep_capture=keep_capture)
         except sandbox.VariantApplyError as exc:
             # A design defect (an alternative or mutant patch written against the wrong tree): an
             # invalid trial the designer is told about, never a terminal build error.
             return {"schema": "arena-coding/sandbox-trial/1", "bundle": bundle.name, "steps": {},
                     "valid": False, "reward": None, "variant_error": str(exc)[:1500]}
+        if key:
+            _store_trial(trial_store / f"{key}.json", key, label, record, step_names, agent_tag, verifier_tag)
+        return record
 
     def phase(labels):
         if workers == 1:
@@ -852,24 +937,53 @@ def _cache_shape(doc: dict, steps: list[str]) -> dict:
     return {step: [c["id"] for c in doc["checks"] if c.get("step") == step] for step in steps}
 
 
-def default_workers() -> int:
-    """Trials one control run executes at once: `ARENA_CONTROL_WORKERS`, else 1.
+def _memory_gb() -> float:
+    try:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 1e9
+    except (ValueError, OSError, AttributeError):
+        return 64.0
 
+
+def default_workers() -> int:
+    """Trials one control run executes at once.
+
+    `ARENA_CONTROL_WORKERS` when set (capped at the policy maximum); otherwise
+    derived from the machine: one worker per four cores (a trial runs two
+    containers capped at the toolchain's CPUs), at most one per 9 GB of RAM
+    (two 4 GB containers and headroom), capped at policy.MAX_CONTROL_WORKERS,
+    and halved while the one-minute load exceeds 85% of the cores -- an
+    overloaded workspace turns timeouts into infra voids (measured 2026-10-04).
     Serial controls were a quarter of all design time on 2026-10-03 (median 9
     minutes a run, 5.5 runs a design) while the Coder workspaces idled at a
-    load of 3-20 on 32 cores; the Coder runs set 3.
+    load of 3-20 on 32 cores; the Coder runs then set 3, and run_controls was
+    still 26% of a session's wall clock on 2026-10-26.
     """
-    import os
-    raw = os.environ.get("ARENA_CONTROL_WORKERS", "1")
-    return int(raw) if raw.isdigit() else 1
+    raw = os.environ.get("ARENA_CONTROL_WORKERS", "")
+    if raw.isdigit() and int(raw) >= 1:
+        return min(int(raw), policy.MAX_CONTROL_WORKERS)
+    cores = os.cpu_count() or 1
+    derived = min(policy.MAX_CONTROL_WORKERS, max(1, cores // 4), max(1, int(_memory_gb() // 9)))
+    try:
+        load = os.getloadavg()[0]
+    except (OSError, AttributeError):
+        load = 0.0
+    if load > 0.85 * cores:
+        derived = max(1, derived // 2)
+    return derived
 
 
 def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None = None,
-        workers: int | None = None, cache_root: Path | None = None, reuse: bool = True) -> dict:
+        workers: int | None = None, cache_root: Path | None = None, reuse: bool = True,
+        incremental: bool = False) -> dict:
     """Execute controls or bind complete equivalent execution evidence to export.
 
     Name and provenance changes reuse executed trials; final provenance/gates
     and semantic review still run. Set reuse=False for an intentional fresh run.
+    `incremental` (the designer's in-session runs) serves every trial whose
+    inputs are unchanged since an earlier run from its per-trial record and
+    executes only the rest; the receipt then says `execution.mode ==
+    "incremental"` and is never whole-bundle evidence, so the submit preflight
+    and validation execute the full matrix.
     """
     if workers is None:
         workers = default_workers()
@@ -920,8 +1034,11 @@ def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None 
     work.mkdir(parents=True)
     agent_tag = sandbox.build_image(bundle, "agent", log=work / "build-agent.log")
     verifier_tag = sandbox.build_image(bundle, "verifier", log=work / "build-verifier.log")
+    reused: list[str] = []
     try:
-        records = _execute_trials(bundle, plan, work, agent_tag, verifier_tag, workers)
+        records = _execute_trials(bundle, plan, work, agent_tag, verifier_tag, workers,
+                                  trial_store=cache_root / TRIALS, reuse_trials=incremental, steps=steps,
+                                  policy_sha256=inputs["policy_sha256"], reused=reused)
     except _ControlPreflightFailure as exc:
         # Keep the genuine partial trials for diagnosis. They are neither a
         # full control receipt nor reusable execution evidence.
@@ -931,8 +1048,9 @@ def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None 
             "input_binding": control_cache.binding(inputs),
             "images": {"agent": agent_tag, "verifier": verifier_tag},
             "errors": exc.errors, "records": exc.records,
-            "execution": {"workers": workers, "executed_new_trials": len(exc.records),
-                          "planned_trials": len(plan), "complete": False},
+            "execution": {"workers": workers, "executed_new_trials": len(exc.records) - len(reused),
+                          "planned_trials": len(plan), "complete": False,
+                          "mode": "incremental" if reused else "full", "trials_reused": sorted(reused)},
             "ok": False, "reusable": False})
         raise
     results, errors, advisories = _evaluate(bundle, spec, doc, steps, toolchain, runs, records)
@@ -943,7 +1061,9 @@ def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None 
                "images": {"agent": agent_tag, "verifier": verifier_tag},
                "steps": steps, "results": results, "errors": errors, "advisories": advisories, "ok": not errors,
                "seconds": round(time.time() - started, 1),
-               "execution": {"workers": workers, "reused": False, "executed_new_trials": len(records)},
+               "execution": {"workers": workers, "reused": False, "executed_new_trials": len(records) - len(reused),
+                             "mode": "incremental" if reused else "full",
+                             "trials_reused": sorted(reused), "trials_executed": len(records) - len(reused)},
                "policy": {"determinism_runs": runs,
                    "misreading_max_objective_share": policy.MISREADING_MAX_OBJECTIVE_SHARE,
                    "mutant_share_is_advisory": policy.MUTANT_SHARE_IS_ADVISORY,
@@ -951,6 +1071,14 @@ def run(bundle: Path, *, work: Path | None = None, determinism_runs: int | None 
                    "coverage_bands": list(policy.MUTANT_COVERAGE_BANDS),
                    "neutral_additions_must_match_reference": policy.NEUTRAL_ADDITIONS_MUST_MATCH_REFERENCE,
                    "neutral_additions_exempt_runners": list(policy.NEUTRAL_ADDITIONS_EXEMPT_RUNNERS)}}
+    if reused:
+        # Served partly from per-trial records: a sound in-session verdict,
+        # never whole-bundle evidence. The next full run re-executes everything
+        # and is what the gate binds to.
+        receipt["execution"]["note"] = ("incremental in-session run; validation executes the full matrix "
+                                        "before any receipt binds this artifact")
+        atomic_json(bundle / RECEIPT, receipt)
+        return receipt
     path, sha = control_cache.retain(cache_root, inputs, receipt, records)
     if cache_root != bundle / control_cache.ROOT:
         path, sha = control_cache.retain(bundle / control_cache.ROOT, inputs, receipt, records)
@@ -968,6 +1096,8 @@ def binding_problems(bundle: Path, receipt: dict) -> list[str]:
     """
     if not receipt.get("input_binding"):
         return []
+    if (receipt.get("execution") or {}).get("mode", "full") != "full":
+        return ["controls receipt is an incremental in-session run; validation executes the full matrix"]
     try:
         runs = receipt["input_binding"]["determinism_runs"]
         inputs = control_cache.snapshot(bundle, runs)
