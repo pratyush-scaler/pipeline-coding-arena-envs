@@ -131,6 +131,27 @@ class DesignerCallRetries(unittest.TestCase):
                     agent_designer._designer_call({})
             self.assertEqual(len(calls), 1)
 
+    def test_after_an_interrupted_round_the_output_limit_note_is_sent_once(self):
+        """2026-10-30: a tool call past max_tokens ends a stream the transport reads as interrupted; the same request
+        was retried 20 times. After the first interrupted round the request carries the note instead."""
+        seen, notes = [], []
+
+        def call(body):
+            seen.append(body["tag"])
+            if len(seen) < 3:
+                raise RuntimeError("designer call failed after 5 attempts: Anthropic transport interrupted (_StreamInterrupted)")
+            return {"ok": True}
+
+        def note():
+            notes.append(1)
+            return {"tag": "noted"}
+        with patch.object(agent_designer, "_call", call), patch.object(agent_designer.time, "sleep"):
+            self.assertEqual(agent_designer._designer_call({"tag": "first"}, on_interrupt=note), {"ok": True})
+        self.assertEqual(seen, ["first", "noted", "noted"])
+        self.assertEqual(notes, [1])
+        self.assertIn("{limit}", agent_designer.OUTPUT_LIMIT_NOTE)
+        self.assertIn("edit_fixture_file", agent_designer.OUTPUT_LIMIT_NOTE.format(limit=48000))
+
     def test_the_streak_is_bounded(self):
         calls = []
 

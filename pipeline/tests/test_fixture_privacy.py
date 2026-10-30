@@ -254,3 +254,29 @@ class AFrozenCopyKeepsItsProvenance(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EditFixtureFile(AuthoredBytesAreScanned):
+    """2026-10-30: a ~100 KB file rewritten whole through write_fixture_file outlasted the response stream."""
+
+    def test_one_span_is_replaced_and_the_file_is_recorded_as_authored(self):
+        (self.bundle / "environment/repo/page.html").write_text("<h1>Old</h1>\n<p>keep</p>\n")
+        out = self.handlers["edit_fixture_file"](path="page.html", old="<h1>Old</h1>", new="<h1>New</h1>",
+                                                 reason="retitle the page the decoy test reads")
+        self.assertEqual((self.bundle / "environment/repo/page.html").read_text(), "<h1>New</h1>\n<p>keep</p>\n")
+        self.assertEqual(out["origin"], "authored")
+        self.assertEqual(out["edited"], "page.html")
+
+    def test_ambiguous_missing_and_private_edits_change_nothing(self):
+        page = self.bundle / "environment/repo/page.html"
+        page.write_text("<p>a</p><p>a</p>\n")
+        with self.assertRaises(ValueError):
+            self.handlers["edit_fixture_file"](path="page.html", old="<p>a</p>", new="b", reason="an ambiguous span here")
+        with self.assertRaises(FileNotFoundError):
+            self.handlers["edit_fixture_file"](path="nope.html", old="a", new="b", reason="a file that does not exist")
+        with self.assertRaises(ValueError):
+            self.handlers["edit_fixture_file"](path="page.html", old="<p>a</p>\n", new=EMAIL, reason="adds private data")
+        self.assertEqual(page.read_text(), "<p>a</p><p>a</p>\n")
+
+    def test_the_tool_is_offered(self):
+        self.assertIn("edit_fixture_file", [t["name"] for t in agent_designer._tools(10)])

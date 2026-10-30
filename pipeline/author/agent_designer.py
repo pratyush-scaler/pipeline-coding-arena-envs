@@ -222,7 +222,19 @@ DESIGNER_CALL_ROUNDS = 4
 DESIGNER_CALL_PAUSE_S = 90.0
 
 
-def _designer_call(body: dict) -> dict:
+#: Appended once to the pending request after a call fails as an interrupted stream. 2026-10-30: the html-js test
+#: design asked for one tool call that ran past max_tokens (a whole ~100 KB file through write_fixture_file); the API
+#: ends such a stream without closing the cut block, the transport reads that as an interruption, and the same
+#: request was retried 5 x 4 times, five minutes each, until the design was lost. The transport is part of
+#: `artifacts.harness_identity`; this note lets the model change course from inside the design loop.
+OUTPUT_LIMIT_NOTE = ("[pipeline note] The response to this turn did not arrive complete. The usual cause is one tool "
+                     "call larger than the {limit}-token output limit -- a whole large file or a long spec section in "
+                     "one input. If that is what you were doing, send changed spans instead: edit_fixture_file for a "
+                     "fixture file, stage_spec with edit={{old, new}} for staged text, or several smaller calls.")
+
+
+def _designer_call(body: dict, on_interrupt: Callable[[], dict] | None = None) -> dict:
+    """`on_interrupt`, called once after the first interrupted round, returns the request to retry with."""
     from ..provider import fatal_provider_error
     for round_ in range(DESIGNER_CALL_ROUNDS):
         try:
@@ -233,6 +245,8 @@ def _designer_call(body: dict) -> dict:
                     or not any(marker in text for marker in TRANSIENT_CALL_FAILURES)
                     or "invalid_request_error" in text or "authentication_error" in text):
                 raise
+            if on_interrupt is not None and "Anthropic transport interrupted" in text:
+                body, on_interrupt = on_interrupt(), None
             time.sleep(DESIGNER_CALL_PAUSE_S * (round_ + 1))
     raise AssertionError("unreachable")
 
@@ -659,10 +673,12 @@ working tree at EVERY turn. Read the defective state and the state the user acce
 The diff between them is the candidate reference; the correction between them is the \
 trap. materialize_fixture(msg_index) lifts the tree at a turn into environment/repo \
 with byte provenance (the default fixture is the turn before the first correction).
-  - list_fixture / read_fixture / write_fixture_file / delete_fixture_file: the fixture \
-as the agent will see it. Written files are recorded as authored (zero fidelity \
+  - list_fixture / read_fixture / write_fixture_file / edit_fixture_file / delete_fixture_file: \
+the fixture as the agent will see it. Written files are recorded as authored (zero fidelity \
 credit); use them to remove a leaked fix, plant a decoy or add data, never to hide the \
-answer somewhere the tests read.
+answer somewhere the tests read. Change an existing file with edit_fixture_file (the \
+changed span only); a whole large file in one call can take longer to generate than a \
+response stream survives, and every copy stays in every later request.
   - sandbox_run(command, patch?): a shell in the agent image against the fixture (or \
 the fixture plus a patch). REPRODUCE THE DEFECT HERE before you write a test, and run \
 your hidden tests here against the reference and the mutants while you write them.
@@ -968,6 +984,12 @@ def _tools(n_msgs: int) -> list[dict]:
          "fidelity credit). Never write the fix, a hint to it, or test data the hidden tests use.",
          "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"},
                                                            "reason": {"type": "string"}}, "required": ["path", "content", "reason"]}},
+        {"name": "edit_fixture_file", "description": "Replace exactly one occurrence of `old` in an existing fixture "
+         "file with `new` (recorded as AUTHORED, like write_fixture_file). Send the changed span, never the whole file "
+         "again: a large file rewritten in one call outlasts the response stream.",
+         "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"},
+                                                           "new": {"type": "string"}, "reason": {"type": "string"}},
+                          "required": ["path", "old", "new", "reason"]}},
         {"name": "delete_fixture_file", "description": "Remove a fixture file (e.g. a leaked patch or a later artefact).",
          "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "reason": {"type": "string"}},
                           "required": ["path", "reason"]}},
@@ -1609,6 +1631,25 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
         sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
         _record_authored(path, reason, sha)
         return {"written": path, "bytes": len(content.encode("utf-8")), "origin": "authored", "fidelity_credit": 0}
+
+    def edit_fixture_file(path: str, old: str, new: str, reason: str, **_):
+        # 2026-10-30: the html-js test design rewrote a ~100 KB HTML file through write_fixture_file; the call's
+        # input took longer to generate than the response stream lived (cut at ~5 minutes, retried, cut again).
+        target = _fixture_path(path)
+        if not target.is_file():
+            raise FileNotFoundError(f"{path!r} is not a fixture file; create it with write_fixture_file")
+        if not isinstance(old, str) or not old or not isinstance(new, str):
+            raise ValueError("old must be non-empty text and new text")
+        try:
+            text = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"{path!r} is not UTF-8 text; rewrite it with write_fixture_file") from None
+        count = text.count(old)
+        if count != 1:
+            raise ValueError(f"`old` occurs {count} times in {path!r}; it must occur exactly once (send a longer span)")
+        result = write_fixture_file(path, text.replace(old, new, 1), reason)
+        return {**result, "edited": path,
+                "sha256": hashlib.sha256(target.read_bytes()).hexdigest()[:16]}
 
     def delete_fixture_file(path: str, reason: str, **_):
         target = _fixture_path(path)
@@ -2485,7 +2526,8 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
             "read_workspace_file": read_workspace_file, "diff_workspace": diff_workspace,
             "materialize_fixture": materialize_fixture,
             "list_fixture": list_fixture, "read_fixture": read_fixture,
-            "write_fixture_file": write_fixture_file, "delete_fixture_file": delete_fixture_file,
+            "write_fixture_file": write_fixture_file, "edit_fixture_file": edit_fixture_file,
+            "delete_fixture_file": delete_fixture_file,
             "sandbox_run": sandbox_run, "sandbox_grade": sandbox_grade, "run_controls": run_controls,
             "probe_patch": probe_patch,
             "pre_review": pre_review,
@@ -2988,11 +3030,25 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         # The markers go on a per-request copy; `body`, `messages` and the
         # stored conversation stay unmarked (see `with_cache_breakpoints`).
         request = with_cache_breakpoints(body, ttl=policy.DESIGNER_CACHE_TTL)
+
+        def note_output_limit() -> dict:
+            # Kept in the stored conversation (and the checkpoint), so a resume and every later request see the
+            # same prefix the model answered.
+            last = messages[-1]
+            content = last["content"] if isinstance(last["content"], list) else [{"type": "text", "text": last["content"]}]
+            last["content"] = [*content, {"type": "text", "text": OUTPUT_LIMIT_NOTE.format(limit=body["max_tokens"])}]
+            atomic_json(log / "conversation.json", messages)
+            progress.author_boundary(bundle, log)
+            return with_cache_breakpoints(body, ttl=policy.DESIGNER_CACHE_TTL)
+
+        def call(request_body: dict) -> dict:
+            return _designer_call(request_body, on_interrupt=note_output_limit)
+
         if budget is not None:
             with budget:
-                response = call_with_retained_submit(_designer_call, request, handlers, max_steps=max_steps)
+                response = call_with_retained_submit(call, request, handlers, max_steps=max_steps)
         else:
-            response = call_with_retained_submit(_designer_call, request, handlers, max_steps=max_steps)
+            response = call_with_retained_submit(call, request, handlers, max_steps=max_steps)
         usage = response.get("usage") or {}
         last_prompt_tokens = sum(int(usage.get(k) or 0) for k in
                                  ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
