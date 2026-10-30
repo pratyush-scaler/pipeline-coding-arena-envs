@@ -36,3 +36,19 @@ class ShellVariants(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunObservability(unittest.TestCase):
+    def test_coder_runs_record_transport_telemetry_and_dump_stacks_on_usr1(self):
+        from pipeline.benchmark import coder_run
+        self.assertIn('env.setdefault("ARENA_TRANSPORT_OBSERVATIONS", str(run / "transport.jsonl"))', coder_run.LAUNCHER)
+        self.assertIn('env.setdefault("ARENA_STACK_DUMPS", "1")', coder_run.LAUNCHER)
+        compile(coder_run.LAUNCHER, "launcher", "exec")
+
+    def test_a_usr1_signal_dumps_every_thread(self):
+        import os, subprocess, sys
+        code = ("import os, signal, sys, time, pipeline; os.kill(os.getpid(), signal.SIGUSR1); time.sleep(0.2)")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+                             env={**os.environ, "ARENA_STACK_DUMPS": "1"}, cwd=os.getcwd())
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("most recent call first", out.stderr)

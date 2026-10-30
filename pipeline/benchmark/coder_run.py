@@ -444,6 +444,10 @@ if link.is_symlink() or not link.exists():
 (run / "started").write_text(str(time.time()))
 env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM") if k in os.environ}
 env.update(request["env"])
+# Payload-free transport telemetry (request start, response open, HTTP errors, retry waits) and on-demand
+# stack dumps (kill -USR1): an idle run is otherwise unreadable on these hosts (2026-10-30).
+env.setdefault("ARENA_TRANSPORT_OBSERVATIONS", str(run / "transport.jsonl"))
+env.setdefault("ARENA_STACK_DUMPS", "1")
 env["PATH"] = f"{os.environ.get('HOME', '')}/.local/bin:" + env.get("PATH", "/usr/bin:/bin")
 env["PYTHONPATH"] = str(root)
 log = open(run / "run.log", "ab", buffering=0)
