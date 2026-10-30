@@ -51,6 +51,15 @@ class DesignContinuationTests(unittest.TestCase):
                           'workspace_files': evidence_inventory(root, ['environment/repo', 'provenance']),
                           'remaining_steps': 139}
             self.assertEqual(restore_design_session(root, checkpoint)['prompt_tokens'], 709_002)
+            resumed = root / 'verification/design-sessions/resumed'          # died before its first response
+            atomic_json(resumed / 'request-config.json', {'max_steps': 139})
+            atomic_json(resumed / 'conversation.json', [{'role': 'user', 'content': 'open'}])
+            atomic_json(resumed / 'continuation.json', {'session': str(session.relative_to(root))})
+            again = {'session': str(resumed.relative_to(root)),
+                     'session_files': evidence_inventory(root, [str(resumed.relative_to(root))]),
+                     'workspace_files': evidence_inventory(root, ['environment/repo', 'provenance']),
+                     'remaining_steps': 139}
+            self.assertEqual(restore_design_session(root, again)['prompt_tokens'], 709_002)
 
     def test_resume_rejects_changed_sources_conversation_and_inflated_budget(self):
         with tempfile.TemporaryDirectory() as tmp:

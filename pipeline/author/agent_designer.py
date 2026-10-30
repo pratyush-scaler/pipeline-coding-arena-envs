@@ -2653,8 +2653,20 @@ def restore_design_session(bundle: Path, checkpoint: dict) -> dict:
         raise ValueError("Retained authoring conversation has no complete request boundary")
     draft = session / "draft.json"
     # The last reported prompt, so the first resumed request is compacted like the next one would have been: a
-    # session stopped by an overflow otherwise re-sent the same too-large prompt (2026-10-30 audit).
-    usage = (strict_json(responses[-1].read_text()).get("usage") or {}) if responses else {}
+    # session stopped by an overflow otherwise re-sent the same too-large prompt (2026-10-30 audit). A resumed session
+    # that died before its first response has none, so the continuation chain is followed back (the html-js test
+    # design's second resume re-sent 668k uncompacted).
+    usage, cursor = {}, session
+    for _ in range(16):
+        found = sorted(cursor.glob("response-*.json"))
+        if found:
+            usage = strict_json(found[-1].read_text()).get("usage") or {}
+            break
+        link = cursor / "continuation.json"
+        previous = strict_json(link.read_text()).get("session") if link.is_file() else None
+        if not isinstance(previous, str):
+            break
+        cursor = contained(bundle, previous)
     prompt_tokens = sum(int(usage.get(k) or 0) for k in
                         ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")) or None
     return {"messages": messages, "config": config, "remaining_steps": remaining,
