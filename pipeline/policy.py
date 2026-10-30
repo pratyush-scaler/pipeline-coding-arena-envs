@@ -1019,7 +1019,8 @@ PATCH_FIRST = ("Repair the professional assignment using these verified defects 
                "hold) and AFTER (it must hold), together with every earlier probe; then run_controls, use your one "
                "pre_review, submit; do not redesign, re-read the whole trace or re-solve the task. Never resolve an "
                "ambiguity by stating the answer or by adding text that turns the decisive inference into a lookup: "
-               "make the published rule precise and leave the inference to the solver.")
+               "make the published rule precise and leave the inference to the solver. "
+               "SOUNDNESS OF EVERY TIGHTENED CHECK: a stricter check must still accept every implementation the instruction allows -- observe through the published interface only, never an internal id, class, element, helper name, private word list or fixed list of signals. Prove it: for each check you tighten, write a false_negative probe that differs from the reference exactly where the check got stricter (a renamed internal id, other markup, other wording) and run_probes it -- it must score 1.0 (2026-10-30: a repair that closed 17 completeness gaps opened 8 soundness gaps the next review found).")
 #: Long tools the designer asks for in ONE response run at the same time
 #: (`agent_designer.CONCURRENT_TOOLS`). Measured 2026-10-27 on the first bash RLE
 #: build: run_controls 44 min, pre_review 41, blind_solve 39, research_traps 19 of
