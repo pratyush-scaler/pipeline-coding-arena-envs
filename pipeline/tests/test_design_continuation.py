@@ -34,6 +34,23 @@ class DesignContinuationTests(unittest.TestCase):
             self.assertIsNone(restored['draft'])
             self.assertEqual(restored['remaining_steps'], 138)
             self.assertEqual(restored['messages'][-1]['content'][0]['content'], 'retained source evidence')
+            self.assertIsNone(restored['prompt_tokens'])            # the retained responses report no usage
+
+    def test_resume_carries_the_last_reported_prompt_size(self):
+        """2026-10-30: a resumed session started with no prompt size, so its first request skipped compaction."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = root / 'verification/design-sessions/original'
+            atomic_json(session / 'request-config.json', {'max_steps': 140})
+            atomic_json(session / 'response-001.json', {'usage': {'input_tokens': 2, 'cache_read_input_tokens': 700_000,
+                                                                  'cache_creation_input_tokens': 9_000}})
+            atomic_json(session / 'conversation.json', [{'role': 'user', 'content': 'open'}])
+            atomic_json(root / 'environment/repo/source.json', {'evidence': 'unchanged'})
+            checkpoint = {'session': str(session.relative_to(root)),
+                          'session_files': evidence_inventory(root, [str(session.relative_to(root))]),
+                          'workspace_files': evidence_inventory(root, ['environment/repo', 'provenance']),
+                          'remaining_steps': 139}
+            self.assertEqual(restore_design_session(root, checkpoint)['prompt_tokens'], 709_002)
 
     def test_resume_rejects_changed_sources_conversation_and_inflated_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -77,3 +94,10 @@ class DesignContinuationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ResumedCompaction(unittest.TestCase):
+    def test_the_design_loop_starts_from_the_retained_prompt_size(self):
+        import inspect
+        from pipeline.author import agent_designer
+        self.assertIn('last_prompt_tokens = retained.get("prompt_tokens")', inspect.getsource(agent_designer.design))

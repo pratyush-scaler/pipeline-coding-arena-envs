@@ -2651,8 +2651,13 @@ def restore_design_session(bundle: Path, checkpoint: dict) -> dict:
     if not isinstance(messages, list) or not messages or messages[-1].get("role") != "user":
         raise ValueError("Retained authoring conversation has no complete request boundary")
     draft = session / "draft.json"
+    # The last reported prompt, so the first resumed request is compacted like the next one would have been: a
+    # session stopped by an overflow otherwise re-sent the same too-large prompt (2026-10-30 audit).
+    usage = (strict_json(responses[-1].read_text()).get("usage") or {}) if responses else {}
+    prompt_tokens = sum(int(usage.get(k) or 0) for k in
+                        ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")) or None
     return {"messages": messages, "config": config, "remaining_steps": remaining,
-            "draft": strict_json(draft.read_text()) if draft.exists() else None}
+            "draft": strict_json(draft.read_text()) if draft.exists() else None, "prompt_tokens": prompt_tokens}
 
 
 REJECTION_REASON_MIN = 200
@@ -2932,7 +2937,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         progress.author_boundary(bundle, log, stage="stalled")
         raise AuthoringStalled(report)
 
-    last_prompt_tokens = None
+    last_prompt_tokens = retained.get("prompt_tokens") if retained and messages is retained["messages"] else None
     for step in range(max_steps):
         if step == max_steps - 3:
             messages.append({"role": "user", "content": "Three response turns remain. Prioritize writing the "
