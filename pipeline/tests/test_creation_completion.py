@@ -262,6 +262,50 @@ class SubmitPreflight(unittest.TestCase):
 class ContextFits(unittest.TestCase):
     """2026-10-03: a design died at its 181st request with a 2.7 MB conversation."""
 
+    def thinking_heavy(self, turns, signature, result):
+        messages = [{"role": "user", "content": "open"}]
+        for i in range(turns):
+            messages.append({"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "", "signature": f"{i}:" + "s" * signature},
+                {"type": "tool_use", "id": f"c{i}", "name": "sandbox_run", "input": {"command": "true"}}]})
+            messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": f"c{i}", "content": "x" * result}]})
+        return messages
+
+    def test_old_thinking_goes_first_and_the_newest_run_stays(self):
+        """2026-10-30: thinking was 49% of the bash design's conversation and nothing could cut it."""
+        messages = self.thinking_heavy(100, 20_000, 2_000)
+        results = [json.dumps(m) for m in messages if m["role"] == "user"]
+        changed = author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS)
+        keep = author.policy.DESIGNER_THINKING_KEEP_TURNS
+        self.assertEqual(changed, 100 - keep)
+        carriers = [i for i, m in enumerate(messages) if m["role"] == "assistant"
+                    and any(b["type"] == "thinking" for b in m["content"])]
+        assistants = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
+        self.assertEqual(carriers, assistants[-keep:])                         # an unbroken run of the newest
+        self.assertEqual([json.dumps(m) for m in messages if m["role"] == "user"], results)   # results untouched
+        self.assertTrue(all(m["content"][-1]["type"] == "tool_use" for m in messages if m["role"] == "assistant"))
+        self.assertEqual(author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS - 1), 0)
+
+    def test_a_shortened_result_takes_every_thinking_block_with_it(self):
+        messages = self.thinking_heavy(120, 100, 20_000)
+        self.assertGreater(author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS), 0)
+        self.assertTrue(any(m["content"][0]["content"].startswith("[earlier tool output elided")
+                            for m in messages if m["role"] == "user" and isinstance(m["content"], list)))
+        self.assertFalse([b for m in messages if m["role"] == "assistant" for b in m["content"]
+                          if b["type"] == "thinking"])
+
+    def test_a_futile_cut_waits_for_the_ceiling(self):
+        """A cut that frees little re-writes the whole cache for nothing (the bash design: five 580k-700k
+        re-writes); near the window any cut is made."""
+        messages = self.thinking_heavy(60, 10, 1_000)
+        messages[1]["content"][0]["signature"] = "s" * 3_000
+        before = json.dumps(messages)
+        self.assertEqual(author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS), 0)
+        self.assertEqual(json.dumps(messages), before)
+        self.assertGreater(author.fit_context(messages, author.policy.DESIGNER_COMPACT_CEILING_TOKENS), 0)
+        self.assertLess(len(json.dumps(messages)), len(before))
+
     def conversation(self, turns, size):
         messages = [{"role": "user", "content": "open"}]
         for i in range(turns):
@@ -308,10 +352,12 @@ class ContextFits(unittest.TestCase):
         self.assertGreater(cut, 0)
         self.assertLessEqual(len(json.dumps(messages)), start * author.CONTEXT_TARGET_SHARE + 25_000)
         for old, new in zip(before, messages):
-            if new["role"] == "assistant":
-                self.assertEqual(json.dumps(new), old)          # signed thinking untouched
+            if new["role"] == "assistant":                      # a cut result drops every thinking block, nothing else
+                kept = [b for b in json.loads(old)["content"] if b["type"] != "thinking"]
+                self.assertEqual(new["content"], kept)
         for old, new in zip(before[-author.CONTEXT_KEEP_RECENT:], messages[-author.CONTEXT_KEEP_RECENT:]):
-            self.assertEqual(json.dumps(new), old)              # recent turns whole
+            if new["role"] == "user":
+                self.assertEqual(json.dumps(new), old)          # recent results whole
         ids = [b["tool_use_id"] for m in messages if m["role"] == "user" and isinstance(m["content"], list)
                for b in m["content"]]
         self.assertEqual(len(ids), 120)                         # every tool_use keeps its result

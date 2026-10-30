@@ -1050,6 +1050,9 @@ DESIGNER_CACHE_TTL = "1h"
 #: old sandbox output and draft re-reads most of the rest; the trace evidence is
 #: 2-4%. Clearing happens on the server, so the signed thinking blocks stay
 #: valid and the stored conversation is untouched. False sends plain requests.
+#: 2026-10-30: the thinking clear never fires inside a design session (one tool
+#: loop is one assistant turn; probe and every recorded response agree), so the
+#: thinking is dropped client-side at compaction (DESIGNER_THINKING_KEEP_TURNS).
 DESIGNER_CONTEXT_EDITING = True
 #: Clearing of OLD TOOL RESULTS is OFF (measured 2026-10-26 on the first bash RLE
 #: build that had it on: 31 of 179 requests re-wrote 100k-230k tokens into the
@@ -1068,8 +1071,15 @@ DESIGNER_TOOL_CLEARING = False
 #: (about $11 in ten minutes). Measured sessions end around 440k prompt tokens (p90 565k)
 #: without trouble, so the cut is reserved for the model's limit.
 DESIGNER_COMPACT_TOKENS = 700_000
-#: Assistant turns whose thinking stays in context; older thinking is cleared.
-#: Each clear re-writes the cache from the cleared block, i.e. the kept turns.
+#: A compaction re-writes the cache from the oldest message it changes (two cache breakpoints: any mid-conversation
+#: change reads only the system prefix), so one that frees less than this share of the conversation is not made ...
+DESIGNER_COMPACT_MIN_GAIN = 0.1
+#: ... until the previous prompt reached this many tokens, where any cut beats overflowing the window: the 2026-10-30
+#: bash design re-wrote 580k-700k tokens on five requests (four within 22 requests) for cuts that freed little.
+DESIGNER_COMPACT_CEILING_TOKENS = 850_000
+#: Assistant messages whose thinking stays in context. The server's `clear_thinking` edit counts TURNS, and one
+#: design session is one assistant turn, so it clears nothing (2026-10-30 probe: `applied_edits: []`); the client
+#: drops the older thinking itself when it compacts (`agent_designer.strip_old_thinking`), keeping this many.
 DESIGNER_THINKING_KEEP_TURNS = 3
 #: Tool-result clearing starts once the prompt reaches this many input tokens ...
 DESIGNER_TOOL_CLEAR_TRIGGER_TOKENS = 150_000

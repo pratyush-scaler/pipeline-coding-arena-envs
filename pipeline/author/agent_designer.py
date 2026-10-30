@@ -85,12 +85,22 @@ MAX_CONSECUTIVE_TOOL_ERRORS = 6
 #: (2026-10-27: a byte trigger at 1.5 MB cut the first fourteen results at
 #: 180k tokens and nine requests re-wrote the whole cache). The byte bound is
 #: only a safety net for the request size.
+#:
+#: 2026-10-30: the designer's OLD THINKING goes first. On Opus 5.5 the signature
+#: carries the reasoning and is read as input -- 150k-370k tokens of the 670k and
+#: 784k prompts of the two test designs -- and the server-side `clear_thinking`
+#: edit clears nothing inside one tool loop (a design session is one assistant
+#: turn: a four-step probe returned `applied_edits: []` and the same input
+#: tokens). Tool results alone could not reach the target: the bash design cut
+#: 41 of them, re-wrote its whole 580k-700k cache on five requests (3.3M of its
+#: 4.1M written tokens) and still grew past 780k toward the window.
 CONTEXT_COMPACT_BYTES = 12_000_000
 CONTEXT_TARGET_BYTES = 8_000_000
 CONTEXT_TARGET_SHARE = 0.6
 CONTEXT_KEEP_RECENT = 40
 _ELIDED = ("[earlier tool output elided to keep the conversation inside the model's context window; "
            "re-run the tool if you need it again]\n")
+_THINKING = ("thinking", "redacted_thinking")
 
 
 def _source_record(row: dict, session_id, seed_index) -> dict:
@@ -103,32 +113,63 @@ def _source_record(row: dict, session_id, seed_index) -> dict:
     return record
 
 
-def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
-    """Shorten old tool results in place when the prompt nears the model's limit; return how many were cut.
+def strip_old_thinking(messages: list[dict], keep: int) -> int:
+    """Drop the thinking blocks of every assistant message but the newest `keep` that still carry one; return how
+    many went.
 
-    `prompt_tokens` is the previous request's whole prompt as the API reported it. The cut
-    starts at the NEWEST eligible result, so the prompt cache stays valid up to it.
+    The kept blocks stay an unbroken run of the newest, the removal the API accepts on every account (a gap, or an
+    edit before a kept block, invalidates it: a 400 on accounts created from 2026-08-31). A removed block never
+    comes back because `messages` is the stored conversation. A stored assistant message never ends in thinking
+    (the API refuses one that does), so every message keeps its other blocks.
+    """
+    carriers = [m for m in messages if m.get("role") == "assistant" and isinstance(m.get("content"), list)
+                and any(isinstance(b, dict) and b.get("type") in _THINKING for b in m["content"])]
+    removed = 0
+    for message in carriers[:max(0, len(carriers) - keep)]:
+        rest = [b for b in message["content"] if not (isinstance(b, dict) and b.get("type") in _THINKING)]
+        if rest:
+            removed += len(message["content"]) - len(rest)
+            message["content"] = rest
+    return removed
+
+
+def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
+    """Shorten the conversation in place when the prompt nears the model's limit; return how many blocks went.
+
+    `prompt_tokens` is the previous request's whole prompt as the API reported it. Old thinking goes first (all but
+    the newest policy.DESIGNER_THINKING_KEEP_TURNS); then, only if that is not enough, old tool results from the
+    NEWEST eligible one back, and with them every thinking block, because a shortened earlier result invalidates
+    each later one. Any change re-writes the cache from the oldest stripped message, so a cut freeing less than
+    policy.DESIGNER_COMPACT_MIN_GAIN of the conversation is not made below
+    policy.DESIGNER_COMPACT_CEILING_TOKENS (the bash design re-wrote 700k tokens on consecutive requests).
     """
     size = len(json.dumps(messages, ensure_ascii=False))
     by_tokens = bool(prompt_tokens) and prompt_tokens >= policy.DESIGNER_COMPACT_TOKENS
     if not by_tokens and size <= CONTEXT_COMPACT_BYTES:
         return 0
     start = size
+    work = copy.deepcopy(messages)
+    changed = strip_old_thinking(work, policy.DESIGNER_THINKING_KEEP_TURNS)
+    size = len(json.dumps(work, ensure_ascii=False))
 
     def done() -> bool:
         if by_tokens and prompt_tokens * size / start > CONTEXT_TARGET_SHARE * policy.DESIGNER_COMPACT_TOKENS:
             return False
         return size <= CONTEXT_TARGET_BYTES
 
-    names = {block.get("id"): block.get("name") for message in messages if message.get("role") == "assistant"
+    names = {block.get("id"): block.get("name") for message in work if message.get("role") == "assistant"
              and isinstance(message.get("content"), list) for block in message["content"] if isinstance(block, dict)
              and block.get("type") == "tool_use"}
     evidence = set(policy.DESIGNER_EVIDENCE_TOOLS)
     cut = 0
-    for message in reversed(messages[:max(0, len(messages) - CONTEXT_KEEP_RECENT)]):
+    for message in reversed(work[:max(0, len(work) - CONTEXT_KEEP_RECENT)]):
+        if done():
+            break
         if message.get("role") != "user" or not isinstance(message.get("content"), list):
             continue
         for block in message["content"]:
+            if done():
+                break
             if not isinstance(block, dict) or block.get("type") != "tool_result":
                 continue
             if names.get(block.get("tool_use_id")) in evidence:
@@ -140,9 +181,16 @@ def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
             block["content"] = _ELIDED + text[:400]
             size -= len(text) - len(block["content"])
             cut += 1
-            if done():
-                return cut
-    return cut
+    if cut:
+        changed += cut + strip_old_thinking(work, 0)
+        size = len(json.dumps(work, ensure_ascii=False))
+    ceiling = bool(prompt_tokens) and prompt_tokens >= policy.DESIGNER_COMPACT_CEILING_TOKENS
+    if not changed or (by_tokens and not ceiling and start <= CONTEXT_COMPACT_BYTES
+                       and start - size < policy.DESIGNER_COMPACT_MIN_GAIN * start):
+        return 0
+    for message, shortened in zip(messages, work):
+        message["content"] = shortened["content"]
+    return changed
 
 
 #: Transport failures a fresh request can outlive. `transport._call` already
