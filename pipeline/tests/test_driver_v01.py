@@ -76,3 +76,41 @@ class TopUps(unittest.TestCase):
         from orchestration import arena_v01_ship as ship
         self.assertEqual([t["id"] for t in ship._measured([root / "primary", root / "topup"])["trials"]],
                          ["t1", "t2", "t3"])
+
+
+class DesignRerun(unittest.TestCase):
+    """2026-10-30: c-001-html-js died at design on five `_StreamInterrupted` attempts and was listed as building."""
+
+    def row(self, error, status="error", alive=False):
+        return {"lineage": "/x/envs-t1/target-F3-replay/c-001-wheel", "ws": "ws", "busy": [], "tree_build_alive": alive,
+                "versions": [{"task": False, "status": status, "stage": "design", "error": error,
+                              "session_id": "s1", "seed_index": 0}]}
+
+    def test_an_infrastructure_error_is_resumed_twice_then_blocked(self):
+        from orchestration import driver
+        entry = {"actions": []}
+        error = "RuntimeError: design failed 1 times. attempt 1: designer call failed after 5 attempts: x"
+        with mock.patch.object(driver, "wave_rank", return_value=3), mock.patch.object(driver, "WAVES", {"envs-t1": "w.json"}), \
+                mock.patch.object(driver, "launch", return_value="run-1") as launch:
+            self.assertEqual(driver.design_rerun(self.row(error), entry, False), "rerun")
+            self.assertEqual(driver.design_rerun(self.row(error), entry, False), "rerun")
+            self.assertEqual(driver.design_rerun(self.row(error), entry, False), "blocked")
+        argv = launch.call_args.args[1]
+        self.assertEqual(argv[:3], ["build", "-o", "/x/envs-t1"])
+        self.assertEqual(argv[argv.index("--ranks") + 1], "3")
+
+    def test_alive_builds_account_loss_and_design_defects_are_not_rerun(self):
+        from orchestration import driver
+        with mock.patch.object(driver, "launch") as launch:
+            self.assertEqual(driver.design_rerun(self.row("designer call failed after 5", alive=True),
+                                                 {"actions": []}, False), "building")
+            self.assertEqual(driver.design_rerun(self.row("", status=None), {"actions": []}, False), "building")
+            self.assertEqual(driver.design_rerun(self.row("designer call failed after 5 attempts: 401 Unauthorized"),
+                                                 {"actions": []}, False), "blocked")
+            self.assertEqual(driver.design_rerun(self.row("ValueError: fixture placeholder"), {"actions": []}, False),
+                             "blocked")
+        launch.assert_not_called()
+
+    def test_the_probe_reports_a_live_build_of_the_tree(self):
+        from orchestration import driver
+        self.assertIn('"tree_build_alive"', driver.PROBE)

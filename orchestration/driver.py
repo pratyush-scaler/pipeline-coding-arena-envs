@@ -173,7 +173,9 @@ for lineage in sorted(p for t in trees for p in glob.glob(os.path.join(root, t, 
                              "harden_status": hard.get("status"),
                              "max_attempts": hard.get("max_attempts", 3),
                              "busy": [a["run"] for a in alive if any(lineage in str(x) for x in a["argv"])],
-                             "builds_alive": [a["run"] for a in alive if "build" in a["argv"]]}))
+                             "builds_alive": [a["run"] for a in alive if "build" in a["argv"]],
+                             "tree_build_alive": any("build" in a["argv"] and os.path.dirname(os.path.dirname(lineage))
+                                                     in a["argv"] for a in alive)}))
 '''
 
 
@@ -359,6 +361,38 @@ def wave_rank(tree: str, session_id: str, seed_index) -> int | None:
     return None
 
 
+#: A design that ended in an infrastructure error is re-run (CLAUDE.md: infra loss is re-run); its checkpoint resumes
+#: the retained session. 2026-10-30: c-001-html-js died after 113 responses on five `_StreamInterrupted` attempts and
+#: the driver listed it as "building" for hours, because a lineage without a task was never looked at again.
+DESIGN_RERUNS = 2
+INFRA_DESIGN_ERRORS = ("designer call failed after", "Anthropic transport interrupted", "Anthropic stream reported",
+                       "OpenAI call failed", "overloaded", "rate_limit", "Connection reset", "timed out")
+ACCOUNT_LOSS = ("credit_balance", "insufficient_quota", "billing", "401", "authentication", "Unauthorized",
+                "invalid_api_key", "permission_denied")
+
+
+def design_rerun(row: dict, entry: dict, dry: bool) -> str:
+    """What to do with a lineage that has no task yet: 'building', 'rerun' (launched) or 'blocked'."""
+    first = (row.get("versions") or [{}])[0]
+    if row.get("tree_build_alive") or row.get("busy") or first.get("status") in (None, "running", "pending"):
+        return "building"
+    error = first.get("error") or ""
+    infra = (first.get("status") == "error" and any(k in error for k in INFRA_DESIGN_ERRORS)
+             and not any(k in error for k in ACCOUNT_LOSS))
+    if not infra or sum(a["kind"] == "design_rerun" for a in entry["actions"]) >= DESIGN_RERUNS:
+        return "blocked"
+    tree = Path(row["lineage"]).parents[1].name
+    rank = wave_rank(tree, first.get("session_id"), first.get("seed_index"))
+    if rank is None:
+        log(f"design re-run {Path(row['lineage']).name}: rank not found")
+        return "blocked"
+    run = launch(row["ws"], ["build", "-o", str(Path(row["lineage"]).parents[1]), "-c",
+                             str(ROOT / "pipeline-artifacts/waves" / WAVES[tree]), "--ranks", str(rank),
+                             "--task-workers", "1", "--max-tier", "4"], dry)
+    entry["actions"].append({"kind": "design_rerun", "run": run, "at": time.time()})
+    return "rerun"
+
+
 def error_repair(row: dict, version: dict, dry: bool) -> str | None:
     """A controls-stage `error` from an unapplied variant patch: grant one repair pass and relaunch that seed alone
     on the staged (current) code, which routes such defects to the designer."""
@@ -495,7 +529,13 @@ def cycle(dry: bool) -> dict:
             entry["actions"] = [a for a in entry["actions"] if a.get("run")]
         versions = [v for v in row["versions"] if v.get("task")]
         if not versions:
-            summary["building"].append(name)
+            outcome = design_rerun(row, entry, dry)
+            first = (row.get("versions") or [{}])[0]
+            if outcome == "blocked":
+                summary["blocked"].append(f"{name}: {first.get('status')} at {first.get('stage')} "
+                                          f"{(first.get('error') or '')[:160]}")
+            else:
+                summary["building"].append(name + (" (design re-run: infrastructure)" if outcome == "rerun" else ""))
             continue
         latest = versions[-1]
         # A released version ANYWHERE in the lineage is the lineage's result (2026-10-18: c-015 v6, c-023 v6 and
