@@ -363,6 +363,11 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
 
 ## Gotchas
 
+- **Harness change, 2026-10-30 (user-approved):** the Anthropic stream parser (`pipeline/author/transport.py`) accepts a response cut at
+  `max_tokens` whose last block the API never closed, dropping that block. It had read the cut as an interrupted
+  stream and retried the same 48k-token request until the design was lost. `harness_identity` changed with it:
+  reviews and calibrations recorded before it read stale ("review transport changed" / "calibration transport is
+  stale") and are re-run, which is expected at this batch boundary.
 - A shell variant over `sandbox.SHELL_ARG_MAX` runs from a file in the container: as `docker exec sh -c` text, one
   argument past the kernel's 128 KiB MAX_ARG_STRLEN failed with E2BIG, so no counterexample of the 2026-10-30 bash
   test design ever ran. Locally on macOS, run `sandbox_smoke` / `./arena sandbox` with `TMPDIR` under `/Users`:

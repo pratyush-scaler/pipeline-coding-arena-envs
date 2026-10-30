@@ -200,3 +200,35 @@ class AnthropicTransport(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MaxTokensCut(unittest.TestCase):
+    """2026-10-30: a response cut at max_tokens mid tool call ends without content_block_stop for the cut block."""
+
+    def events(self, cut_type="tool_use"):
+        start = {"tool_use": {"type": "tool_use", "id": "call-1", "name": "write_fixture_file", "input": {}},
+                 "thinking": {"type": "thinking", "thinking": ""}}[cut_type]
+        delta = {"tool_use": {"type": "input_json_delta", "partial_json": '{"path": "a.html", "content": "<html'},
+                 "thinking": {"type": "thinking_delta", "thinking": "long"}}[cut_type]
+        return [{"type": "message_start", "message": {"id": "m", "model": "claude-opus-5-5", "content": [],
+                                                      "usage": {"input_tokens": 2}}},
+                {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+                {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Writing it."}},
+                {"type": "content_block_stop", "index": 0},
+                {"type": "content_block_start", "index": 1, "content_block": start},
+                {"type": "content_block_delta", "index": 1, "delta": delta},
+                {"type": "message_delta", "delta": {"stop_reason": "max_tokens"}, "usage": {"output_tokens": 48000}},
+                {"type": "message_stop"}]
+
+    def test_the_cut_block_is_dropped_and_the_response_returned(self):
+        for cut in ("tool_use", "thinking"):
+            with self.subTest(cut=cut):
+                message = designer._consume_stream(stream(self.events(cut)))
+                self.assertEqual(message["stop_reason"], "max_tokens")
+                self.assertEqual(message["content"], [{"type": "text", "text": "Writing it."}])
+
+    def test_an_unclosed_block_without_max_tokens_is_still_an_interruption(self):
+        events = self.events()
+        events[-2]["delta"]["stop_reason"] = "tool_use"
+        with self.assertRaises(designer._StreamInterrupted):
+            designer._consume_stream(stream(events))

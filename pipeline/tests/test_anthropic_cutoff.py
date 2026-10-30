@@ -93,10 +93,18 @@ class AnthropicCutoff(unittest.TestCase):
         events[4:4] = extra
         self.assertEqual(designer._consume_stream(stream(events))['content'], [])
 
-    def test_unclosed_blocks_cannot_be_excused_by_max_tokens(self):
+    def test_an_unclosed_block_at_max_tokens_is_the_cut_and_is_dropped(self):
+        # 2026-10-30, reproduced against the API: a response cut at max_tokens ends with message_delta and
+        # message_stop and never closes the block it cut. That is a complete response whose last block is cut,
+        # not an interruption (reading it as one retried the same request until the design was lost).
         events = [event for event in truncated() if event['type'] != 'content_block_stop']
+        message = designer._consume_stream(stream(events))
+        self.assertEqual(message['stop_reason'], 'max_tokens')
+        self.assertEqual(message['content'], [])
+        other = [dict(e, delta={**e['delta'], 'stop_reason': 'tool_use'}) if e['type'] == 'message_delta' else e
+                 for e in events]
         with self.assertRaises(designer._StreamInterrupted):
-            designer._consume_stream(stream(events))
+            designer._consume_stream(stream(other))
 
     def test_screening_records_cutoff_without_executing_or_retrying_it(self):
         helper = helpers.AnthropicTransport()

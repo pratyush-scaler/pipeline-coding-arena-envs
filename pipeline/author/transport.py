@@ -164,11 +164,22 @@ def _consume_stream(resp, deadline: float | None = None, progress=None) -> dict:
                 raise RuntimeError('Anthropic usage must be an object')
             message.setdefault('usage', {}).update(usage)
         elif kind == 'message_stop':
+            cut = set()
+            if started and seen_delta and message.get('stop_reason') == 'max_tokens':
+                # The API ends a stream cut at max_tokens without closing the block it was writing (2026-10-30,
+                # reproduced: message_delta with output_tokens 48000, message_stop, no content_block_stop for the
+                # tool_use). Read as an interruption, the same request was retried until the design was lost.
+                # The cut block is incomplete and is dropped (a cut thinking block has no signature to replay);
+                # complete blocks stand, and a max_tokens tool batch is discarded below as before.
+                cut = set(blocks) - closed
+                closed |= cut
             if (not started or not seen_delta or closed != set(blocks) or set(blocks) != set(range(len(blocks)))
                     or not isinstance(message.get('stop_reason'), str) or not message['stop_reason']):
                 raise _StreamInterrupted('Anthropic terminal event arrived before the response was complete')
             content = []
             for index in range(len(blocks)):
+                if index in cut:
+                    continue
                 block = blocks[index]
                 if block['type'] in {'tool_use', 'server_tool_use'}:
                     if message['stop_reason'] == 'max_tokens':
