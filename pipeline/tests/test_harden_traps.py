@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from pipeline import policy
+
 from pipeline.harden import (HARDENING_BRIEF, budget_problems, faithfulness_budget,
                              propose, requested_traps)
 
@@ -102,6 +104,40 @@ class OperatorTraps(unittest.TestCase):
         for rule in ("grounded", "resolvable", "beatable", "No hidden rules", "as deceptive as the EVIDENCE",
                      "requirements themselves stay perfectly clear"):
             self.assertIn(rule, brief)
+
+    def _propose(self, **kw):
+        spec = {"source": {"session_id": "s", "seed_index": 0}, "checks": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = bundle_with(root, 10, 1)
+            with patch("pipeline.repair.design_inputs", return_value=(spec, ledger, {})), \
+                 patch("pipeline.author.extract.extract", return_value=object()), \
+                 patch("pipeline.harden._breadth_summary", return_value="  -"), \
+                 patch("pipeline.harden.review_repairs", return_value=[]), \
+                 patch("pipeline.release_blockers.write_context"), \
+                 patch("pipeline.release_blockers.brief", return_value="\nRELEASE BLOCKERS: [CRIT 1] ..."), \
+                 patch("pipeline.author.agent_designer.design", return_value=dict(spec)) as design:
+                propose(root, [], **kw)
+        return design.call_args
+
+    def test_a_release_repair_is_a_patch_round(self):
+        from pipeline import harden
+        call = self._propose(requested=[harden.RELEASE_PREFIX + json.dumps([{"id": f"CRIT {i}"} for i in range(28)])])
+        feedback = call.kwargs["feedback"]
+        self.assertEqual(feedback[0], policy.PATCH_FIRST)
+        self.assertIn("RELEASE REPAIR, A PATCH ROUND", feedback[1])
+        self.assertNotIn("Aim for pass@1", feedback[1])
+        self.assertEqual(call.kwargs["max_steps"], policy.REVISION_MAX_STEPS + 28 * policy.RELEASE_REPAIR_STEPS_PER_BLOCKER)
+        self.assertEqual(call.args[0]["_harden_kind"], "release_repair")
+
+    def test_a_validity_repair_is_a_patch_round_and_a_hardening_round_is_not(self):
+        call = self._propose(kind="repair")
+        self.assertEqual(call.kwargs["feedback"][0], policy.PATCH_FIRST)
+        self.assertEqual(call.kwargs["max_steps"], policy.REVISION_MAX_STEPS)
+        call = self._propose(requested=["a decoy that is correct under the superseded rule"])
+        self.assertNotEqual(call.kwargs["feedback"][0], policy.PATCH_FIRST)
+        self.assertNotIn("max_steps", call.kwargs)
+        self.assertEqual(call.args[0]["_harden_kind"], "harden")
 
     def test_without_requests_the_brief_has_no_empty_section(self):
         self.assertNotIn("{requested}", HARDENING_BRIEF.format(

@@ -603,6 +603,13 @@ Your faithfulness budget, measured from the ORIGINAL task:
 {budget}
 """
 
+RELEASE_ATTEMPT = """\
+ATTEMPT {n} OF {of} -- RELEASE REPAIR, A PATCH ROUND. The measured version is already hard on both
+models; it is held only by the recorded blockers below. Fix every one of them and nothing else: no
+redesign, no new trap or mutant beyond what a blocker's own fix needs (a CRIT gap's hidden case and
+its m_partial_ mutant), no weaker check, no new world. Attempts left after this one: {left}.
+"""
+
 
 #: Explicit preserve-level mode only; default scenario hardening has no
 #: arbitrary authored-byte cap and validates the measured final provenance.
@@ -918,11 +925,19 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         if staged.get("target_level") == "F3":
             staged["target_level"] = "F2"
         row["authoring_target_level"] = staged.get("target_level") or "F2"
+    release = next((json.loads(r[len(RELEASE_PREFIX):]) for r in requested or [] if str(r).startswith(RELEASE_PREFIX)),
+                   None)
+    # Repairs are patches (user, 2026-10-30), here as in the build (orchestrate) and qualification (repair.revise):
+    # a validity repair of a hardening draft, and a release repair of an already-hard version, get PATCH_FIRST and a
+    # repair budget -- never the hardening brief, its new-trap floors or a design-sized session.
+    patch_round = kind == "repair" or bool(release and kind == "harden" and not tighten)
     if kind == "repair":
         brief = REPAIR_ATTEMPT.format(n=number, of=of, left=left,
                                       budget=_budget_text(faithfulness_budget(
                                           measured or bundle, design_inputs(measured or bundle)[1],
                                           preserve_level=policy.HARDENING_PRESERVE_LEVEL)))
+    elif patch_round:
+        brief = RELEASE_ATTEMPT.format(n=number, of=of, left=left)
     else:
         rendered = "\n".join(
             f"  {c['id']}  (weight {c['weight']}, passed by {c['rate']:.0%} of attempts)"
@@ -964,8 +979,6 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
     # The independent review's VALIDITY findings on the version being revised are
     # repaired in the same round, never traded for difficulty (user, 2026-10-04).
     repairs = review_repairs(measured or bundle)
-    release = next((json.loads(r[len(RELEASE_PREFIX):]) for r in requested or [] if str(r).startswith(RELEASE_PREFIX)),
-                   None)
     from . import release_blockers
     release_blockers.clear(bundle)
     if release:
@@ -978,9 +991,13 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         brief += REVIEW_REPAIR.format(items="\n".join(f"  - {text}" for text in repairs)
                                       or "  (none from the reviewer -- the protocol applies to every blocker above)",
                                       bar=policy.STEP_PASS_RATE_MAX)
-    if kind != "repair":
+    if not patch_round:
         brief += _step_target_text(measured or bundle)
     options = {}
+    if patch_round:
+        options["max_steps"] = (policy.REVISION_MAX_STEPS if kind == "repair" else
+                                min(agent_designer.MAX_STEPS, policy.REVISION_MAX_STEPS
+                                    + policy.RELEASE_REPAIR_STEPS_PER_BLOCKER * len(release)))
     if fast:
         # A hidden-only round (fastharden): the designer re-grades its draft
         # against every captured episode of the measured version.
@@ -989,17 +1006,18 @@ def propose(bundle: Path, targets: list[dict], findings: list[str] | None = None
         if not episodes:
             raise RuntimeError("no captured episodes of the measured version to harden against")
         row = dict(row, _captured_episodes=episodes)
-        options["max_steps"] = fastharden.FAST_MAX_STEPS
+        options["max_steps"] = min(options.get("max_steps", fastharden.FAST_MAX_STEPS), fastharden.FAST_MAX_STEPS)
         brief = (fastharden.FAST_BRIEF + "\n" + fastharden.episode_summary(
             episodes, _screen.current(measured or bundle)) + "\n\n" + brief)
     source = spec["source"]
     # The hardness gate arms in hardening rounds (harden, extend, fast), never in a review repair. Requested
     # trap ideas are accounted for one by one (creation.requested_trap_gaps, user 2026-10-28).
-    row = dict(row, _harden_kind=kind,
+    row = dict(row, _harden_kind="release_repair" if patch_round and kind != "repair" else kind,
                _requested_traps=[r for r in requested or [] if not str(r).startswith((FIX_PREFIX, RELEASE_PREFIX))])
     revised = agent_designer.design(
         row, extract.extract(source["session_id"], source["seed_index"]), bundle,
-        initial_spec=staged, feedback=[brief, *(findings or [])], revision=True, **options)
+        initial_spec=staged, feedback=[*([policy.PATCH_FIRST] if patch_round else []), brief, *(findings or [])],
+        revision=True, **options)
     for field in ("source", "category"):
         if field in spec:
             revised[field] = spec[field]

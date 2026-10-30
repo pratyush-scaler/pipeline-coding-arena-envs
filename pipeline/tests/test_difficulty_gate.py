@@ -122,6 +122,8 @@ class Arming(unittest.TestCase):
         import inspect
         from pipeline.author import agent_designer
         src = inspect.getsource(agent_designer.design)
-        self.assertIn('row.get("_harden_kind") not in (None, "repair")', src)
+        self.assertIn('row.get("_harden_kind") not in REPAIR_KINDS', src)
+        self.assertEqual(agent_designer.REPAIR_KINDS, (None, "repair", "release_repair"))
         from pipeline import harden
-        self.assertIn("_harden_kind=kind", inspect.getsource(harden))
+        self.assertIn('_harden_kind="release_repair" if patch_round and kind != "repair" else kind',
+                      inspect.getsource(harden))

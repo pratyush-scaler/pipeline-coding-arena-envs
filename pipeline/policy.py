@@ -1040,6 +1040,11 @@ REVISION_PRE_REVIEWS = 1
 #: first bash RLE build's repairs took 93, 94 and 55 requests, and each round
 #: costs a full gate afterwards.
 REVISION_MAX_STEPS = 80
+#: A release repair (`arena harden --release-repair`: an ALREADY HARD version blocked at release) is a patch round
+#: too: REVISION_MAX_STEPS plus this many per recorded blocker, never above a first design's MAX_STEPS. Measured:
+#: the in-build review repair closed 17 findings in 72 steps; html-js's release repair of 28 blockers ran as a full
+#: hardening round (hardening brief, 6 new researched + 3 trace traps owed, 150 steps) on 2026-10-30.
+RELEASE_REPAIR_STEPS_PER_BLOCKER = 2
 #: The brief every repair session opens with -- the release repair (repair.revise) AND the in-build gate/review
 #: repair (orchestrate.build_one), which until 2026-10-30 got the full design budget and the raw findings only.
 PATCH_FIRST = ("Repair the professional assignment using these verified defects -- EVERY finding below, all in this "

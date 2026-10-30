@@ -253,6 +253,8 @@ def _designer_call(body: dict, on_interrupt: Callable[[], dict] | None = None) -
 
 #: Tools an earlier session may have carried that no longer exist. A retained
 #: conversation that used one is still resumable; the model is told it is gone.
+#: Round kinds that repair rather than harden (harden.propose sets `_harden_kind`).
+REPAIR_KINDS = (None, "repair", "release_repair")
 RETIRED_TOOLS = ("review_design", "evaluate", "run_parser")
 TRACE_MESSAGE_CHARS = 6000
 TOOL_IO_CHARS = 900
@@ -2992,7 +2994,9 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
         opening += "\n\n" + TRAP_POLICY[level]
     # A hardening round (harden / extend / fast) researches NEW traps too (user, 2026-10-28: "add a lot of
     # diverse trap modes using web search and thorough research"); the traps it started with never count.
-    hardening_round = bool(revision and row.get("_harden_kind") not in (None, "repair"))
+    # A repair -- a validity repair or a release repair of an already-hard version -- is a patch round: no new-trap
+    # floors, no world, no creation hardness gate (harden.propose, user 2026-10-30: repairs are patch fixes).
+    hardening_round = bool(revision and row.get("_harden_kind") not in REPAIR_KINDS)
     research_floor = (policy.MIN_RESEARCHED_TRAPS if not revision
                       else policy.MIN_RESEARCHED_TRAPS_HARDENING if hardening_round else 0)
     # The trace origin from the FIRST design (user, 2026-10-28): capped by the moments the trace actually holds
@@ -3023,7 +3027,7 @@ def design(row: dict, extraction, bundle: Path, max_steps: int = MAX_STEPS, budg
     # pushed toward stricter tests.
     gate_mode = (None if not policy.DIFFICULTY_GATE_AT_CREATION
                  else "fast" if row.get("_captured_episodes")
-                 else "creation" if (not revision or row.get("_harden_kind") not in (None, "repair"))
+                 else "creation" if (not revision or row.get("_harden_kind") not in REPAIR_KINDS)
                  else None)
     difficulty_gate.arm(bundle, gate_mode)
     from ..config import ARTIFACTS as _artifacts
