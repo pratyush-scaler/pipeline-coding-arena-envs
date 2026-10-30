@@ -119,7 +119,13 @@ def review_context(bundle: Path, workspace: Path | None = None) -> dict:
                 continue
             seen.add(peer.resolve())
             other = strict_json((peer / "authoring/spec.json").read_text())
-            peer_signature = signature(peer)
+            try:
+                peer_signature = signature(peer)
+            except ValueError:
+                # A peer that cannot be identified -- a sibling between its spec and its build during concurrent
+                # builds, an incomplete copy -- is not a published task; it must not fail this review ("cannot
+                # identify an incomplete bundle" ended a non-coding review unverified, 2026-10-30).
+                continue
             peer_sha = peer_signature['artifact_sha256']
             # A transferred or staged copy is still this candidate, not a
             # competing task. Deduplicate peers by frozen bytes as well.
