@@ -79,7 +79,15 @@ unpublished numeric bounds, readiness by polling with generous ceilings, kernel-
 process's own claims, and no rig the agent's process can forge.
 
 7. STEERABILITY. Carry the user's explicit constraints from the trace's corrections into the instruction as \
-published rules, in the user's own language and register."""
+published rules, in the user's own language and register.
+
+8. THE WORLD OF A BASH TASK IS THE MACHINE'S STATE (THE ENVIRONMENT IS A WORLD, user 2026-10-30). Generate it \
+with generate_world: the directories the scripts walk, at realistic scale -- files saved by different programs \
+(BOM, CRLF, no final newline, comments, blank lines), names with spaces and case, accent and editor-backup \
+twins (name~), the partial and stale outputs of earlier runs, lock and temp files a killed run left, logs the \
+tools wrote, the user's real-looking inputs. The bash levers above live in that state: each hidden item is a \
+small ordinary-looking part of it. Timestamps in it are plain data: no clock or timezone decision is graded \
+(rule 6 overrides the world doctrine's temporal examples)."""
 
 
 def applies(row: dict | None) -> bool:
