@@ -1017,7 +1017,9 @@ PATCH_FIRST = ("Repair the professional assignment using these verified defects 
                "assertion or one condition, change exactly that (stage_spec with edit={old,new}) and the check's "
                "basis. Every finding with a counterexample is a probe: run_probes on it BEFORE your fix (it must not "
                "hold) and AFTER (it must hold), together with every earlier probe; then run_controls, use your one "
-               "pre_review, submit; do not redesign, re-read the whole trace or re-solve the task.")
+               "pre_review, submit; do not redesign, re-read the whole trace or re-solve the task. Never resolve an "
+               "ambiguity by stating the answer or by adding text that turns the decisive inference into a lookup: "
+               "make the published rule precise and leave the inference to the solver.")
 #: Long tools the designer asks for in ONE response run at the same time
 #: (`agent_designer.CONCURRENT_TOOLS`). Measured 2026-10-27 on the first bash RLE
 #: build: run_controls 44 min, pre_review 41, blind_solve 39, research_traps 19 of
