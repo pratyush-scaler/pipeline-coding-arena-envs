@@ -212,6 +212,7 @@ class DesignerTool(unittest.TestCase):
         self.generate(GOOD, seed=3, out_dir="data")
         self.generate(GOOD, seed=3, out_dir="world")
         self.assertFalse((self.root / "environment/repo/data/exports/orders.csv").exists())
+        self.assertFalse((self.root / "environment/repo/data").exists())
         self.assertTrue((self.root / "environment/repo/world/exports/orders.csv").is_file())
         self.assertEqual(len((world.load(self.root) or {})["runs"]), 1)
 

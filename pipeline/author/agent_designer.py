@@ -1711,6 +1711,10 @@ def _handlers(bundle: Path, extraction, trace: dict, draft_path: Path | None = N
                 if rel not in files and stale.is_file():
                     stale.unlink()
                     _record_authored(rel, f"generator {name} re-run without this output", None)
+                    parent = stale.parent
+                    while parent != repo and parent.is_dir() and not any(parent.iterdir()):
+                        parent.rmdir()
+                        parent = parent.parent
             for rel, data in files.items():
                 path = _fixture_path(rel)
                 path.parent.mkdir(parents=True, exist_ok=True)
