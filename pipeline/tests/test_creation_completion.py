@@ -350,7 +350,10 @@ class ContextFits(unittest.TestCase):
         start = len(json.dumps(messages))
         cut = author.fit_context(messages, author.policy.DESIGNER_COMPACT_TOKENS)
         self.assertGreater(cut, 0)
-        self.assertLessEqual(len(json.dumps(messages)), start * author.CONTEXT_TARGET_SHARE + 25_000)
+        needed = (1 - author.CONTEXT_TARGET_SHARE) * author.policy.DESIGNER_COMPACT_TOKENS * author.TEXT_CHARS_PER_TOKEN
+        freed = start - len(json.dumps(messages))
+        self.assertGreaterEqual(freed, needed)                  # cut to the token target ...
+        self.assertLess(freed, needed + 25_000)                 # ... and one result past it at most
         for old, new in zip(before, messages):
             if new["role"] == "assistant":                      # a cut result drops every thinking block, nothing else
                 kept = [b for b in json.loads(old)["content"] if b["type"] != "thinking"]

@@ -102,6 +102,19 @@ CONTEXT_KEEP_RECENT = 40
 _ELIDED = ("[earlier tool output elided to keep the conversation inside the model's context window; "
            "re-run the tool if you need it again]\n")
 _THINKING = ("thinking", "redacted_thinking")
+#: Token estimates for what a cut frees, measured with count_tokens on the html-js test prompt (2026-10-30): its
+#: 736,272 signature characters were 174,873 tokens; the rest ran 2.3 characters per token and its elided sandbox
+#: output 1.9, so 2.5 errs toward cutting a little more. A byte-proportional estimate counted the signatures at the
+#: prompt's average and stopped cutting early.
+SIGNATURE_CHARS_PER_TOKEN = 4.2
+TEXT_CHARS_PER_TOKEN = 2.5
+
+
+def _thinking_tokens(messages: list[dict]) -> float:
+    return sum(len(b.get("signature") or b.get("data") or "") / SIGNATURE_CHARS_PER_TOKEN
+               + len(b.get("thinking") or "") / TEXT_CHARS_PER_TOKEN
+               for m in messages if m.get("role") == "assistant" and isinstance(m.get("content"), list)
+               for b in m["content"] if isinstance(b, dict) and b.get("type") in _THINKING)
 
 
 def _source_record(row: dict, session_id, seed_index) -> dict:
@@ -144,17 +157,18 @@ def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
     policy.DESIGNER_COMPACT_MIN_GAIN of the conversation is not made below
     policy.DESIGNER_COMPACT_CEILING_TOKENS (the bash design re-wrote 700k tokens on consecutive requests).
     """
-    size = len(json.dumps(messages, ensure_ascii=False))
+    start_bytes = len(json.dumps(messages, ensure_ascii=False))
     by_tokens = bool(prompt_tokens) and prompt_tokens >= policy.DESIGNER_COMPACT_TOKENS
-    if not by_tokens and size <= CONTEXT_COMPACT_BYTES:
+    if not by_tokens and start_bytes <= CONTEXT_COMPACT_BYTES:
         return 0
-    start = size
     work = copy.deepcopy(messages)
+    thinking = _thinking_tokens(work)
     changed = strip_old_thinking(work, policy.DESIGNER_THINKING_KEEP_TURNS)
+    freed = thinking - _thinking_tokens(work)                # estimated tokens this cut takes out
     size = len(json.dumps(work, ensure_ascii=False))
 
     def done() -> bool:
-        if by_tokens and prompt_tokens * size / start > CONTEXT_TARGET_SHARE * policy.DESIGNER_COMPACT_TOKENS:
+        if by_tokens and prompt_tokens - freed > CONTEXT_TARGET_SHARE * policy.DESIGNER_COMPACT_TOKENS:
             return False
         return size <= CONTEXT_TARGET_BYTES
 
@@ -181,13 +195,16 @@ def fit_context(messages: list[dict], prompt_tokens: int | None = None) -> int:
                 continue
             block["content"] = _ELIDED + text[:400]
             size -= len(text) - len(block["content"])
+            freed += (len(text) - len(block["content"])) / TEXT_CHARS_PER_TOKEN
             cut += 1
     if cut:
+        thinking = _thinking_tokens(work)
         changed += cut + strip_old_thinking(work, 0)
+        freed += thinking - _thinking_tokens(work)
         size = len(json.dumps(work, ensure_ascii=False))
     ceiling = bool(prompt_tokens) and prompt_tokens >= policy.DESIGNER_COMPACT_CEILING_TOKENS
-    if not changed or (by_tokens and not ceiling and start <= CONTEXT_COMPACT_BYTES
-                       and start - size < policy.DESIGNER_COMPACT_MIN_GAIN * start):
+    if not changed or (by_tokens and not ceiling and start_bytes <= CONTEXT_COMPACT_BYTES
+                       and freed < policy.DESIGNER_COMPACT_MIN_GAIN * prompt_tokens):
         return 0
     for message, shortened in zip(messages, work):
         message["content"] = shortened["content"]
