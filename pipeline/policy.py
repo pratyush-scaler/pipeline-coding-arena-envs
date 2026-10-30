@@ -954,6 +954,37 @@ MIN_RESEARCHED_FAILURE_MODES = 3
 MIN_TRACE_TRAPS_AT_CREATION = 3
 MIN_TRACE_FAILURE_MODES = 2
 
+#: THE ENVIRONMENT IS A WORLD (author/world.py; Arena feedback via the user, 2026-10-30: "make the environments
+#: complex ... synthetic data which looks like real data ... vast ... which takes the model time to figure out
+#: things"; the user, same day: "bake in the complexity of the envs in the designer, so the tasks are complex from
+#: the authoring phase itself"). Fresh designs and hardening rounds (never repairs) build the data and state the
+#: program runs on with generate_world -- a creation component, advisory like every other one.
+WORLD_AT_CREATION = True
+#: What one generate_world run may write. Scale is discovery and a long tail, never volume: CoDA-Bench measured
+#: accuracy collapsing above ~3 GB for reasons that are not judgment, and the fixture extraction caps a whole
+#: fixture at 64 MiB.
+WORLD_MAX_OUTPUT_BYTES = 48 * 1024 * 1024
+WORLD_MAX_FILE_BYTES = 16 * 1024 * 1024
+WORLD_MAX_FILES = 400
+#: Hidden draws staged into spec.suites travel inside the spec JSON; larger hidden worlds ship the generator
+#: (ship_generator) and draw at test time.
+WORLD_MAX_SUITE_BYTES = 8 * 1024 * 1024
+#: Records (table rows and log lines) the generated fixture world should hold before reading all of it stops
+#: settling the task, and the traps whose hidden item is a small ordinary-looking part of that population.
+WORLD_MIN_RECORDS = 500
+MIN_POPULATION_TRAPS = 2
+#: A task with genuinely no data or state to build declines the world with a reason at least this long.
+WORLD_DECLINE_REASON_MIN = 120
+#: How generated (synthetic, labelled) fixture files count in the faithfulness share: "excluded" leaves them out of
+#: the denominator -- the share then measures the trace's own code and data, and the generated world around it is
+#: declared synthetic in the ledger and the package (Arena spec: "Label invented data as synthetic"); "authored"
+#: counts them as authored bytes with zero credit, which pushes an F3 replay below its 0.90 fidelity floor.
+SYNTHETIC_DATA_FIDELITY = "excluded"
+#: Advisory: the median agent minutes per step a screen should see on each model. Measured 2026-10-30: 6.8 min
+#: (Fable) and 5.6 min (Astra) over 6,241 coding episodes. A shorter screen tells the hardener the world has little
+#: to discover (screen.signal_advisories -> the hardening brief); nothing is blocked by it.
+EPISODE_MINUTES_TARGET = 20
+
 #: The lever doctrine (`author/levers.py`, user 2026-10-03: "introduce as many
 #: difficulty levers ... relevant for the traces"). Advisory targets the
 #: designer, check_draft, the reviewer and hardening read; none of them blocks.

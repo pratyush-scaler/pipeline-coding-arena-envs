@@ -364,6 +364,13 @@ def readme(pkg: Path, *, summary: dict, history: list[dict]) -> str:
           + " (`provenance/ledger.json` cites each recorded file's snapshot).",
           "Authored: the hidden test inputs and checks under `tests/`, and the instruction's wording, which restates "
           "the user's goal in their voice and states every rule the rubric grades.", ""]
+    from .arena_v01 import SYNTHETIC_NOTE
+    synthetic = [e["path"] for e in ledger["entries"] if e.get("note") == SYNTHETIC_NOTE]
+    if synthetic:
+        L[-1:-1] = [f"Synthetic: {len(synthetic)} data file(s) the program runs on were generated for this task by a "
+                    "seeded generator around the session's own code (each labelled in `provenance/ledger.json`): "
+                    + ", ".join(f"`{p}`" for p in synthetic[:25])
+                    + (f" and {len(synthetic) - 25} more" if len(synthetic) > 25 else "") + "."]
     L += ["## What the agent gets", "",
           f"- The repository at `{meta['agent_workspace']}`, as listed in `provenance/ledger.json`.",
           f"- Languages: {', '.join(meta.get('programming_languages') or ['see environment/Dockerfile'])}; the "

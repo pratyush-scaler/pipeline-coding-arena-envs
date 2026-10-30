@@ -405,6 +405,8 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
             "capability_edges": _capability_edges(measured, verdicts),
             # Per valid episode, for the reward-spread half of the learning signal (Arena spec Oct 12).
             "episode_rewards": _signal.episode_rewards(measured),
+            # How long the agent worked (Arena feedback 2026-10-30: long, natural trajectories).
+            "episode_length": episode_lengths(measured),
         }
     try:
         from .author.contracts import strict_json
@@ -500,7 +502,9 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
         "failure_modes": failure_mode_census,
         "signal": learning_signal,
         "signal_problems": _signal.problems(learning_signal) if learning_signal else [],
-        "signal_advisories": _signal.advisories(learning_signal) if learning_signal else [],
+        "signal_advisories": ((_signal.advisories(learning_signal) if learning_signal else [])
+                              + length_advisories(per_model)),
+        "episode_minutes_target": policy.EPISODE_MINUTES_TARGET,
         "shippable": not shippable,
         "shippable_problems": shippable,
         "target_gap": target_gap,
@@ -516,6 +520,60 @@ def summarize(bundle: Path, index: dict, episodes: int | None, models: list[str]
     record["faithfulness_level"] = _level(bundle)
     record["outlook"] = outlook(bundle, record)
     return record
+
+
+def episode_lengths(measured: dict) -> dict:
+    """Agent minutes and output tokens per step over the valid episodes, read from Harbor's own trial results.
+
+    Measured 2026-10-30 over 6,241 coding episodes: median 6.8 agent minutes (Fable) and 5.6 (Astra), failed
+    episodes no longer than passed ones. Reported, never a gate (`policy.EPISODE_MINUTES_TARGET`)."""
+    import statistics
+    from datetime import datetime
+
+    def stamp(value):
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+    minutes: list[float] = []
+    per_step: dict[str, list[float]] = {}
+    tokens: list[int] = []
+    for trial in measured.get("trials") or []:
+        if not isinstance(trial, dict) or not trial.get("valid") or not trial.get("result_file"):
+            continue
+        try:
+            data = json.loads(Path(trial["result_file"]).read_text())
+        except (OSError, ValueError, TypeError):
+            continue
+        for step in data.get("step_results") or [data]:
+            execution = (step or {}).get("agent_execution") or {}
+            try:
+                spent = (stamp(execution["finished_at"]) - stamp(execution["started_at"])).total_seconds() / 60
+            except (KeyError, ValueError, TypeError):
+                continue
+            minutes.append(spent)
+            per_step.setdefault(step.get("step_name") or "single", []).append(spent)
+            out = (step.get("agent_result") or {}).get("n_output_tokens")
+            if type(out) is int:
+                tokens.append(out)
+    if not minutes:
+        return {}
+    ordered = sorted(minutes)
+    return {"steps_measured": len(minutes), "median_minutes": round(statistics.median(minutes), 1),
+            "p90_minutes": round(ordered[int(0.9 * (len(ordered) - 1))], 1), "max_minutes": round(ordered[-1], 1),
+            "per_step_median_minutes": {k: round(statistics.median(v), 1) for k, v in per_step.items()},
+            "median_output_tokens": int(statistics.median(tokens)) if tokens else None}
+
+
+def length_advisories(per_model: dict) -> list[str]:
+    """A screen whose episodes end quickly says the world has little to discover (read by the hardening brief)."""
+    out = []
+    for model, row in per_model.items():
+        median = (row.get("episode_length") or {}).get("median_minutes")
+        if median is not None and median < policy.EPISODE_MINUTES_TARGET:
+            out.append(f"{model}: the median episode ran {median} agent minutes per step (advisory target "
+                       f"{policy.EPISODE_MINUTES_TARGET}) -- there is little to discover. Deepen the world, never pad "
+                       "it: facts spread over code, data, docs and logs; a defect seen only by running the program "
+                       "on the world; a next graded defect behind the first (THE ENVIRONMENT IS A WORLD).")
+    return out
 
 
 def _census(per_model: dict, guard_ids: set[str]) -> dict:

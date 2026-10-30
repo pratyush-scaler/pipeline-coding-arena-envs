@@ -251,6 +251,26 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   divergence cases from published rules. Several checks can reveal one shared
   mistake; they do not establish independent failure probabilities. Decoy
   ablations and cited solver behavior distinguish causal evidence from labels.
+- **The environment is a world** (Arena feedback via the user, 2026-10-30:
+  complex, vast environments with synthetic data that looks real, so a model
+  needs time to figure things out; the user: "bake in the complexity ... from the
+  authoring phase itself"). Measured that day: the median calibration episode
+  ran 6.8 min (Fable) / 5.6 min (Astra) over 6,241 coding episodes, failed ones
+  no longer than passed ones, and bigger fixtures barely moved either. Fresh
+  designs and fixture-changing hardening rounds (never repairs) build the data
+  and state around the trace's real code with `generate_world`
+  (`author/world.py`): a seeded generator over `world_lib/arena_world.py`, run
+  twice in the pinned python image and required byte-identical, profiled by a
+  realism scorecard and synthetic-artifact detector, written to the fixture as
+  `synthetic` (ledger origin; `policy.SYNTHETIC_DATA_FIDELITY` keeps it out of
+  the fidelity share) or to `suites/data` as hidden draws from other seeds.
+  Packages label every generated file (Arena: "Label invented data as
+  synthetic"). What bites is a defect on a small ordinary-looking part of the
+  population, distractors that are members of it, discovery by running the
+  program, and multi-hop / temporal / ranking decisions -- never volume.
+  `creation_status` lists the world (advisory); screens report agent minutes
+  per step and tell the hardener when episodes are short
+  (`policy.EPISODE_MINUTES_TARGET`).
 - **The review is the last honest reader.** On the first real task it found two
   reference-correctness bugs, a fake mutant, an over-strict guardrail and a
   planted-module shortcut that 649 tests, the controls and 14 gates all passed.

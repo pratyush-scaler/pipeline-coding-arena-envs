@@ -249,9 +249,9 @@ def update_ledger(bundle: Path, declared: dict[str, str], deviations: list[dict]
     # The order faithfulness.build writes (Path order: `values/` before `values-night/`); the release
     # check compares the stored ledger with a rebuilt one list for list (c-019 v6, 2026-10-08).
     rows = [entries[k] for k in sorted(entries, key=lambda rel: repo / rel)]
-    counts = {k: sum(1 for e in rows if e["origin"] == k) for k in faithfulness.ORIGINS}
-    by_bytes = {k: sum(e["bytes"] for e in rows if e["origin"] == k) for k in faithfulness.ORIGINS}
-    total, total_bytes = len(rows) or 1, sum(by_bytes.values()) or 1
+    counts, by_bytes = faithfulness.tally(rows)
+    total = sum(faithfulness._counted(counts).values()) or 1
+    total_bytes = sum(faithfulness._counted(by_bytes).values()) or 1
     # Recovery's own omissions are kept; the declared ones are recomputed exactly as build does, so a
     # second file reading one host path is kept and a guarded-away one is dropped (c-019 v6, 2026-10-08).
     def declared_here(o) -> bool:

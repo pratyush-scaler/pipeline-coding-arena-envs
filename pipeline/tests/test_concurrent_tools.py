@@ -209,6 +209,8 @@ class ReservedReviewAtTheNextSubmission(unittest.TestCase):
             # synthetic spec must count as complete here.
             stack.enter_context(patch.object(author.policy, "MIN_RESEARCHED_TRAPS", 0))
             stack.enter_context(patch.object(author.policy, "DIFFICULTY_GATE_AT_CREATION", False))
+            # The generated world has its own tests (test_world.py).
+            stack.enter_context(patch.object(author.policy, "WORLD_AT_CREATION", False))
             stack.enter_context(patch.object(author, "_handlers", side_effect=handlers))
             call = stack.enter_context(patch.object(author, "_call", side_effect=responses))
             author.design({}, self.extraction, self.root, initial_spec=deepcopy(self.spec), max_steps=steps)

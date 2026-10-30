@@ -199,6 +199,11 @@ def inventory(spec: dict, bundle: Path) -> dict:
     from . import difficulty_gate
     for gap in difficulty_gate.requirement(spec, bundle):
         need(gap, False)
+    # THE ENVIRONMENT IS A WORLD (author/world.py; user, 2026-10-30): generated, realistic data and state around
+    # the trace's code, armed for fresh designs and fixture-changing hardening rounds.
+    from . import world
+    for gap in world.requirement_gaps(spec, bundle):
+        need(gap, False)
     # A release repair (pipeline/release_blockers.py): the release's own critic re-execution and reviewer,
     # run on the draft, until clean or the round's budget waives them.
     from .. import release_blockers

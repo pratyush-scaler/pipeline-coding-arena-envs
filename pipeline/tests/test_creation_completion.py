@@ -47,6 +47,8 @@ class CreationCompletion(unittest.TestCase):
             # The researched-trap floor has its own tests (test_trap_research.py).
             stack.enter_context(patch.object(author.policy, "MIN_RESEARCHED_TRAPS", 0))
             stack.enter_context(patch.object(author.policy, "DIFFICULTY_GATE_AT_CREATION", False))
+            # The generated world has its own tests (test_world.py).
+            stack.enter_context(patch.object(author.policy, "WORLD_AT_CREATION", False))
             validator = stack.enter_context(patch.object(author.validate_mod, "validate",
                 side_effect=AssertionError("creation cannot run acceptance validation")))
             controls = stack.enter_context(patch.object(author.controls_mod, "run",
@@ -231,6 +233,8 @@ class SubmitPreflight(unittest.TestCase):
             # The researched-trap floor has its own tests (test_trap_research.py).
             stack.enter_context(patch.object(author.policy, "MIN_RESEARCHED_TRAPS", 0))
             stack.enter_context(patch.object(author.policy, "DIFFICULTY_GATE_AT_CREATION", False))
+            # The generated world has its own tests (test_world.py).
+            stack.enter_context(patch.object(author.policy, "WORLD_AT_CREATION", False))
             stack.enter_context(patch.object(author, "_handlers", side_effect=handlers))
             call = stack.enter_context(patch.object(author, "_call", side_effect=responses))
             spec = author.design({}, self.extraction, self.root, initial_spec=deepcopy(self.spec), max_steps=steps)

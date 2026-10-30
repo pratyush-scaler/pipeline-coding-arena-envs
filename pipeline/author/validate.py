@@ -148,8 +148,11 @@ def _fixture_leak_problems(spec: dict, bundle: Path) -> list[str]:
         return []
     repo = Path(bundle) / "environment/repo"
     issues = []
+    from .extract import MAX_FIXTURE_BYTES
     for path in sorted(repo.rglob("*")) if repo.is_dir() else []:
-        if not path.is_file() or path.stat().st_size > 2_000_000:
+        # Every fixture file the gate reads, generated worlds included (a 2 MB cut-off would let a large data
+        # file carry the answer past check_draft; hidden.disjoint reads them all).
+        if not path.is_file() or path.stat().st_size > MAX_FIXTURE_BYTES:
             continue
         try:
             text = path.read_text(encoding="utf-8")

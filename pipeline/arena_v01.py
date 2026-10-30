@@ -415,6 +415,8 @@ def convert_tree(src: Path, out_root: Path, *, domain: str, prompt_language: str
 
 SOURCE_SCOPE_SCHEMA = "arena-source-scope/v1"
 LEDGER_SCHEMA = "arena-source-ledger/v1"
+#: The ledger note on every generated (synthetic) data file; the README names them from it.
+SYNTHETIC_NOTE = "Synthetic: data generated for this task by a seeded generator; it is not from the recorded session."
 
 
 def _sha(data: bytes) -> str:
@@ -457,7 +459,7 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
         for path, sha in snap["files"].items():
             by_sha.setdefault(sha, []).append((node, path))
     old_ledger = json.loads((src / "provenance/ledger.json").read_text())
-    entries, from_node, cited = [], {}, set()
+    entries, from_node, cited, synthetic = [], {}, set(), []
     repo = pkg / "environment/repo"
     # Two ledger generations: `files` (current deliveries) and `entries` (the first deliveries); both list repo paths.
     for f in sorted(old_ledger.get("files") or old_ledger.get("entries") or [], key=lambda f: f["path"]):
@@ -466,6 +468,12 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
             continue
         sha = _sha(target.read_bytes())
         container = f"{workspace}/{f['path']}"
+        if f.get("origin") == "synthetic":
+            # The generated world around the session's code (author/world.py). Arena: "Label invented data as
+            # synthetic" and "Name every synthetic part".
+            synthetic.append(container)
+            entries.append({"path": container, "sha256": sha, "origin": "authored", "note": SYNTHETIC_NOTE})
+            continue
         hits = by_sha.get(sha, [])
         same_path = [(n, p) for n, p in hits if p == f["path"]]
         # Arena refuses two ledger entries citing one source file (identical bytes, e.g. several empty
@@ -514,7 +522,10 @@ def provenance(pkg: Path, src: Path, *, session_dir: Path, archive: str, member:
             "start_workspace": start if i == 0 else {"origin": "synthetic"},
             "authored": ["Hidden test inputs and checks built from the rules the instruction states (tests/).",
                          "The instruction restates the session user's goal in their voice and states the rules "
-                         "each criterion grades; the rubric's acceptance column quotes them."],
+                         "each criterion grades; the rubric's acceptance column quotes them."]
+                        + ([f"Synthetic data generated for this task by a seeded generator, labelled in the ledger: "
+                            f"{', '.join(synthetic[:40])}" + (f" and {len(synthetic) - 40} more" if len(synthetic) > 40
+                                                              else "") + "."] if synthetic and i == 0 else []),
             "uses": [{"segment": "seed-request", "use": "request", "adoption": "partial",
                       "adopted": intent.strip()[:2000] or "The session user's goal, as the instruction restates it.",
                       "not_adopted": "Requests and assistant answers in this range that the instruction does not "
