@@ -1070,7 +1070,12 @@ DESIGNER_TOOL_CLEARING = False
 #: corrections, the evidence image) and the next nine requests re-wrote the whole cache
 #: (about $11 in ten minutes). Measured sessions end around 440k prompt tokens (p90 565k)
 #: without trouble, so the cut is reserved for the model's limit.
-DESIGNER_COMPACT_TOKENS = 700_000
+#: 2026-10-30: 700k -> 500k. The html-js test design at 668k-672k prompt tokens got no content on 20+ attempts over
+#: five hours (keep-alive pings only, each stream cut after 5-21 minutes) and was lost after 113 responses, while
+#: count_tokens on the same prompt answered in 2 s; old thinking alone was 175k of it. The first compaction stage now
+#: drops old thinking (agent_designer.strip_old_thinking), which is valid and cheap, so the trigger no longer has to
+#: wait for the model's limit: replaying both test designs, triggers of 450k-550k cost within 5% of never cutting.
+DESIGNER_COMPACT_TOKENS = 500_000
 #: A compaction re-writes the cache from the oldest message it changes (two cache breakpoints: any mid-conversation
 #: change reads only the system prefix), so one that frees less than this share of the conversation is not made ...
 DESIGNER_COMPACT_MIN_GAIN = 0.1

@@ -374,11 +374,14 @@ ACCOUNT_LOSS = ("credit_balance", "insufficient_quota", "billing", "401", "authe
 def design_rerun(row: dict, entry: dict, dry: bool) -> str:
     """What to do with a lineage that has no task yet: 'building', 'rerun' (launched) or 'blocked'."""
     first = (row.get("versions") or [{}])[0]
-    if row.get("tree_build_alive") or row.get("busy") or first.get("status") in (None, "running", "pending"):
+    if row.get("tree_build_alive") or row.get("busy"):
         return "building"
     error = first.get("error") or ""
-    infra = (first.get("status") == "error" and any(k in error for k in INFRA_DESIGN_ERRORS)
-             and not any(k in error for k in ACCOUNT_LOSS))
+    # A status still reading running/pending with no build of the tree alive is a build that died without writing
+    # its result (killed, OOM, a workspace restart): infrastructure loss, resumed from its checkpoint like an error.
+    dead = first.get("status") in (None, "running", "pending")
+    infra = dead or (first.get("status") == "error" and any(k in error for k in INFRA_DESIGN_ERRORS)
+                     and not any(k in error for k in ACCOUNT_LOSS))
     if not infra or sum(a["kind"] == "design_rerun" for a in entry["actions"]) >= DESIGN_RERUNS:
         return "blocked"
     tree = Path(row["lineage"]).parents[1].name

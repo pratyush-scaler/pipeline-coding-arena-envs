@@ -104,12 +104,19 @@ class DesignRerun(unittest.TestCase):
         with mock.patch.object(driver, "launch") as launch:
             self.assertEqual(driver.design_rerun(self.row("designer call failed after 5", alive=True),
                                                  {"actions": []}, False), "building")
-            self.assertEqual(driver.design_rerun(self.row("", status=None), {"actions": []}, False), "building")
+            self.assertEqual(driver.design_rerun(self.row("", status="running", alive=True), {"actions": []}, False),
+                             "building")
             self.assertEqual(driver.design_rerun(self.row("designer call failed after 5 attempts: 401 Unauthorized"),
                                                  {"actions": []}, False), "blocked")
             self.assertEqual(driver.design_rerun(self.row("ValueError: fixture placeholder"), {"actions": []}, False),
                              "blocked")
         launch.assert_not_called()
+
+    def test_a_build_that_died_running_is_resumed(self):
+        from orchestration import driver
+        with mock.patch.object(driver, "wave_rank", return_value=1), mock.patch.object(driver, "WAVES", {"envs-t1": "w"}), \
+                mock.patch.object(driver, "launch", return_value="run-2"):
+            self.assertEqual(driver.design_rerun(self.row("", status="running"), {"actions": []}, False), "rerun")
 
     def test_the_probe_reports_a_live_build_of_the_tree(self):
         from orchestration import driver

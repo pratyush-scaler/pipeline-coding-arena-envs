@@ -96,7 +96,8 @@ MAX_CONSECUTIVE_TOOL_ERRORS = 6
 #: 4.1M written tokens) and still grew past 780k toward the window.
 CONTEXT_COMPACT_BYTES = 12_000_000
 CONTEXT_TARGET_BYTES = 8_000_000
-CONTEXT_TARGET_SHARE = 0.6
+#: 0.7 of the trigger: stripping old thinking usually reaches it, so tool results are cut only when it does not.
+CONTEXT_TARGET_SHARE = 0.7
 CONTEXT_KEEP_RECENT = 40
 _ELIDED = ("[earlier tool output elided to keep the conversation inside the model's context window; "
            "re-run the tool if you need it again]\n")
