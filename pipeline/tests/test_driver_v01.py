@@ -135,3 +135,10 @@ class LanguageCallBudget(unittest.TestCase):
         with mock.patch("pipeline.select.classify._call", fake):
             self.assertEqual(v01._ask_language("Preciso que você revise o deck."), "pt-BR")
         self.assertGreaterEqual(seen["max_tokens"], 512)
+
+
+class LanguageFailureNamed(unittest.TestCase):
+    def test_a_failed_language_call_is_named_in_the_refusal(self):
+        with self.assertRaisesRegex(ValueError, "the language call failed: RuntimeError: no Anthropic credential"):
+            v01.detect_prompt_language(bundle_with("Preciso que você revise o deck."),
+                                       ask=lambda t: (_ for _ in ()).throw(RuntimeError("no Anthropic credential")))

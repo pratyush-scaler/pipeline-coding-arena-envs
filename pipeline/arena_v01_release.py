@@ -87,10 +87,11 @@ def detect_prompt_language(bundle: Path, ask=None) -> str:
     if not text.strip():
         raise ValueError("no instruction to read the prompt language from")
     tag = None
+    failure = ""
     try:
         tag = (ask or _ask_language)(text[:6000])
-    except Exception:                                # noqa: BLE001 -- the script check below decides alone
-        tag = None
+    except Exception as exc:                         # noqa: BLE001 -- the script check below decides alone
+        tag, failure = None, f"; the language call failed: {type(exc).__name__}: {str(exc)[:200]}"
     tag = (tag or "").strip().strip(".`'\"")
     if tag and LANGUAGE_TAG.fullmatch(tag):
         return tag
@@ -98,7 +99,7 @@ def detect_prompt_language(bundle: Path, ask=None) -> str:
     for lo, hi, code in _SCRIPT_LANGUAGE:
         if letters and sum(lo <= ch <= hi for ch in letters) / len(letters) > 0.3:
             return code
-    raise ValueError(f"cannot settle the prompt language (answer {tag!r}); pass prompt_language explicitly")
+    raise ValueError(f"cannot settle the prompt language (answer {tag!r}{failure}); pass prompt_language explicitly")
 
 
 def _ask_language(text: str) -> str:
