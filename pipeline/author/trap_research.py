@@ -128,6 +128,14 @@ the stack and domain given: which narrower proxies implementations of this conce
 REAL inputs (other writers, locales, layouts, versions, producers) violate them -- with the exact input and \
 the exact wrong output.
 
+LANGUAGE AND LOCALE are first-class second writers: agents translate instructions almost perfectly and default, \
+in code, to the most common variant (en-US, Brazilian Portuguese, mainland Chinese, Iranian Persian). When the \
+domain involves another language, script, locale or calendar, research the writer's convention exactly: number \
+separators and CLDR minimum grouping, magnitude suffixes (CLDR short forms: 'B' is 10^3 in tr, 10^9 in en, 10^12 \
+in es), digit scripts and U+066B/U+066C, Arabic vs Persian letters and tatweel (beyond NFKC), calendars and eras \
+(Jalali leap years, ROC, Buddhist and Japanese eras), plural categories, collation, SMS encodings -- each with the \
+executable fact in the pinned toolchain and the writer who produces it.
+
 Answer with ONE JSON array inside a ```json fenced block, 4 to 8 objects, each:
   {"mode": snake_case name, "family": scope|interaction|representation|idiom|state|invariant|\
 protocol|numeric|text|temporal|absence|resource|concurrency|security|error|library,

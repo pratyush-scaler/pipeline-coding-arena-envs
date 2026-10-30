@@ -1174,9 +1174,86 @@ BASH_LEVERS = {
         "signals": []},
 }
 
+#: Language and locale as a trap mode (user, 2026-10-30: "add language as a trap mode"). One token, different
+#: meanings for different WRITERS of the data; agents translate instructions almost perfectly (MAPS: -1.3%) and fail
+#: in the code they write, which defaults to en-US, Brazilian Portuguese, mainland Chinese, Iranian Persian. Every fact
+#: below was executed (Python 3.13) or read from CLDR 49 / the Iranian calendar's known dates on 2026-10-30; the
+#: script and keyboard analogues measured (cricket: Urdu digits + U+066B, 5/5 on both; forum: full-width punctuation,
+#: 10/10 on both), the rest are hypotheses until a screen measures them. Rules: name the WRITER ('the Herat branch
+#: signs people up on its own tablets'), never the variant; the repository holds the dominant-variant proxy; the other
+#: variant lives only in hidden data, one check per item; determinacy_probe both families; depend on the data
+#: writer's locale, never the host's; compare parsed values, never CLDR-formatted bytes. Generate such data with
+#: arena_world (locale_number, compact_number, to_digits, arabic_letters, with_tatweel, jalali, era_date, mojibake).
+_LANG = "Language mode, 2026-10-30 (executed / CLDR 49; unmeasured as a trap here): "
+LANGUAGE_LEVERS = {
+    "writer_locale_number": {
+        "family": "representation", "targets": "both", "status": "hypothesis", "trap_type": "numeric_semantics",
+        "evidence": _LANG + "float('1.234') == 1.234 where a Sao Paulo writer means 1234 (silent); float() rejects "
+                    "'1.234,50', '1\\u202f234,50' (fr), '12,34,567' (en-IN) and U+066B/U+066C; CLDR minimum grouping 2 "
+                    "prints es/it/pl/pt-PT 1234,50 beside 12.345,50. The proxy float(s.replace(',', '.')) appears in 16 "
+                    "traces; 50 sessions carry decimal-comma data.",
+        "recipe": "Publish 'amounts are read the way each branch writes them' and name a second writer; visible data is "
+                  "below 1000 (both readings agree); hidden values of 1000+ in pt-BR, es (both groupings), fr U+202F and "
+                  "ar-EG digits. Fable misses the 1000+ long tail, Astra the exact separator class.",
+        "signals": [r"replace\(['\"],['\"],\s*['\"]\.['\"]\)|parseFloat|float\(|Number\(|toLocaleString|"
+                    r"Intl\.NumberFormat|locale|decimal"]},
+    "magnitude_suffix_scale": {
+        "family": "representation", "targets": "both", "status": "hypothesis", "trap_type": "numeric_semantics",
+        "evidence": _LANG + "CLDR 49 short forms: 'B' = 10^3 (tr bin), 10^9 (en), 10^12 (es billon); 'bi' = 10^9 pt-BR vs "
+                    "'Bi' = 10^12 pt-PT; fr 'Md' 10^9 and 'Bn' 10^12; de 'Bio.' 10^12; en-IN L 10^5, Cr 10^7; ja and "
+                    "zh-Hant \\u5146 10^12 vs zh \\u4e07\\u4ebf. The proxy is a {K, M, B} table: x1000, silent.",
+        "recipe": "Publish 'figures keep the size the reporting office meant'; the existing parser holds {K, M, B}; "
+                  "hidden rows from a named Lisbon, Istanbul or Madrid office use their own suffix.",
+        "signals": [r"['\"]K['\"]|['\"]M['\"]|['\"]B['\"]|1e3|1e6|1e9|1_000|thousand|million|billion|suffix"]},
+    "script_variant_identity": {
+        "family": "representation", "targets": "both", "status": "hypothesis", "trap_type": "text_semantics",
+        "evidence": _LANG + "NFKC + casefold merges NONE of Arabic yeh/kaf (\\u064a \\u0643) vs Persian (\\u06cc \\u06a9) "
+                    "nor a tatweel (\\u0640); int() and \\d accept both Arabic-Indic and Persian digits but [0-9] does "
+                    "not. In the traces 9 of 17 Persian-digit converters skip Arabic-Indic digits. Shipped script checks "
+                    "fail 0.75 (Fable) / 0.64 (Astra) per episode.",
+        "recipe": "Publish 'one person is one account however the branch typed the name'; the repository's dedupe uses "
+                  "NFKC + casefold or a Persian-only digit table; hidden sign-ups from a named branch carry Arabic yeh, a "
+                  "tatweel and Arabic-Indic digits in the phone; keep one genuine same-name pair of DIFFERENT people. "
+                  "Fable misses the second path (signup vs import), Astra the exact character class.",
+        "signals": [r"normalize\(|NFKC|casefold|toLowerCase|lower\(\)|unicodedata|[؀-ۿ]|persian|farsi|arabic"]},
+    "calendar_era_conversion": {
+        "family": "interaction", "targets": "both", "status": "hypothesis", "trap_type": "temporal_semantics",
+        "evidence": _LANG + "date(113, 2, 29), date(2567, 2, 29) and date(6, 2, 29) raise; converting the ROC, Thai and "
+                    "Reiwa year first gives 2024-02-29 (order of operations). Jalali 1403 IS a leap year (30 Esfand 1403 "
+                    "= 2025-03-20; the 2820-year rule broke ICU4X #4713, SAP and Ant Design #53186); Afghan records "
+                    "write the same months as Hamal ... Hut.",
+        "recipe": "Publish 'dates are taken as each office writes them'; visible dates convert either way; hidden: a "
+                  "29 February in an era year and a 30 Esfand 1403. Fable misses the order, Astra the month table.",
+        "signals": [r"jalali|shamsi|persian|hijri|era|reiwa|minguo|buddhist|strptime|fromisoformat|dayjs|moment|date-fns"]},
+    "sms_segment_encoding": {
+        "family": "idiom", "targets": "both", "status": "hypothesis", "trap_type": "protocol_semantics",
+        "evidence": _LANG + "GSM 03.38: 160 septets (153 per concatenated part); one character outside the GSM-7 sets "
+                    "(Portuguese \\u00e3, Turkish \\u011f, an emoji) re-encodes the whole message as UCS-2 at 70 (67); the "
+                    "euro sign costs 2 septets; \\u00f1 and \\u00fc cost nothing extra. The proxy is len(text) <= 160.",
+        "recipe": "Publish the provider's rule in its own words (160/153 in the basic alphabet, 70/67 otherwise, which "
+                  "encoding the gateway uses -- national shift tables differ by carrier); hidden messages in pt, tr and "
+                  "es mixed with euro amounts.",
+        "signals": [r"sms|160|segment|twilio|gsm|message length"]},
+    "plural_category_by_language": {
+        "family": "idiom", "targets": "astra", "status": "hypothesis", "trap_type": "text_semantics",
+        "evidence": _LANG + "CLDR plural rules: 21 is 'one' in Russian, 'many' in Polish, 'other' in Czech; the proxy "
+                    "n == 1 ? one : other is right only for English-like languages.",
+        "recipe": "Publish 'each language's messages use its own plural forms' with the repository's catalogues already "
+                  "holding the forms; hidden counts 21, 22, 25, 112 per language.",
+        "signals": [r"plural|=== 1|== 1 \?|ngettext|i18n|PluralRules|pluralize"]},
+    "language_x_order_x_identity": {
+        "family": "interlock", "targets": "both", "status": "interlock",
+        "evidence": _LANG + "the recipe the language research ranked first.",
+        "recipe": "One hidden branch record carrying a local-calendar date (calendar_era_conversion: Fable's order), an "
+                  "amount in Arabic-Indic digits with U+066B (writer_locale_number: Astra's class) and a name in the other "
+                  "orthography (script_variant_identity) -- each its own check.",
+        "signals": []},
+}
+
 LEVERS.update(PROXY_LEVERS)
 LEVERS.update(RESEARCH_LEVERS)
 LEVERS.update(BASH_LEVERS)
+LEVERS.update(LANGUAGE_LEVERS)
 
 INTERLOCK_RECIPES = tuple(name for name, meta in LEVERS.items() if meta["status"] == "interlock")
 

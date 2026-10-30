@@ -22,6 +22,10 @@ scorecard and synthetic-artifact detector, arXiv 2609.09853, measure the same th
   planting     near misses that each break exactly ONE condition, rotate_violations, scatter, near_duplicate
                members scattered through the population, near
                duplicates of one record
+  writers'     how ANOTHER office, country or system writes the  locale_number, compact_number, to_digits,
+  conventions  same value: separators and grouping (CLDR 49),    arabic_letters, persian_letters,
+               magnitude words, digit scripts, Arabic vs Persian with_tatweel, mojibake, jalali, from_jalali,
+               letters, Iranian and Afghan solar dates, eras    jalali_is_leap, era_date
 
 Contacts are fictional by construction: e-mail domains are reserved example domains
 (RFC 2606) and telephone numbers sit in ranges reserved for fiction (NANP 555-0100..0199,
@@ -45,6 +49,9 @@ __all__ = [
     "lognormal_amount", "pareto_int", "heavy_tail_split", "zipf_choice", "business_times", "iso",
     "recase", "pad", "typo", "implicit_missing", "number_text", "date_text", "maybe",
     "rotate_violations", "scatter", "near_duplicate", "write_csv", "write_jsonl", "write_json", "write_text",
+    "NUMBER_LOCALES", "locale_number", "compact_number", "to_digits", "arabic_letters", "persian_letters",
+    "with_tatweel", "mojibake", "jalali", "from_jalali", "jalali_is_leap", "IRAN_MONTHS", "AFGHAN_MONTHS",
+    "era_date",
 ]
 
 
@@ -385,6 +392,213 @@ def near_duplicate(rng: random.Random, row: dict, fields: list[str]) -> dict:
     value = str(copy.get(field, ""))
     copy[field] = rng.choice([recase, pad, typo])(rng, value) if value else value
     return copy
+
+
+# ---------------------------------------------------------------------------
+# Writers' conventions: one value, written by another office, country or system
+# ---------------------------------------------------------------------------
+# Number symbols, minimum grouping digits and compact magnitudes are CLDR 49's (cldr-json main, 2026). A trap
+# built on them depends on the DATA WRITER'S convention, fixed in the files by a residue -- never on the host
+# locale, and never on bytes a later CLDR may change (compare parsed values).
+
+#: locale -> (decimal, group, minimum grouping digits, digit system, Indian lakh grouping)
+NUMBER_LOCALES = {
+    "en": (".", ",", 1, "latn", False), "en-IN": (".", ",", 1, "latn", True),
+    "pt-BR": (",", ".", 1, "latn", False), "pt-PT": (",", " ", 2, "latn", False),
+    "es": (",", ".", 2, "latn", False), "es-MX": (".", ",", 1, "latn", False),
+    "fr": (",", " ", 1, "latn", False), "de": (",", ".", 1, "latn", False),
+    "de-CH": (".", "'", 1, "latn", False), "it": (",", ".", 2, "latn", False),
+    "pl": (",", " ", 2, "latn", False), "ru": (",", " ", 1, "latn", False),
+    "tr": (",", ".", 1, "latn", False), "ja": (".", ",", 1, "latn", False),
+    "zh": (".", ",", 1, "latn", False), "zh-Hant": (".", ",", 1, "latn", False),
+    "ar-EG": ("٫", "٬", 1, "arab", False), "fa": ("٫", "٬", 1, "arabext", False),
+}
+
+_DIGITS = {"latn": "0123456789", "arab": "٠١٢٣٤٥٦٧٨٩",
+           "arabext": "۰۱۲۳۴۵۶۷۸۹",
+           "deva": "०१२३४५६७८९",
+           "fullwidth": "０１２３４５６７８９"}
+
+
+def to_digits(text: str, system: str) -> str:
+    """ASCII digits rewritten in another digit system (arab, arabext = Persian, deva, fullwidth)."""
+    return str(text).translate(str.maketrans(_DIGITS["latn"], _DIGITS[system]))
+
+
+def _group(integer: str, separator: str, indian: bool) -> str:
+    if indian and len(integer) > 3:
+        head, tail = integer[:-3], integer[-3:]
+        pairs = []
+        while len(head) > 2:
+            pairs.insert(0, head[-2:])
+            head = head[:-2]
+        return separator.join([head, *pairs, tail]) if head else separator.join([*pairs, tail])
+    out = []
+    while len(integer) > 3:
+        out.insert(0, integer[-3:])
+        integer = integer[:-3]
+    return separator.join([integer, *out])
+
+
+def locale_number(value: float, locale: str, decimals: int = 2, grouping: bool = True) -> str:
+    """`value` as a writer in `locale` prints it: '1.234,50' (pt-BR), '1234,50' but '12.345,50' (es: no grouping
+    below five digits), '1 234,50' (fr), '12,34,567.00' (en-IN), '١٬٢٣٤٫٥٠' (ar-EG)."""
+    decimal, group, minimum, system, indian = NUMBER_LOCALES[locale]
+    negative = value < 0
+    text = f"{abs(value):.{decimals}f}"
+    integer, _, fraction = text.partition(".")
+    if grouping and len(integer) >= 3 + minimum:
+        integer = _group(integer, group, indian)
+    out = integer + (decimal + fraction if fraction else "")
+    out = ("-" if negative else "") + out
+    return to_digits(out, system) if system != "latn" else out
+
+
+#: locale -> [(power of ten, suffix, separator)] from CLDR 49's short decimal patterns, largest first. The same
+#: letter means different powers: 'B' is 10^3 in tr, 10^9 in en and 10^12 in es; 'bi' is 10^9 in pt-BR and 'Bi'
+#: 10^12 in pt-PT; 'Bn' is 10^12 in fr; 'Bio.' 10^12 in de; 'Bln' 10^12 in it; '兆' 10^12 in ja and zh-Hant.
+COMPACT = {
+    "en": [(12, "T", ""), (9, "B", ""), (6, "M", ""), (3, "K", "")],
+    "en-IN": [(12, "LCr", ""), (7, "Cr", ""), (5, "L", ""), (3, "K", "")],
+    "tr": [(12, "Tn", " "), (9, "Mr", " "), (6, "Mn", " "), (3, "B", " ")],
+    "pt-BR": [(12, "tri", " "), (9, "bi", " "), (6, "mi", " "), (3, "mil", " ")],
+    "pt-PT": [(12, "Bi", " "), (9, "mM", " "), (6, "M", " "), (3, "mil", " ")],
+    "es": [(12, "B", " "), (6, "M", " "), (3, "mil", " ")],
+    "es-MX": [(12, "B", " "), (6, "M", " "), (3, "k", " ")],
+    "fr": [(12, "Bn", " "), (9, "Md", " "), (6, "M", " "), (3, "k", " ")],
+    "de": [(12, "Bio.", " "), (9, "Mrd.", " "), (6, "Mio.", " ")],
+    "it": [(12, "Bln", " "), (9, "Mld", " "), (6, "Mln", " "), (3, "K", "")],
+    "ru": [(12, "трлн", " "), (9, "млрд", " "), (6, "млн", " "), (3, "тыс.", " ")],
+    "ja": [(12, "兆", ""), (8, "億", ""), (4, "万", "")],
+    "zh-Hant": [(12, "兆", ""), (8, "億", ""), (4, "萬", "")],
+    "zh": [(12, "万亿", ""), (8, "亿", ""), (4, "万", "")],
+}
+
+
+def compact_number(value: float, locale: str, decimals: int = 1) -> str:
+    """`value` in the locale's short form: compact_number(1.2e9, 'pt-BR') == '1,2 bi',
+    compact_number(1.2e12, 'pt-PT') == '1,2 Bi', compact_number(120000, 'tr') == '120 B'."""
+    for power, suffix, separator in COMPACT[locale]:
+        if abs(value) >= 10 ** power:
+            scaled = locale_number(value / 10 ** power, locale if locale in NUMBER_LOCALES else "en", decimals,
+                                   grouping=False)
+            decimal = NUMBER_LOCALES.get(locale, NUMBER_LOCALES["en"])[0]
+            if decimal in scaled:
+                scaled = scaled.rstrip("0").rstrip(decimal)
+            return f"{scaled}{separator}{suffix}"
+    return locale_number(value, locale if locale in NUMBER_LOCALES else "en", 0)
+
+
+# Arabic and Persian orthography: one name, two keyboards. NFKC and casefold merge NONE of these pairs.
+_PERSIAN_TO_ARABIC = str.maketrans({"ی": "ي", "ک": "ك"})     # ی -> ي, ک -> ك
+_ARABIC_TO_PERSIAN = str.maketrans({"ي": "ی", "ك": "ک", "ى": "ی"})
+_JOINS_LEFT = set("بتثجحخسشصضطظعغف"
+                  "قكکلمنهيیگپچ")
+
+
+def arabic_letters(text: str) -> str:
+    """The same words as an Arabic keyboard types them (Persian yeh and keheh become Arabic yeh and kaf)."""
+    return text.translate(_PERSIAN_TO_ARABIC)
+
+
+def persian_letters(text: str) -> str:
+    return text.translate(_ARABIC_TO_PERSIAN)
+
+
+def with_tatweel(rng: random.Random, text: str) -> str:
+    """One kashida (U+0640) stretched inside a word, where the letters join -- decorative, never lexical."""
+    spots = [i for i in range(len(text) - 1) if text[i] in _JOINS_LEFT and "؀" <= text[i + 1] <= "ۿ"
+             and text[i + 1] != " "]
+    if not spots:
+        return text
+    i = rng.choice(spots) + 1
+    return text[:i] + "ـ" + text[i:]
+
+
+def mojibake(text: str) -> str:
+    """UTF-8 text as an export that decoded it as Windows-1252 shows it ('São' -> 'SÃ£o')."""
+    return text.encode("utf-8").decode("cp1252", errors="replace")
+
+
+# The Iranian solar (Jalali) calendar. Leap years follow the 33-year arithmetic that matches the astronomical rule
+# for 1178-1633 AP (jalaali-js / Borkowski); the 2820-year rule gets 1403 wrong (ICU4X #4713, Ant Design #53186):
+# 1403 IS a leap year, so 30 Esfand 1403 = 20 March 2025 and 1 Farvardin 1404 = 21 March 2025.
+IRAN_MONTHS = ("فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند")
+#: Afghanistan writes the same solar months with zodiac names (Dari): Hamal ... Hut.
+AFGHAN_MONTHS = ("حمل", "ثور", "جوزا", "سرطان", "اسد", "سنبله", "میزان", "عقرب", "قوس", "جدی", "دلو", "حوت")
+_BREAKS = (-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456,
+           3178)
+
+
+def _jal_cal(jy: int) -> tuple[int, int, int]:
+    """(years since the last leap year, Gregorian year, March day of 1 Farvardin)."""
+    gy = jy + 621
+    leap_j, jp, jump = -14, _BREAKS[0], 0
+    if not _BREAKS[0] <= jy < _BREAKS[-1]:
+        raise ValueError(f"Jalali year {jy} is out of range")
+    for jm in _BREAKS[1:]:
+        jump = jm - jp
+        if jy < jm:
+            break
+        leap_j += jump // 33 * 8 + (jump % 33) // 4
+        jp = jm
+    n = jy - jp
+    leap_j += n // 33 * 8 + ((n % 33) + 3) // 4
+    if jump % 33 == 4 and jump - n == 4:
+        leap_j += 1
+    leap_g = gy // 4 - ((gy // 100 + 1) * 3) // 4 - 150
+    march = 20 + leap_j - leap_g
+    if jump - n < 6:
+        n = n - jump + ((jump + 4) // 33) * 33
+    leap = (((n + 1) % 33) - 1) % 4 if ((n + 1) % 33) - 1 >= 0 else 4
+    return leap, gy, march
+
+
+def jalali_is_leap(jy: int) -> bool:
+    return _jal_cal(jy)[0] == 0
+
+
+def from_jalali(jy: int, jm: int, jd: int) -> _dt.date:
+    if not (1 <= jm <= 12 and 1 <= jd <= (31 if jm <= 6 else 30 if jm <= 11 else 30 if jalali_is_leap(jy) else 29)):
+        raise ValueError(f"{jy}/{jm}/{jd} is not a Jalali date")
+    _, gy, march = _jal_cal(jy)
+    offset = (jm - 1) * 31 - (jm // 7) * (jm - 7) + jd - 1
+    return _dt.date(gy, 3, march) + _dt.timedelta(days=offset)
+
+
+def jalali(day: _dt.date) -> tuple[int, int, int]:
+    """(year, month, day) of a Gregorian date in the Iranian solar calendar."""
+    jy = day.year - 621
+    leap, gy, march = _jal_cal(jy)
+    k = (day - _dt.date(gy, 3, march)).days
+    if k >= 0:
+        if k <= 185:
+            return jy, 1 + k // 31, k % 31 + 1
+        k -= 186
+    else:
+        jy -= 1
+        k += 179
+        if leap == 1:
+            k += 1
+    return jy, 7 + k // 30, k % 30 + 1
+
+
+def era_date(day: _dt.date, era: str) -> str:
+    """The date as an era-counting writer prints it: 'roc' (Taiwan, 民國), 'thai' (Buddhist era), 'reiwa' /
+    'heisei' (Japan). Convert the YEAR before validating a 29 February: year 113, 2567 or 6 is not a leap year."""
+    if era == "roc":
+        return f"民國{day.year - 1911}年{day.month}月{day.day}日"
+    if era == "thai":
+        return f"{day.day:02d}/{day.month:02d}/{day.year + 543}"
+    if era == "reiwa":
+        if day < _dt.date(2019, 5, 1):
+            raise ValueError("Reiwa begins on 2019-05-01")
+        return f"令和{day.year - 2018}年{day.month}月{day.day}日"
+    if era == "heisei":
+        if not _dt.date(1989, 1, 8) <= day <= _dt.date(2019, 4, 30):
+            raise ValueError("Heisei runs from 1989-01-08 to 2019-04-30")
+        return f"平成{day.year - 1988}年{day.month}月{day.day}日"
+    raise ValueError(f"unknown era {era!r}")
 
 
 # ---------------------------------------------------------------------------

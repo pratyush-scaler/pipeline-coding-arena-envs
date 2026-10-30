@@ -1,6 +1,8 @@
 """The environment is a world (author/world.py): generated, realistic data around the trace's code."""
 import hashlib
+import datetime
 import json
+import random
 import os
 import subprocess
 import sys
@@ -255,6 +257,65 @@ class EpisodeLength(unittest.TestCase):
         advisories = screen.length_advisories({"m": {"episode_length": lengths}})
         self.assertEqual(len(advisories), 1)
         self.assertEqual(screen.length_advisories({"m": {"episode_length": {"median_minutes": 45.0}}}), [])
+
+
+class WritersConventions(unittest.TestCase):
+    """The locale helpers against CLDR 49 and the Iranian calendar's known dates."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(LIB_DIR))
+        try:
+            import arena_world
+        finally:
+            sys.path.remove(str(LIB_DIR))
+        cls.w = arena_world
+
+    def test_numbers_as_each_writer_prints_them(self):
+        w = self.w
+        for got, want in ((w.locale_number(1234.5, "pt-BR"), "1.234,50"), (w.locale_number(1234.5, "es"), "1234,50"),
+                          (w.locale_number(12345.5, "es"), "12.345,50"), (w.locale_number(1234.5, "fr"), "1 234,50"),
+                          (w.locale_number(1234567, "en-IN", 0), "12,34,567"), (w.locale_number(1234.5, "de-CH"), "1'234.50"),
+                          (w.locale_number(12345.5, "pt-PT"), "12 345,50"),
+                          (w.locale_number(1234.5, "ar-EG", 1), "١٬٢٣٤٫٥"),
+                          (w.locale_number(1234.5, "fa", 1), "۱٬۲۳۴٫۵")):
+            self.assertEqual(got, want)
+
+    def test_one_letter_three_magnitudes(self):
+        w = self.w
+        self.assertEqual(w.compact_number(120000, "tr"), "120 B")          # bin: thousand
+        self.assertEqual(w.compact_number(1.5e9, "en"), "1.5B")                 # billion: 10^9
+        self.assertEqual(w.compact_number(1.5e12, "es"), "1,5 B")          # billón: 10^12
+        self.assertEqual(w.compact_number(1.2e9, "pt-BR"), "1,2 bi")
+        self.assertEqual(w.compact_number(1.2e12, "pt-PT"), "1,2 Bi")
+        self.assertEqual(w.compact_number(1.2e7, "en-IN"), "1.2Cr")
+        self.assertEqual(w.compact_number(3e12, "ja"), "3兆")
+        self.assertEqual(w.compact_number(3e12, "zh"), "3万亿")
+
+    def test_jalali_1403_is_leap_and_round_trips(self):
+        w = self.w
+        self.assertEqual(w.jalali(datetime.date(2025, 3, 20)), (1403, 12, 30))
+        self.assertEqual(w.jalali(datetime.date(2025, 3, 21)), (1404, 1, 1))
+        self.assertEqual(w.jalali(datetime.date(2024, 3, 20)), (1403, 1, 1))
+        self.assertEqual(w.jalali(datetime.date(2025, 1, 1)), (1403, 10, 12))
+        self.assertEqual([y for y in range(1390, 1411) if w.jalali_is_leap(y)], [1391, 1395, 1399, 1403, 1408])
+        with self.assertRaises(ValueError):
+            w.from_jalali(1404, 12, 30)
+        day = datetime.date(2015, 1, 1)
+        while day < datetime.date(2030, 1, 1):
+            self.assertEqual(w.from_jalali(*w.jalali(day)), day)
+            day += datetime.timedelta(days=17)
+
+    def test_eras_scripts_and_mojibake(self):
+        w = self.w
+        self.assertEqual(w.era_date(datetime.date(2024, 2, 29), "roc"), "民國113年2月29日")
+        self.assertEqual(w.era_date(datetime.date(2024, 2, 29), "reiwa"), "令和6年2月29日")
+        self.assertEqual(w.era_date(datetime.date(2024, 2, 29), "thai"), "29/02/2567")
+        self.assertEqual(w.arabic_letters("علی کریمی"), "علي كريمي")
+        self.assertEqual(w.mojibake("São Paulo"), "SÃ£o Paulo")
+        import unicodedata
+        stretched = w.with_tatweel(random.Random(1), "محمد")
+        self.assertNotEqual(unicodedata.normalize("NFKC", stretched).casefold(), "محمد")   # NFKC does not merge it
 
 
 if __name__ == "__main__":

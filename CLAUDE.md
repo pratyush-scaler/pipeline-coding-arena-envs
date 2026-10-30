@@ -271,6 +271,15 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
   `creation_status` lists the world (advisory); screens report agent minutes
   per step and tell the hardener when episodes are short
   (`policy.EPISODE_MINUTES_TARGET`).
+- **Language is a trap mode** (user, 2026-10-30). One token, different meanings for different
+  WRITERS of the data: agents translate instructions almost perfectly and fail in the code they
+  write. `levers.LANGUAGE_LEVERS` (writer_locale_number, magnitude_suffix_scale,
+  script_variant_identity, calendar_era_conversion, sms_segment_encoding,
+  plural_category_by_language, the language_x_order_x_identity interlock) carry facts executed or
+  read from CLDR 49 on 2026-10-30 (NFKC does not merge Arabic and Persian yeh; float('1.234') is
+  silently 1.234; CLDR 'B' is 10^3 tr / 10^9 en / 10^12 es; Jalali 1403 is leap). Name the writer,
+  never the variant; compare parsed values; never the host locale. `arena_world` generates such data
+  (locale_number, compact_number, to_digits, arabic_letters, with_tatweel, jalali, era_date, mojibake).
 - **The review is the last honest reader.** On the first real task it found two
   reference-correctness bugs, a fake mutant, an over-strict guardrail and a
   planted-module shortcut that 649 tests, the controls and 14 gates all passed.

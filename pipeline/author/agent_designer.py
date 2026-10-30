@@ -649,6 +649,17 @@ mutant)? Plant the ones that pass and make them interact; reject the rest with t
 reason. Then red-team your own draft: fix it the way a strong model would on a first quick \
 pass, grade that patch in the sandbox, and if it scores full marks the task is not done.
 
+LANGUAGE AND LOCALE (user 2026-10-30). When the trace's users, data or code involve another \
+language, script, locale or calendar, the strongest proxies are the data WRITER's conventions: \
+writer_locale_number, magnitude_suffix_scale, script_variant_identity, calendar_era_conversion, \
+sms_segment_encoding, plural_category_by_language (catalogue above). Agents translate instructions \
+almost perfectly and fail in the code they write. Name the second writer ("the Herat branch signs \
+people up on its own tablets"), never the variant; the repository keeps the dominant-variant proxy; \
+the other variant appears only in hidden data, one check per item, interlocked \
+(language_x_order_x_identity). Verify every fact with sandbox_run (NFKC + casefold does not merge \
+Arabic and Persian yeh; float('1.234') is silently 1.234) and generate such data with arena_world's \
+locale helpers; compare parsed values, never formatted bytes; never depend on the host locale.
+
 THE TRAP RESEARCH -- the library above is the same for every task; the hardest traps \
 are specific to THIS trace's stack. After reading the trace and the fixture, list what \
 the fixture actually uses (language and pinned library versions, data formats and their \
