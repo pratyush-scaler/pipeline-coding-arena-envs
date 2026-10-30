@@ -363,6 +363,11 @@ verification/turns.json (`pipeline/turns.py`: prompt, state in, expected outcome
 
 ## Gotchas
 
+- A shell variant over `sandbox.SHELL_ARG_MAX` runs from a file in the container: as `docker exec sh -c` text, one
+  argument past the kernel's 128 KiB MAX_ARG_STRLEN failed with E2BIG, so no counterexample of the 2026-10-30 bash
+  test design ever ran. Locally on macOS, run `sandbox_smoke` / `./arena sandbox` with `TMPDIR` under `/Users`:
+  Docker Desktop here does not share `/var/folders`, the verifier's bind mount silently lands inside the VM and
+  every trial reads "verifier produced no reward" (the smoke failed this way before and after the change).
 - **Designer cost controls (2026-10-26, ported from the large-dump checkout)**:
   `policy.DESIGNER_*` -- the designer's two cache breakpoints live 1 hour (the
   5-minute entry expired during every run_controls / pre_review / blind_solve

@@ -40,6 +40,10 @@ LABEL = "arena-coding-sandbox"
 VERIFIER_CAPS = ("CHOWN", "SETUID", "SETGID", "DAC_READ_SEARCH")
 BUILD_TIMEOUT_S = int(os.environ.get("ARENA_SANDBOX_BUILD_TIMEOUT_S", "1800"))
 EXEC_TIMEOUT_S = int(os.environ.get("ARENA_SANDBOX_EXEC_TIMEOUT_S", "900"))
+#: A shell variant longer than this runs from a file in the container, not as `sh -c` text: one argument past the
+#: kernel's MAX_ARG_STRLEN (128 KiB) fails `docker exec` with E2BIG before the container sees it (2026-10-30: no
+#: counterexample of the bash test design ran -- each embeds the step's base patch and the edited files).
+SHELL_ARG_MAX = 100_000
 
 
 class SandboxError(RuntimeError):
@@ -366,7 +370,12 @@ class Variant:
                 raise VariantApplyError(f"variant patch {self.label!r} did not apply: {result['stderr'][-1500:]}")
             return {"applied": "patch"}
         if self.kind == "shell":
-            result = container.exec(self.shell or "true", user="agent", timeout=EXEC_TIMEOUT_S, workdir="/app/repo")
+            script = self.shell or "true"
+            if len(script.encode("utf-8")) > SHELL_ARG_MAX:
+                guest = f"/tmp/arena-variant-{uuid.uuid4().hex[:12]}.sh"
+                container.put_bytes(script.encode("utf-8"), guest)
+                script = f"sh {guest}"
+            result = container.exec(script, user="agent", timeout=EXEC_TIMEOUT_S, workdir="/app/repo")
             return {"applied": "shell", "exit_code": result["exit_code"], "stdout": result["stdout"][-2000:],
                     "stderr": result["stderr"][-2000:]}
         if self.kind == "empty":
