@@ -121,3 +121,17 @@ class DesignRerun(unittest.TestCase):
     def test_the_probe_reports_a_live_build_of_the_tree(self):
         from orchestration import driver
         self.assertIn('"tree_build_alive"', driver.PROBE)
+
+
+class LanguageCallBudget(unittest.TestCase):
+    def test_the_language_call_leaves_room_for_thinking(self):
+        """2026-10-30: at max_tokens 32 Opus 5.5 returned only a thinking block and every Latin-script task was refused."""
+        from unittest import mock
+        seen = {}
+
+        def fake(body):
+            seen.update(body)
+            return {"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "pt-BR"}]}
+        with mock.patch("pipeline.select.classify._call", fake):
+            self.assertEqual(v01._ask_language("Preciso que você revise o deck."), "pt-BR")
+        self.assertGreaterEqual(seen["max_tokens"], 512)

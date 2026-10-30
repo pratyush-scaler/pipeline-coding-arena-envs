@@ -103,7 +103,9 @@ def detect_prompt_language(bundle: Path, ask=None) -> str:
 
 def _ask_language(text: str) -> str:
     from .select.classify import _call
-    body = {"model": "claude-opus-5-5", "max_tokens": 32, "output_config": {"effort": "low"},
+    # 1024, not 32: Opus 5.5 thinks first, and at 32 tokens the reply was a thinking block alone, so every Portuguese
+    # task was refused as "cannot settle the prompt language (answer '')" (2026-10-30; 50 tokens suffice).
+    body = {"model": "claude-opus-5-5", "max_tokens": 1024, "output_config": {"effort": "low"},
             "messages": [{"role": "user", "content": (
                 "Reply with ONLY the BCP 47 language tag (lowercase primary subtag, e.g. en, ru, pt-BR, zh-Hans) "
                 "of the language the following task instruction is written in. Code, file names and quoted "
